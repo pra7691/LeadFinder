@@ -1,0 +1,82 @@
+Create a very small proof-of-concept script to test whether Google Custom Search API + website crawling + email extraction works.
+
+Do not build a full application yet.
+
+Goal:
+Search Google Custom Search API for one query, collect company websites, visit those websites, extract basic contact details, and export the result to a CSV file.
+
+Test Query:
+egocentric data company in USA
+
+Environment Variables:
+GOOGLE_SEARCH_API_KEY
+GOOGLE_SEARCH_ENGINE_ID
+
+Requirements:
+
+1. Use Google Custom Search JSON API.
+2. Search only this query:
+   egocentric data company in USA
+3. Fetch the top 10 search results.
+4. Extract the root domain from each result.
+5. Skip duplicate domains.
+6. Skip obvious non-company domains such as:
+   google.com
+   youtube.com
+   facebook.com
+   linkedin.com
+   twitter.com
+   x.com
+   instagram.com
+   wikipedia.org
+   reddit.com
+   medium.com
+   github.com
+7. For each company domain, crawl only:
+
+   * homepage
+   * /contact
+   * /contact-us
+   * /about
+   * /about-us
+8. Extract:
+
+   * company name
+   * website URL
+   * root domain
+   * emails
+   * phone numbers
+   * source search result URL
+   * crawl status
+9. Save the result as:
+   output/test_leads.csv
+10. Also create:
+    output/test_log.txt
+
+Do not send any emails.
+Do not create UI.
+Do not create database.
+Do not build campaign system.
+Do not build scheduler.
+
+Implementation:
+
+* Use Node.js.
+* Use fetch/axios for Google Custom Search API.
+* Use Playwright or Cheerio for website crawling. Prefer simple fetch + Cheerio first. Use Playwright only if normal fetch fails.
+* Add basic timeout handling.
+* Add clear console logs for each step.
+* If API key or Search Engine ID is missing, show a clear error.
+* If Google API fails, log the exact API response/error.
+* If website crawling fails, continue with the next domain.
+
+After running, provide a short report:
+
+* number of search results found
+* number of unique domains
+* number of websites crawled
+* number of leads saved
+* path of generated CSV
+* any errors encountered
+
+This is only a technical test to verify the core discovery and extraction workflow.
