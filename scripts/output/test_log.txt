@@ -1,9 +1,83 @@
-[2026-05-17T19:42:58.231Z] === Lead Discovery POC ===
-[2026-05-17T19:42:58.232Z] Query: egocentric data company in USA
-[2026-05-17T19:42:58.232Z] Calling Google Custom Search API for: "egocentric data company in USA"
-[2026-05-17T19:42:58.370Z] Google API error: HTTP 403
-[2026-05-17T19:42:58.370Z] Response body: {"error":{"code":403,"message":"This project does not have the access to Custom Search JSON API.","errors":[{"message":"This project does not have the access to Custom Search JSON API.","domain":"global","reason":"forbidden"}],"status":"PERMISSION_DENIED"}}
-[2026-05-17T19:42:58.371Z] 
-Search results found: 0
-[2026-05-17T19:42:58.371Z] 
-Unique company domains to crawl: 0
+[2026-05-17T19:46:12.590Z] === Lead Discovery POC ===
+[2026-05-17T19:46:12.591Z] Query: egocentric data company in USA
+[2026-05-17T19:46:12.591Z] Calling Serper.dev Search API for: "egocentric data company in USA"
+[2026-05-17T19:46:13.850Z] Serper API returned 9 result(s)
+[2026-05-17T19:46:13.850Z] 
+Search results found: 9
+[2026-05-17T19:46:13.851Z] Skipping blocklisted domain: linkedin.com
+[2026-05-17T19:46:13.851Z] Skipping blocklisted domain: reddit.com
+[2026-05-17T19:46:13.851Z] Skipping duplicate domain: labellerr.com
+[2026-05-17T19:46:13.851Z] 
+Unique company domains to crawl: 6
+[2026-05-17T19:46:13.852Z]   • labellerr.com
+[2026-05-17T19:46:13.852Z]   • ego-data.com
+[2026-05-17T19:46:13.852Z]   • objectways.com
+[2026-05-17T19:46:13.852Z]   • astronomer.io
+[2026-05-17T19:46:13.852Z]   • hyper.ai
+[2026-05-17T19:46:13.852Z]   • dcvc.com
+[2026-05-17T19:46:13.853Z] 
+Crawling domain: labellerr.com
+[2026-05-17T19:46:13.853Z]   → Fetching https://labellerr.com/
+[2026-05-17T19:46:15.820Z]   → Fetching https://labellerr.com/contact
+[2026-05-17T19:46:16.978Z]   → Fetching https://labellerr.com/contact-us
+[2026-05-17T19:46:18.260Z]   → Fetching https://labellerr.com/about
+[2026-05-17T19:46:19.288Z]   → Fetching https://labellerr.com/about-us
+[2026-05-17T19:46:20.589Z]   Company: Best Data Labeling & Image Annotation Software
+[2026-05-17T19:46:20.589Z]   Emails: support@tensormatics.com, +917565883102support@tensormatics.comCopyright
+[2026-05-17T19:46:20.589Z]   Phones: +16283133187, 9175658831, +917565883102
+[2026-05-17T19:46:20.589Z]   Status: crawled 5 page(s)
+[2026-05-17T19:46:20.590Z] 
+Crawling domain: ego-data.com
+[2026-05-17T19:46:20.590Z]   → Fetching https://ego-data.com/
+[2026-05-17T19:46:20.693Z]   → Fetching https://ego-data.com/contact
+[2026-05-17T19:46:20.730Z]   → Fetching https://ego-data.com/contact-us
+[2026-05-17T19:46:20.807Z]   → Fetching https://ego-data.com/about
+[2026-05-17T19:46:20.844Z]   → Fetching https://ego-data.com/about-us
+[2026-05-17T19:46:20.873Z]   Company: Egocentric Data at Scale for Robotics & Physical AI
+[2026-05-17T19:46:20.873Z]   Emails: none
+[2026-05-17T19:46:20.873Z]   Phones: +1 646 427 5470, +917980843700, +16464275470
+[2026-05-17T19:46:20.873Z]   Status: crawled 1 page(s)
+[2026-05-17T19:46:20.874Z] 
+Crawling domain: objectways.com
+[2026-05-17T19:46:20.874Z]   → Fetching https://objectways.com/
+[2026-05-17T19:46:22.126Z]   → Fetching https://objectways.com/contact
+[2026-05-17T19:46:23.696Z]   → Fetching https://objectways.com/contact-us
+[2026-05-17T19:46:25.284Z]   → Fetching https://objectways.com/about
+[2026-05-17T19:46:26.865Z]   → Fetching https://objectways.com/about-us
+[2026-05-17T19:46:28.447Z]   Company: AI Data Solutions
+[2026-05-17T19:46:28.447Z]   Emails: sales@objectways.com, hrm@objectways.com, dpo@objectways.com, careers@objectways.com
+[2026-05-17T19:46:28.447Z]   Phones: 2438104216, 119-6137443, 17171495505, 15996261616, 5675014590, 3035633569, 512-7968417, 109330-1920, 321865-7982, 059817-1950, 1761835984, 471345-3501, 9310213981, 462-8834545, 2020020414, +1-480-910-8162, 17604127878, 1597880887
+[2026-05-17T19:46:28.447Z]   Status: crawled 5 page(s)
+[2026-05-17T19:46:28.447Z] 
+Crawling domain: astronomer.io
+[2026-05-17T19:46:28.447Z]   → Fetching https://astronomer.io/
+[2026-05-17T19:46:28.961Z]   → Fetching https://astronomer.io/contact
+[2026-05-17T19:46:30.371Z]   → Fetching https://astronomer.io/contact-us
+[2026-05-17T19:46:30.822Z]   → Fetching https://astronomer.io/about
+[2026-05-17T19:46:31.441Z]   → Fetching https://astronomer.io/about-us
+[2026-05-17T19:46:32.603Z]   Company: Astronomer: The Best Place to Run Apache Airflow®
+[2026-05-17T19:46:32.603Z]   Emails: humans@astronomer.io, support@astronomer.io, sales@astronomer.io, press@astronomer.io
+[2026-05-17T19:46:32.603Z]   Phones: none
+[2026-05-17T19:46:32.603Z]   Status: crawled 5 page(s)
+[2026-05-17T19:46:32.603Z] 
+Crawling domain: hyper.ai
+[2026-05-17T19:46:32.603Z]   → Fetching https://hyper.ai/
+[2026-05-17T19:46:33.383Z]   → Fetching https://hyper.ai/contact
+[2026-05-17T19:46:33.710Z]   → Fetching https://hyper.ai/contact-us
+[2026-05-17T19:46:34.037Z]   → Fetching https://hyper.ai/about
+[2026-05-17T19:46:34.502Z]   → Fetching https://hyper.ai/about-us
+[2026-05-17T19:46:34.878Z]   Company: HyperAI
+[2026-05-17T19:46:34.878Z]   Emails: none
+[2026-05-17T19:46:34.878Z]   Phones: 139.6379639, 106.5348379, 0011914419, 0055726208, 157.8581401
+[2026-05-17T19:46:34.878Z]   Status: crawled 5 page(s)
+[2026-05-17T19:46:34.878Z] 
+Crawling domain: dcvc.com
+[2026-05-17T19:46:34.878Z]   → Fetching https://dcvc.com/
+[2026-05-17T19:46:35.612Z]   → Fetching https://dcvc.com/contact
+[2026-05-17T19:46:36.157Z]   → Fetching https://dcvc.com/contact-us
+[2026-05-17T19:46:36.697Z]   → Fetching https://dcvc.com/about
+[2026-05-17T19:46:37.656Z]   → Fetching https://dcvc.com/about-us
+[2026-05-17T19:46:38.202Z]   Company: DCVC
+[2026-05-17T19:46:38.202Z]   Emails: subscriptions@pei.group
+[2026-05-17T19:46:38.202Z]   Phones: 1744391033
+[2026-05-17T19:46:38.203Z]   Status: crawled 5 page(s)

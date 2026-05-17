@@ -177,37 +177,37 @@ function writeCsv(leads: Lead[]) {
 }
 
 async function searchGoogle(): Promise<Array<{ url: string; title: string }>> {
-  const endpoint = "https://www.googleapis.com/customsearch/v1";
-  const params = {
-    key: GOOGLE_SEARCH_API_KEY,
-    cx: GOOGLE_SEARCH_ENGINE_ID,
-    q: SEARCH_QUERY,
-    num: 10,
-  };
-
-  log(`Calling Google Custom Search API for: "${SEARCH_QUERY}"`);
+  log(`Calling Serper.dev Search API for: "${SEARCH_QUERY}"`);
   try {
-    const res = await axios.get(endpoint, { params, timeout: 15_000 });
-    const items: Array<{ link: string; title: string }> = res.data.items ?? [];
-    log(`Google API returned ${items.length} result(s)`);
+    const res = await axios.post(
+      "https://google.serper.dev/search",
+      { q: SEARCH_QUERY, num: 10, gl: "us" },
+      {
+        timeout: 15_000,
+        headers: {
+          "X-API-KEY": SERPER_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    const items: Array<{ link: string; title: string }> = res.data.organic ?? [];
+    log(`Serper API returned ${items.length} result(s)`);
     return items.map((i) => ({ url: i.link, title: i.title }));
   } catch (err: unknown) {
     if (axios.isAxiosError(err) && err.response) {
-      log(`Google API error: HTTP ${err.response.status}`);
+      log(`Serper API error: HTTP ${err.response.status}`);
       log(`Response body: ${JSON.stringify(err.response.data)}`);
     } else {
       const msg = err instanceof Error ? err.message : String(err);
-      log(`Google API request failed: ${msg}`);
+      log(`Serper API request failed: ${msg}`);
     }
     return [];
   }
 }
 
 async function main() {
-  if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_ENGINE_ID) {
-    console.error(
-      "ERROR: GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables must be set."
-    );
+  if (!SERPER_API_KEY) {
+    console.error("ERROR: SERPER_API_KEY environment variable must be set.");
     process.exit(1);
   }
 
