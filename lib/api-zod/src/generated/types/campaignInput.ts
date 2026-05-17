@@ -5,6 +5,7 @@
  * Lead Intelligence Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CampaignInputScheduleType } from './campaignInputScheduleType';
 
 export interface CampaignInput {
   /** @minLength 1 */
@@ -20,4 +21,8 @@ export interface CampaignInput {
   unsubscribeFooter?: string;
   keywords?: string[];
   countries?: string[];
+  scheduleType?: CampaignInputScheduleType;
+  scheduleDays?: string;
+  scheduleTime?: string;
+  isPaused?: boolean;
 }

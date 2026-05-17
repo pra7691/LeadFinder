@@ -21,6 +21,14 @@ export const campaignsTable = pgTable("campaigns", {
   subjectTemplate: text("subject_template"),
   emailTemplate: text("email_template"),
   unsubscribeFooter: text("unsubscribe_footer"),
+  // Scheduler fields
+  scheduleType: text("schedule_type").notNull().default("manual"), // manual | daily | weekly
+  scheduleDays: text("schedule_days"), // weekly: comma-sep "mon,wed,fri"
+  scheduleTime: text("schedule_time"), // "09:00" 24h
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastRunStatus: text("last_run_status").notNull().default("idle"), // idle | running | success | failed
+  isPaused: boolean("is_paused").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

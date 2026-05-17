@@ -158,6 +158,81 @@ paths:
         "404":
           description: Campaign not found
 
+  /campaigns/{id}/trigger:
+    post:
+      operationId: triggerCampaignPipeline
+      tags: [campaigns]
+      summary: Manually trigger the full pipeline for a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pipeline result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResult"
+        "404":
+          description: Campaign not found
+
+  /campaigns/{id}/pause:
+    patch:
+      operationId: pauseCampaign
+      tags: [campaigns]
+      summary: Pause a campaign scheduler
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  /campaigns/{id}/resume:
+    patch:
+      operationId: resumeCampaign
+      tags: [campaigns]
+      summary: Resume a paused campaign scheduler
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+
+  # ── Scheduler ─────────────────────────────────────────────────
+  /scheduler/status:
+    get:
+      operationId: getSchedulerStatus
+      tags: [scheduler]
+      summary: Get scheduler status for all campaigns
+      responses:
+        "200":
+          description: Scheduler statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchedulerStatus"
+
   # ── Leads ────────────────────────────────────────────────────
   /leads:
     get:
@@ -966,6 +1041,23 @@ components:
           type: array
           items:
             type: string
+        scheduleType:
+          type: string
+          enum: [manual, daily, weekly]
+          default: manual
+        scheduleDays:
+          type: ["string", "null"]
+        scheduleTime:
+          type: ["string", "null"]
+        nextRunAt:
+          type: ["string", "null"]
+        lastRunAt:
+          type: ["string", "null"]
+        lastRunStatus:
+          type: string
+          enum: [idle, running, success, failed]
+        isPaused:
+          type: boolean
         createdAt:
           type: string
         updatedAt:
@@ -1009,6 +1101,15 @@ components:
           type: array
           items:
             type: string
+        scheduleType:
+          type: string
+          enum: [manual, daily, weekly]
+        scheduleDays:
+          type: string
+        scheduleTime:
+          type: string
+        isPaused:
+          type: boolean
 
     CampaignPatch:
       type: object
@@ -1038,6 +1139,65 @@ components:
           items:
             type: string
         countries:
+          type: array
+          items:
+            type: string
+        scheduleType:
+          type: string
+          enum: [manual, daily, weekly]
+        scheduleDays:
+          type: ["string", "null"]
+        scheduleTime:
+          type: ["string", "null"]
+        isPaused:
+          type: boolean
+
+    SchedulerStatus:
+      type: object
+      required: [campaignId, campaignName, scheduleType, isPaused, lastRunStatus]
+      properties:
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+        scheduleType:
+          type: string
+        scheduleDays:
+          type: ["string", "null"]
+        scheduleTime:
+          type: ["string", "null"]
+        nextRunAt:
+          type: ["string", "null"]
+        lastRunAt:
+          type: ["string", "null"]
+        lastRunStatus:
+          type: string
+        isPaused:
+          type: boolean
+        isActive:
+          type: boolean
+
+    PipelineResult:
+      type: object
+      required: [campaignId, discoveryLeadsCreated, crawledCount, scoredCount, emailsSent, skipped, failed]
+      properties:
+        campaignId:
+          type: integer
+        discoveryLeadsCreated:
+          type: integer
+        crawledCount:
+          type: integer
+        scoredCount:
+          type: integer
+        emailsSent:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
+        durationMs:
+          type: integer
+        errors:
           type: array
           items:
             type: string

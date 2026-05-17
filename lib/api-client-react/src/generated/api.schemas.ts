@@ -18,6 +18,25 @@ export interface DashboardStats {
   emailsSentToday: number;
 }
 
+export type CampaignScheduleType = typeof CampaignScheduleType[keyof typeof CampaignScheduleType];
+
+
+export const CampaignScheduleType = {
+  manual: 'manual',
+  daily: 'daily',
+  weekly: 'weekly',
+} as const;
+
+export type CampaignLastRunStatus = typeof CampaignLastRunStatus[keyof typeof CampaignLastRunStatus];
+
+
+export const CampaignLastRunStatus = {
+  idle: 'idle',
+  running: 'running',
+  success: 'success',
+  failed: 'failed',
+} as const;
+
 export interface Campaign {
   id: number;
   name: string;
@@ -35,9 +54,29 @@ export interface Campaign {
   unsubscribeFooter?: string | null;
   keywords?: string[];
   countries?: string[];
+  scheduleType?: CampaignScheduleType;
+  /** @nullable */
+  scheduleDays?: string | null;
+  /** @nullable */
+  scheduleTime?: string | null;
+  /** @nullable */
+  nextRunAt?: string | null;
+  /** @nullable */
+  lastRunAt?: string | null;
+  lastRunStatus?: CampaignLastRunStatus;
+  isPaused?: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export type CampaignInputScheduleType = typeof CampaignInputScheduleType[keyof typeof CampaignInputScheduleType];
+
+
+export const CampaignInputScheduleType = {
+  manual: 'manual',
+  daily: 'daily',
+  weekly: 'weekly',
+} as const;
 
 export interface CampaignInput {
   /** @minLength 1 */
@@ -53,7 +92,20 @@ export interface CampaignInput {
   unsubscribeFooter?: string;
   keywords?: string[];
   countries?: string[];
+  scheduleType?: CampaignInputScheduleType;
+  scheduleDays?: string;
+  scheduleTime?: string;
+  isPaused?: boolean;
 }
+
+export type CampaignPatchScheduleType = typeof CampaignPatchScheduleType[keyof typeof CampaignPatchScheduleType];
+
+
+export const CampaignPatchScheduleType = {
+  manual: 'manual',
+  daily: 'daily',
+  weekly: 'weekly',
+} as const;
 
 export interface CampaignPatch {
   name?: string;
@@ -71,6 +123,41 @@ export interface CampaignPatch {
   unsubscribeFooter?: string | null;
   keywords?: string[];
   countries?: string[];
+  scheduleType?: CampaignPatchScheduleType;
+  /** @nullable */
+  scheduleDays?: string | null;
+  /** @nullable */
+  scheduleTime?: string | null;
+  isPaused?: boolean;
+}
+
+export interface SchedulerStatus {
+  campaignId: number;
+  campaignName: string;
+  scheduleType: string;
+  /** @nullable */
+  scheduleDays?: string | null;
+  /** @nullable */
+  scheduleTime?: string | null;
+  /** @nullable */
+  nextRunAt?: string | null;
+  /** @nullable */
+  lastRunAt?: string | null;
+  lastRunStatus: string;
+  isPaused: boolean;
+  isActive?: boolean;
+}
+
+export interface PipelineResult {
+  campaignId: number;
+  discoveryLeadsCreated: number;
+  crawledCount: number;
+  scoredCount: number;
+  emailsSent: number;
+  skipped: number;
+  failed: number;
+  durationMs?: number;
+  errors?: string[];
 }
 
 export interface Lead {

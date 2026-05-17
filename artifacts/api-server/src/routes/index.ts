@@ -12,11 +12,13 @@ import discoveryRouter from "./discovery";
 import crawlRouter from "./crawl";
 import scoreRouter from "./score";
 import leadWorkflowRouter from "./lead-workflow";
+import schedulerRouter from "./scheduler";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(dashboardRouter);
+router.use(schedulerRouter);
 router.use(campaignsRouter);
 router.use(discoveryRouter);
 router.use(leadWorkflowRouter);

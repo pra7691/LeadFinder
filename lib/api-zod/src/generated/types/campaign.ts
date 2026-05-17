@@ -5,6 +5,8 @@
  * Lead Intelligence Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CampaignLastRunStatus } from './campaignLastRunStatus';
+import type { CampaignScheduleType } from './campaignScheduleType';
 
 export interface Campaign {
   id: number;
@@ -23,6 +25,17 @@ export interface Campaign {
   unsubscribeFooter?: string | null;
   keywords?: string[];
   countries?: string[];
+  scheduleType?: CampaignScheduleType;
+  /** @nullable */
+  scheduleDays?: string | null;
+  /** @nullable */
+  scheduleTime?: string | null;
+  /** @nullable */
+  nextRunAt?: string | null;
+  /** @nullable */
+  lastRunAt?: string | null;
+  lastRunStatus?: CampaignLastRunStatus;
+  isPaused?: boolean;
   createdAt: string;
   updatedAt: string;
 }

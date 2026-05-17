@@ -55,7 +55,9 @@ import type {
   LogEntry,
   OutreachItem,
   OutreachPatch,
+  PipelineResult,
   QueueLeadInput,
+  SchedulerStatus,
   ScoreResult,
   SendBatchResult,
   SendStats,
@@ -667,6 +669,293 @@ export const useRunDiscovery = <TError = ErrorType<void>,
       > => {
       return useMutation(getRunDiscoveryMutationOptions(options));
     }
+
+export const getTriggerCampaignPipelineUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/trigger`
+}
+
+/**
+ * @summary Manually trigger the full pipeline for a campaign
+ */
+export const triggerCampaignPipeline = async (id: number, options?: RequestInit): Promise<PipelineResult> => {
+
+  return customFetch<PipelineResult>(getTriggerCampaignPipelineUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTriggerCampaignPipelineMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerCampaignPipeline>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof triggerCampaignPipeline>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['triggerCampaignPipeline'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerCampaignPipeline>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  triggerCampaignPipeline(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TriggerCampaignPipelineMutationResult = NonNullable<Awaited<ReturnType<typeof triggerCampaignPipeline>>>
+
+    export type TriggerCampaignPipelineMutationError = ErrorType<void>
+
+    /**
+ * @summary Manually trigger the full pipeline for a campaign
+ */
+export const useTriggerCampaignPipeline = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerCampaignPipeline>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof triggerCampaignPipeline>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getTriggerCampaignPipelineMutationOptions(options));
+    }
+
+export const getPauseCampaignUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/pause`
+}
+
+/**
+ * @summary Pause a campaign scheduler
+ */
+export const pauseCampaign = async (id: number, options?: RequestInit): Promise<Campaign> => {
+
+  return customFetch<Campaign>(getPauseCampaignUrl(id),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+export const getPauseCampaignMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pauseCampaign>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof pauseCampaign>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['pauseCampaign'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof pauseCampaign>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  pauseCampaign(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PauseCampaignMutationResult = NonNullable<Awaited<ReturnType<typeof pauseCampaign>>>
+
+    export type PauseCampaignMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Pause a campaign scheduler
+ */
+export const usePauseCampaign = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pauseCampaign>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof pauseCampaign>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getPauseCampaignMutationOptions(options));
+    }
+
+export const getResumeCampaignUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/resume`
+}
+
+/**
+ * @summary Resume a paused campaign scheduler
+ */
+export const resumeCampaign = async (id: number, options?: RequestInit): Promise<Campaign> => {
+
+  return customFetch<Campaign>(getResumeCampaignUrl(id),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+export const getResumeCampaignMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeCampaign>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resumeCampaign>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resumeCampaign'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resumeCampaign>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resumeCampaign(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResumeCampaignMutationResult = NonNullable<Awaited<ReturnType<typeof resumeCampaign>>>
+
+    export type ResumeCampaignMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Resume a paused campaign scheduler
+ */
+export const useResumeCampaign = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeCampaign>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resumeCampaign>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResumeCampaignMutationOptions(options));
+    }
+
+export const getGetSchedulerStatusUrl = () => {
+
+
+
+
+  return `/api/scheduler/status`
+}
+
+/**
+ * @summary Get scheduler status for all campaigns
+ */
+export const getSchedulerStatus = async ( options?: RequestInit): Promise<SchedulerStatus[]> => {
+
+  return customFetch<SchedulerStatus[]>(getGetSchedulerStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSchedulerStatusQueryKey = () => {
+    return [
+    `/api/scheduler/status`
+    ] as const;
+    }
+
+
+export const getGetSchedulerStatusQueryOptions = <TData = Awaited<ReturnType<typeof getSchedulerStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchedulerStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSchedulerStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchedulerStatus>>> = ({ signal }) => getSchedulerStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSchedulerStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSchedulerStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getSchedulerStatus>>>
+export type GetSchedulerStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get scheduler status for all campaigns
+ */
+
+export function useGetSchedulerStatus<TData = Awaited<ReturnType<typeof getSchedulerStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchedulerStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSchedulerStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListLeadsUrl = (params?: ListLeadsParams,) => {
   const normalizedParams = new URLSearchParams();

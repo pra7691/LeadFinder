@@ -1,0 +1,157 @@
+Run a full UI dry-run and interaction test of the current application from the frontend only, simulating real user usage.
+
+Goal:
+Verify that all existing forms, pages, navigation flows, validation rules, API integrations, and UI interactions work correctly before continuing development.
+
+Important:
+This is not backend unit testing.
+This is a frontend/user-flow validation pass.
+
+Use Playwright or the best available browser automation/testing setup.
+
+==================================================
+TEST ALL EXISTING UI FLOWS
+==========================
+
+Test all current modules/pages:
+
+* Dashboard
+* Campaigns
+* Campaign Detail
+* Leads
+* Email Accounts
+* Outreach Queue
+* Logs
+* Settings
+
+==================================================
+CAMPAIGN FORM TESTING
+=====================
+
+Test:
+
+* create campaign
+* edit campaign
+* save campaign
+* cancel editing
+* active/inactive toggle
+* keywords textarea
+* countries textarea
+
+Verify:
+
+* required fields exist
+* validation messages appear
+* invalid submissions are blocked
+* successful save works
+* UI updates correctly
+* no crashes occur
+* no console errors occur
+
+Test edge cases:
+
+* empty campaign name
+* empty objective
+* duplicate keywords
+* invalid limits
+* extremely long text
+
+==================================================
+LEADS PAGE TESTING
+==================
+
+Verify:
+
+* table loads
+* filters work
+* sorting works if implemented
+* approve/reject actions work
+* bulk actions work if implemented
+* detail drawer/page opens
+* status badges render correctly
+* long text does not break layout
+
+==================================================
+SETTINGS PAGE TESTING
+=====================
+
+Verify:
+
+* settings load
+* forms save correctly
+* blocked domains render properly
+* textarea scrolling works
+* dark/light mode persists
+
+==================================================
+EMAIL ACCOUNTS PAGE TESTING
+===========================
+
+Verify:
+
+* form fields render correctly
+* required fields exist
+* invalid SMTP configs are blocked
+* save/cancel works
+* table updates correctly
+
+==================================================
+GENERAL UI TESTING
+==================
+
+Verify:
+
+* sidebar navigation works
+* active route highlighting works
+* dark/light mode works
+* responsive layout works
+* glassmorphic UI remains visually correct
+* tables are scrollable
+* buttons have loading states
+* forms have disabled states during save
+* no overlapping UI elements
+* no broken spacing/alignment
+* no unreadable text
+* no clipping issues
+
+==================================================
+ERROR TESTING
+=============
+
+Test:
+
+* API failure handling
+* loading states
+* empty states
+* invalid API responses
+* missing data scenarios
+
+Verify:
+
+* graceful UI behavior
+* proper error messages
+* no crashes
+* no blank screens
+
+==================================================
+REPORT REQUIREMENTS
+===================
+
+After testing, generate a detailed UI dry-run report including:
+
+1. Pages tested
+2. Forms tested
+3. Validation issues found
+4. Broken flows found
+5. UI alignment/layout issues
+6. Missing required fields
+7. Console errors
+8. API integration issues
+9. Responsiveness issues
+10. Glassmorphic design inconsistencies
+11. Recommended fixes
+12. Screenshots if possible
+
+Then automatically fix all discovered UI issues before reporting completion.
+
+Do not continue new feature development until current UI issues are stabilized.

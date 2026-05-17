@@ -32,6 +32,8 @@ export const GetDashboardStatsResponse = zod.object({
 /**
  * @summary List all campaigns
  */
+export const listCampaignsResponseScheduleTypeDefault = `manual`;
+
 export const ListCampaignsResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -46,6 +48,13 @@ export const ListCampaignsResponseItem = zod.object({
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
   "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).default(listCampaignsResponseScheduleTypeDefault),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
+  "isPaused": zod.boolean().optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -74,7 +83,11 @@ export const CreateCampaignBody = zod.object({
   "emailTemplate": zod.string().optional(),
   "unsubscribeFooter": zod.string().optional(),
   "keywords": zod.array(zod.string()).optional(),
-  "countries": zod.array(zod.string()).optional()
+  "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).optional(),
+  "scheduleDays": zod.string().optional(),
+  "scheduleTime": zod.string().optional(),
+  "isPaused": zod.boolean().optional()
 })
 
 
@@ -84,6 +97,8 @@ export const CreateCampaignBody = zod.object({
 export const GetCampaignParams = zod.object({
   "id": zod.coerce.number()
 })
+
+export const getCampaignResponseScheduleTypeDefault = `manual`;
 
 export const GetCampaignResponse = zod.object({
   "id": zod.number(),
@@ -99,6 +114,13 @@ export const GetCampaignResponse = zod.object({
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
   "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).default(getCampaignResponseScheduleTypeDefault),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
+  "isPaused": zod.boolean().optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -123,8 +145,14 @@ export const UpdateCampaignBody = zod.object({
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
-  "countries": zod.array(zod.string()).optional()
+  "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).optional(),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "isPaused": zod.boolean().optional()
 })
+
+export const updateCampaignResponseScheduleTypeDefault = `manual`;
 
 export const UpdateCampaignResponse = zod.object({
   "id": zod.number(),
@@ -140,6 +168,13 @@ export const UpdateCampaignResponse = zod.object({
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
   "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).default(updateCampaignResponseScheduleTypeDefault),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
+  "isPaused": zod.boolean().optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -169,6 +204,114 @@ export const RunDiscoveryResponse = zod.object({
   "newLeadsCreated": zod.number(),
   "queries": zod.array(zod.string()).optional()
 })
+
+
+/**
+ * @summary Manually trigger the full pipeline for a campaign
+ */
+export const TriggerCampaignPipelineParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const TriggerCampaignPipelineResponse = zod.object({
+  "campaignId": zod.number(),
+  "discoveryLeadsCreated": zod.number(),
+  "crawledCount": zod.number(),
+  "scoredCount": zod.number(),
+  "emailsSent": zod.number(),
+  "skipped": zod.number(),
+  "failed": zod.number(),
+  "durationMs": zod.number().optional(),
+  "errors": zod.array(zod.string()).optional()
+})
+
+
+/**
+ * @summary Pause a campaign scheduler
+ */
+export const PauseCampaignParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const pauseCampaignResponseScheduleTypeDefault = `manual`;
+
+export const PauseCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "objective": zod.string(),
+  "isActive": zod.boolean(),
+  "minRelevanceScore": zod.number(),
+  "maxSearchesPerDay": zod.number(),
+  "maxLeadsPerDay": zod.number(),
+  "maxEmailsPerDay": zod.number(),
+  "subjectTemplate": zod.string().nullish(),
+  "emailTemplate": zod.string().nullish(),
+  "unsubscribeFooter": zod.string().nullish(),
+  "keywords": zod.array(zod.string()).optional(),
+  "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).default(pauseCampaignResponseScheduleTypeDefault),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
+  "isPaused": zod.boolean().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Resume a paused campaign scheduler
+ */
+export const ResumeCampaignParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const resumeCampaignResponseScheduleTypeDefault = `manual`;
+
+export const ResumeCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "objective": zod.string(),
+  "isActive": zod.boolean(),
+  "minRelevanceScore": zod.number(),
+  "maxSearchesPerDay": zod.number(),
+  "maxLeadsPerDay": zod.number(),
+  "maxEmailsPerDay": zod.number(),
+  "subjectTemplate": zod.string().nullish(),
+  "emailTemplate": zod.string().nullish(),
+  "unsubscribeFooter": zod.string().nullish(),
+  "keywords": zod.array(zod.string()).optional(),
+  "countries": zod.array(zod.string()).optional(),
+  "scheduleType": zod.enum(['manual', 'daily', 'weekly']).default(resumeCampaignResponseScheduleTypeDefault),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
+  "isPaused": zod.boolean().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Get scheduler status for all campaigns
+ */
+export const GetSchedulerStatusResponseItem = zod.object({
+  "campaignId": zod.number(),
+  "campaignName": zod.string(),
+  "scheduleType": zod.string(),
+  "scheduleDays": zod.string().nullish(),
+  "scheduleTime": zod.string().nullish(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunStatus": zod.string(),
+  "isPaused": zod.boolean(),
+  "isActive": zod.boolean().optional()
+})
+export const GetSchedulerStatusResponse = zod.array(GetSchedulerStatusResponseItem)
 
 
 /**
