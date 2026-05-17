@@ -6,6 +6,10 @@ import {
   useBulkScore,
   useBulkLeadAction,
   getListLeadsQueryKey,
+  useQueueLead,
+  useBulkQueueLeads,
+  useListCampaigns,
+  getListOutreachQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -39,7 +43,24 @@ import {
   Archive,
   BadgeCheck,
   ChevronRight,
+  Send,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { LeadDrawer } from "@/components/LeadDrawer";
 
@@ -207,6 +228,68 @@ export function Leads() {
   const [bulkScoreState, setBulkScoreState] = useState<BulkOp>("idle");
   const [bulkScoreSummary, setBulkScoreSummary] = useState<{ attempted: number; succeeded: number; failed: number } | null>(null);
   const [bulkActionState, setBulkActionState] = useState<BulkOp>("idle");
+
+  // ── Queue dialog ──────────────────────────────────────────────────────────
+  const { data: campaigns } = useListCampaigns();
+  const queueLeadMut = useQueueLead();
+  const bulkQueueMut = useBulkQueueLeads();
+
+  const [queueDialog, setQueueDialog] = useState<{ open: boolean; leadId: number | null; bulk: boolean }>({
+    open: false, leadId: null, bulk: false,
+  });
+  const [queueCampaignId, setQueueCampaignId] = useState<string>("");
+  const [queueState, setQueueState] = useState<"idle" | "running" | "done">("idle");
+  const [queueResult, setQueueResult] = useState<{ queued: number; skipped: number } | null>(null);
+
+  const openQueueDialog = (e: React.MouseEvent, leadId: number) => {
+    e.stopPropagation();
+    setQueueDialog({ open: true, leadId, bulk: false });
+    setQueueCampaignId(campaigns?.[0]?.id ? String(campaigns[0].id) : "");
+    setQueueState("idle");
+    setQueueResult(null);
+  };
+
+  const openBulkQueueDialog = () => {
+    if (!selectedIds.length) return;
+    setQueueDialog({ open: true, leadId: null, bulk: true });
+    setQueueCampaignId(campaigns?.[0]?.id ? String(campaigns[0].id) : "");
+    setQueueState("idle");
+    setQueueResult(null);
+  };
+
+  const handleConfirmQueue = () => {
+    if (!queueCampaignId) return;
+    setQueueState("running");
+
+    if (queueDialog.bulk) {
+      bulkQueueMut.mutate(
+        { data: { leadIds: selectedIds, campaignId: Number(queueCampaignId) } },
+        {
+          onSuccess: (r) => {
+            queryClient.invalidateQueries({ queryKey: getListOutreachQueryKey() });
+            setQueueState("done");
+            setQueueResult({ queued: r.queued, skipped: r.skipped });
+            setSelected(new Set());
+            setTimeout(() => setQueueDialog({ open: false, leadId: null, bulk: false }), 1600);
+          },
+          onError: () => setQueueState("idle"),
+        },
+      );
+    } else if (queueDialog.leadId) {
+      queueLeadMut.mutate(
+        { data: { leadId: queueDialog.leadId, campaignId: Number(queueCampaignId) } },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getListOutreachQueryKey() });
+            setQueueState("done");
+            setQueueResult({ queued: 1, skipped: 0 });
+            setTimeout(() => setQueueDialog({ open: false, leadId: null, bulk: false }), 1200);
+          },
+          onError: () => setQueueState("idle"),
+        },
+      );
+    }
+  };
 
   const invalidateLeads = () =>
     queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
@@ -416,6 +499,11 @@ export function Leads() {
             disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
             <Archive className="w-3 h-3" /> Archive
           </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
+            disabled={isBulkBusy || !campaigns?.length} onClick={openBulkQueueDialog}>
+            <Send className="w-3 h-3" /> Queue for Outreach
+          </Button>
           {bulkActionState === "running" && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           {bulkActionState === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
           <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={() => setSelected(new Set())}>
@@ -579,9 +667,25 @@ export function Leads() {
                       </div>
                     </TableCell>
 
-                    {/* Open chevron */}
-                    <TableCell className="text-right pr-3">
-                      <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
+                    {/* Row actions */}
+                    <TableCell className="text-right pr-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        {campaigns?.length ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-lg text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Queue for outreach"
+                            onClick={(e) => openQueueDialog(e, lead.id)}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </Button>
+                        ) : null}
+                        <ChevronRight
+                          className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors"
+                          onClick={() => setOpenLeadId(lead.id)}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -590,6 +694,87 @@ export function Leads() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Queue for Outreach dialog */}
+      <Dialog
+        open={queueDialog.open}
+        onOpenChange={(open) => {
+          if (!open && queueState !== "running") setQueueDialog({ open: false, leadId: null, bulk: false });
+        }}
+      >
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {queueDialog.bulk ? `Queue ${selectedIds.length} leads for outreach` : "Queue lead for outreach"}
+            </DialogTitle>
+            <DialogDescription>
+              An email draft will be generated from the campaign template.
+            </DialogDescription>
+          </DialogHeader>
+
+          {queueState === "done" && queueResult ? (
+            <div className="py-6 flex flex-col items-center gap-3 text-center">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              <p className="font-medium">
+                {queueResult.queued} email{queueResult.queued !== 1 ? "s" : ""} added to queue
+              </p>
+              {queueResult.skipped > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {queueResult.skipped} skipped (no email address)
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="py-4 space-y-4">
+              <div className="space-y-2">
+                <Label>Campaign</Label>
+                {campaigns && campaigns.length > 0 ? (
+                  <Select value={queueCampaignId} onValueChange={setQueueCampaignId}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select a campaign" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {campaigns.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No campaigns found. Create one in Settings first.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {queueState !== "done" && (
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setQueueDialog({ open: false, leadId: null, bulk: false })}
+                disabled={queueState === "running"}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-xl"
+                onClick={handleConfirmQueue}
+                disabled={!queueCampaignId || queueState === "running" || !(campaigns?.length)}
+              >
+                {queueState === "running" ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Queueing…</>
+                ) : (
+                  <><Send className="w-4 h-4 mr-2" /> Queue</>
+                )}
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Lead detail drawer */}
       <LeadDrawer leadId={openLeadId} onClose={() => setOpenLeadId(null)} />

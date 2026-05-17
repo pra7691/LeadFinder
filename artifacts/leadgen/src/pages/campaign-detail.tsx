@@ -38,6 +38,7 @@ export function CampaignDetail() {
         maxSearchesPerDay: campaign.maxSearchesPerDay,
         maxLeadsPerDay: campaign.maxLeadsPerDay,
         maxEmailsPerDay: campaign.maxEmailsPerDay,
+        subjectTemplate: campaign.subjectTemplate || "",
         emailTemplate: campaign.emailTemplate || "",
         keywords: campaign.keywords?.join(", ") || "",
         countries: campaign.countries?.join(", ") || "",
@@ -230,16 +231,25 @@ export function CampaignDetail() {
             </div>
             
             <div className="space-y-2 pt-2 border-t border-border/30">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium text-foreground">Email Template</Label>
-              </div>
+              <Label className="text-xs font-medium text-foreground">Subject Template</Label>
+              <Input
+                value={formData.subjectTemplate || ""}
+                onChange={(e) => setFormData({...formData, subjectTemplate: e.target.value})}
+                className="rounded-xl bg-background/50 border-primary/20 focus-visible:ring-primary/30"
+                placeholder="Outreach from {{campaign_name}} — {{company_name}}"
+              />
+              <p className="text-[11px] text-muted-foreground">Variables: {'{{company_name}}'}, {'{{country}}'}, {'{{campaign_name}}'}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-foreground">Email Body Template</Label>
               <Textarea 
                 value={formData.emailTemplate || ""} 
                 onChange={(e) => setFormData({...formData, emailTemplate: e.target.value})} 
                 className="rounded-xl bg-background/50 min-h-[250px] resize-y font-mono text-sm leading-relaxed border-primary/20 focus-visible:ring-primary/30" 
-                placeholder="Hi {{firstName}},..."
+                placeholder={"Hi,\n\nI noticed {{company_name}} and wanted to reach out…"}
               />
-              <p className="text-[11px] text-muted-foreground">Use {'{{companyName}}'}, {'{{domain}}'}, etc. for variables.</p>
+              <p className="text-[11px] text-muted-foreground">Variables: {'{{company_name}}'}, {'{{country}}'}, {'{{campaign_name}}'}</p>
             </div>
           </CardContent>
         </Card>

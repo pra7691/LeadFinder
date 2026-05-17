@@ -517,7 +517,7 @@ export function Outreach() {
                 <TableHead className="w-10 pl-4">
                   <Checkbox
                     checked={
-                      outreachItems && outreachItems.length > 0 &&
+                      !!outreachItems && outreachItems.length > 0 &&
                       selected.size === outreachItems.length
                     }
                     onCheckedChange={toggleAll}
