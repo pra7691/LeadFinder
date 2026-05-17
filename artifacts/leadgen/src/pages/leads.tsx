@@ -44,6 +44,9 @@ import {
   BadgeCheck,
   ChevronRight,
   Send,
+  Download,
+  FileText,
+  Sheet,
 } from "lucide-react";
 import {
   Dialog,
@@ -63,6 +66,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { LeadDrawer } from "@/components/LeadDrawer";
+import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +104,220 @@ const REVIEW_STATUS_META: Record<string, { label: string; color: string }> = {
   rejected:      { label: "Rejected",       color: "bg-red-500/10 text-red-400" },
   low_relevance: { label: "Low Relevance",  color: "bg-orange-500/10 text-orange-400" },
 };
+
+// ── Export helpers ─────────────────────────────────────────────────────────
+
+type ExportFormat = "csv" | "xlsx";
+
+interface ExportOptions {
+  format: ExportFormat;
+  campaignId: string;
+  status: string;
+  minScore: string;
+  country: string;
+  leadIds?: number[];
+}
+
+function buildExportUrl(opts: ExportOptions): string {
+  const base = `${import.meta.env.BASE_URL ?? "/"}api/leads/export`.replace(
+    /\/+/g,
+    "/",
+  );
+  const params = new URLSearchParams();
+  params.set("format", opts.format);
+  if (opts.campaignId) params.set("campaignId", opts.campaignId);
+  if (opts.status && opts.status !== "all") params.set("status", opts.status);
+  if (opts.minScore) params.set("minScore", opts.minScore);
+  if (opts.country) params.set("country", opts.country);
+  if (opts.leadIds && opts.leadIds.length > 0) {
+    params.set("leadIds", opts.leadIds.join(","));
+  }
+  return `${base}?${params.toString()}`;
+}
+
+function triggerDownload(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ── Export Dialog ──────────────────────────────────────────────────────────
+
+function ExportDialog({
+  open,
+  onOpenChange,
+  bulkLeadIds,
+  campaigns,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bulkLeadIds?: number[];
+  campaigns?: { id: number; name: string }[];
+}) {
+  const isBulk = bulkLeadIds && bulkLeadIds.length > 0;
+  const [format, setFormat] = useState<ExportFormat>("csv");
+  const [campaignId, setCampaignId] = useState("");
+  const [status, setStatus] = useState("all");
+  const [minScore, setMinScore] = useState("");
+  const [country, setCountry] = useState("");
+  const [exported, setExported] = useState(false);
+
+  const handleExport = () => {
+    const url = buildExportUrl({
+      format,
+      campaignId,
+      status,
+      minScore,
+      country,
+      leadIds: isBulk ? bulkLeadIds : undefined,
+    });
+    triggerDownload(url);
+    setExported(true);
+    setTimeout(() => {
+      setExported(false);
+      onOpenChange(false);
+    }, 1200);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[440px] rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Download className="w-4 h-4 text-primary" />
+            {isBulk ? `Export ${bulkLeadIds.length} Selected Leads` : "Export Leads"}
+          </DialogTitle>
+          <DialogDescription>
+            {isBulk
+              ? "The selected leads will be exported — filter options below will be ignored."
+              : "Apply filters to narrow the export, then choose a format."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 py-2">
+          {/* Format selector */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground">Format</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["csv", "xlsx"] as ExportFormat[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFormat(f)}
+                  className={cn(
+                    "flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-medium transition-all",
+                    format === f
+                      ? "bg-primary/10 border-primary text-primary"
+                      : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground",
+                  )}
+                >
+                  {f === "csv" ? (
+                    <FileText className="w-4 h-4" />
+                  ) : (
+                    <Sheet className="w-4 h-4" />
+                  )}
+                  {f.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {!isBulk && (
+            <>
+              {/* Campaign filter */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Campaign</Label>
+                <Select value={campaignId || "all"} onValueChange={(v) => setCampaignId(v === "all" ? "" : v)}>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="All campaigns" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All campaigns</SelectItem>
+                    {campaigns?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Status filter */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Status</Label>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="approved">Approved only</SelectItem>
+                    <SelectItem value="pending">Pending only</SelectItem>
+                    <SelectItem value="contacted">Contacted only</SelectItem>
+                    <SelectItem value="high_relevance">High relevance (≥80)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Min score + Country */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Min Score</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="0"
+                    value={minScore}
+                    onChange={(e) => setMinScore(e.target.value)}
+                    className="rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Country Code</Label>
+                  <Input
+                    placeholder="e.g. US"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                    className="rounded-xl font-mono text-sm"
+                    maxLength={4}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Exported fields info */}
+          <div className="p-3 bg-muted/30 rounded-xl border border-border/40 text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">Fields exported:</span>{" "}
+            Company Name, Domain, Website, Country, Emails, Phones, Relevance Score, Relevance Reason, Lead Status, Review Status, Notes
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleExport}
+            disabled={exported}
+            className="gap-2"
+            data-testid="btn-confirm-export"
+          >
+            {exported ? (
+              <><CheckCircle2 className="w-4 h-4" /> Downloading…</>
+            ) : (
+              <><Download className="w-4 h-4" /> Export {format.toUpperCase()}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ── Contact quality ────────────────────────────────────────────────────────
 
@@ -228,6 +446,15 @@ export function Leads() {
   const [bulkScoreState, setBulkScoreState] = useState<BulkOp>("idle");
   const [bulkScoreSummary, setBulkScoreSummary] = useState<{ attempted: number; succeeded: number; failed: number } | null>(null);
   const [bulkActionState, setBulkActionState] = useState<BulkOp>("idle");
+
+  // ── Export dialog ─────────────────────────────────────────────────────────
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBulkIds, setExportBulkIds] = useState<number[]>([]);
+
+  const openExport = (bulk = false) => {
+    setExportBulkIds(bulk ? [...selected] : []);
+    setExportOpen(true);
+  };
 
   // ── Queue dialog ──────────────────────────────────────────────────────────
   const { data: campaigns } = useListCampaigns();
@@ -450,6 +677,17 @@ export function Leads() {
             {bulkScoreState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {bulkScoreState === "running" ? "Scoring…" : scoreLabel}
           </Button>
+          {/* Export button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl gap-1.5"
+            onClick={() => openExport(false)}
+            data-testid="btn-export"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </Button>
         </div>
       </div>
 
@@ -503,6 +741,13 @@ export function Leads() {
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
             disabled={isBulkBusy || !campaigns?.length} onClick={openBulkQueueDialog}>
             <Send className="w-3 h-3" /> Queue for Outreach
+          </Button>
+          {/* Bulk export */}
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-foreground"
+            onClick={() => openExport(true)}
+            data-testid="btn-bulk-export">
+            <Download className="w-3 h-3" /> Export {selectedIds.length}
           </Button>
           {bulkActionState === "running" && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           {bulkActionState === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
@@ -728,56 +973,59 @@ export function Leads() {
             <div className="py-4 space-y-4">
               <div className="space-y-2">
                 <Label>Campaign</Label>
-                {campaigns && campaigns.length > 0 ? (
-                  <Select value={queueCampaignId} onValueChange={setQueueCampaignId}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="Select a campaign" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {campaigns.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No campaigns found. Create one in Settings first.
-                  </p>
-                )}
+                <Select value={queueCampaignId} onValueChange={setQueueCampaignId}>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="Select a campaign" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {campaigns?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
 
-          {queueState !== "done" && (
-            <DialogFooter>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setQueueDialog({ open: false, leadId: null, bulk: false })}
+              disabled={queueState === "running"}
+            >
+              Cancel
+            </Button>
+            {queueState !== "done" && (
               <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() => setQueueDialog({ open: false, leadId: null, bulk: false })}
-                disabled={queueState === "running"}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="rounded-xl"
                 onClick={handleConfirmQueue}
-                disabled={!queueCampaignId || queueState === "running" || !(campaigns?.length)}
+                disabled={!queueCampaignId || queueState === "running"}
               >
                 {queueState === "running" ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Queueing…</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Queuing…</>
                 ) : (
-                  <><Send className="w-4 h-4 mr-2" /> Queue</>
+                  "Confirm"
                 )}
               </Button>
-            </DialogFooter>
-          )}
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Lead detail drawer */}
-      <LeadDrawer leadId={openLeadId} onClose={() => setOpenLeadId(null)} />
+      <LeadDrawer
+        leadId={openLeadId}
+        onClose={() => setOpenLeadId(null)}
+      />
+
+      {/* Export dialog */}
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        bulkLeadIds={exportBulkIds.length > 0 ? exportBulkIds : undefined}
+        campaigns={campaigns?.map((c) => ({ id: c.id, name: c.name }))}
+      />
     </div>
   );
 }
