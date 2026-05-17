@@ -26,6 +26,7 @@ import type {
   CampaignInput,
   CampaignPatch,
   DashboardStats,
+  DiscoverySummary,
   EmailAccount,
   EmailAccountInput,
   EmailAccountPatch,
@@ -572,6 +573,76 @@ export const useDeleteCampaign = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteCampaignMutationOptions(options));
+    }
+
+export const getRunDiscoveryUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/run-discovery`
+}
+
+/**
+ * @summary Run web discovery for a campaign
+ */
+export const runDiscovery = async (id: number, options?: RequestInit): Promise<DiscoverySummary> => {
+
+  return customFetch<DiscoverySummary>(getRunDiscoveryUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRunDiscoveryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDiscovery>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runDiscovery>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['runDiscovery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runDiscovery>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  runDiscovery(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunDiscoveryMutationResult = NonNullable<Awaited<ReturnType<typeof runDiscovery>>>
+
+    export type RunDiscoveryMutationError = ErrorType<void>
+
+    /**
+ * @summary Run web discovery for a campaign
+ */
+export const useRunDiscovery = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDiscovery>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runDiscovery>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRunDiscoveryMutationOptions(options));
     }
 
 export const getListLeadsUrl = (params?: ListLeadsParams,) => {

@@ -134,6 +134,30 @@ paths:
         "204":
           description: Deleted
 
+  # ── Discovery ────────────────────────────────────────────────
+  /campaigns/{id}/run-discovery:
+    post:
+      operationId: runDiscovery
+      tags: [campaigns]
+      summary: Run web discovery for a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Discovery summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySummary"
+        "400":
+          description: Campaign inactive or missing API key
+        "404":
+          description: Campaign not found
+
   # ── Leads ────────────────────────────────────────────────────
   /leads:
     get:
@@ -862,6 +886,33 @@ components:
           type: string
         updatedAt:
           type: string
+
+    DiscoverySummary:
+      type: object
+      required:
+        - campaignId
+        - searchesPerformed
+        - resultsFound
+        - blockedSkipped
+        - duplicatesSkipped
+        - newLeadsCreated
+      properties:
+        campaignId:
+          type: integer
+        searchesPerformed:
+          type: integer
+        resultsFound:
+          type: integer
+        blockedSkipped:
+          type: integer
+        duplicatesSkipped:
+          type: integer
+        newLeadsCreated:
+          type: integer
+        queries:
+          type: array
+          items:
+            type: string
 
     AppSettingInput:
       type: object

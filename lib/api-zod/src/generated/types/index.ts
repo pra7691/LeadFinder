@@ -12,6 +12,7 @@ export * from './campaign';
 export * from './campaignInput';
 export * from './campaignPatch';
 export * from './dashboardStats';
+export * from './discoverySummary';
 export * from './emailAccount';
 export * from './emailAccountInput';
 export * from './emailAccountPatch';

@@ -227,6 +227,16 @@ export interface AppSetting {
   updatedAt: string;
 }
 
+export interface DiscoverySummary {
+  campaignId: number;
+  searchesPerformed: number;
+  resultsFound: number;
+  blockedSkipped: number;
+  duplicatesSkipped: number;
+  newLeadsCreated: number;
+  queries?: string[];
+}
+
 export interface AppSettingInput {
   value: string;
 }

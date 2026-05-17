@@ -7,12 +7,14 @@ import outreachRouter from "./outreach";
 import logsRouter from "./logs";
 import settingsRouter from "./settings";
 import dashboardRouter from "./dashboard";
+import discoveryRouter from "./discovery";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(dashboardRouter);
 router.use(campaignsRouter);
+router.use(discoveryRouter);
 router.use(leadsRouter);
 router.use(emailAccountsRouter);
 router.use(outreachRouter);

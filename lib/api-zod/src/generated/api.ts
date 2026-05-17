@@ -149,6 +149,24 @@ export const DeleteCampaignParams = zod.object({
 
 
 /**
+ * @summary Run web discovery for a campaign
+ */
+export const RunDiscoveryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RunDiscoveryResponse = zod.object({
+  "campaignId": zod.number(),
+  "searchesPerformed": zod.number(),
+  "resultsFound": zod.number(),
+  "blockedSkipped": zod.number(),
+  "duplicatesSkipped": zod.number(),
+  "newLeadsCreated": zod.number(),
+  "queries": zod.array(zod.string()).optional()
+})
+
+
+/**
  * @summary List leads (optionally filter by campaign)
  */
 export const listLeadsQueryLimitDefault = 50;
