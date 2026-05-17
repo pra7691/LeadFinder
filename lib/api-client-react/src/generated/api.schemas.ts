@@ -241,6 +241,25 @@ export interface DiscoverySummary {
   queries?: string[];
 }
 
+export interface ScoreResult {
+  leadId: number;
+  score: number;
+  reason: string;
+  reviewStatus: string;
+}
+
+export interface BulkScoreInput {
+  leadIds?: number[];
+  campaignId?: number;
+}
+
+export interface BulkScoreSummary {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  results?: ScoreResult[];
+}
+
 export interface CrawlResult {
   leadId: number;
   success: boolean;

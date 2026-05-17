@@ -267,6 +267,44 @@ paths:
         "204":
           description: Deleted
 
+  /leads/bulk-score:
+    post:
+      operationId: bulkScore
+      tags: [leads]
+      summary: Score multiple leads by ID list or campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkScoreInput"
+      responses:
+        "200":
+          description: Bulk score summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkScoreSummary"
+
+  /leads/{id}/score:
+    post:
+      operationId: scoreLead
+      tags: [leads]
+      summary: Score a single lead against campaign objective using AI
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScoreResult"
+
   /leads/bulk-crawl:
     post:
       operationId: bulkCrawl
@@ -955,6 +993,44 @@ components:
           type: array
           items:
             type: string
+
+    ScoreResult:
+      type: object
+      required: [leadId, score, reason, reviewStatus]
+      properties:
+        leadId:
+          type: integer
+        score:
+          type: integer
+        reason:
+          type: string
+        reviewStatus:
+          type: string
+
+    BulkScoreInput:
+      type: object
+      properties:
+        leadIds:
+          type: array
+          items:
+            type: integer
+        campaignId:
+          type: integer
+
+    BulkScoreSummary:
+      type: object
+      required: [attempted, succeeded, failed]
+      properties:
+        attempted:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScoreResult"
 
     CrawlResult:
       type: object

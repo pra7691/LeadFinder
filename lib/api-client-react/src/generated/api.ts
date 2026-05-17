@@ -24,6 +24,8 @@ import type {
   AppSettingInput,
   BulkCrawlInput,
   BulkCrawlSummary,
+  BulkScoreInput,
+  BulkScoreSummary,
   Campaign,
   CampaignInput,
   CampaignPatch,
@@ -42,7 +44,8 @@ import type {
   ListOutreachParams,
   LogEntry,
   OutreachItem,
-  OutreachPatch
+  OutreachPatch,
+  ScoreResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1020,6 +1023,147 @@ export const useDeleteLead = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteLeadMutationOptions(options));
+    }
+
+export const getBulkScoreUrl = () => {
+
+
+
+
+  return `/api/leads/bulk-score`
+}
+
+/**
+ * @summary Score multiple leads by ID list or campaign
+ */
+export const bulkScore = async (bulkScoreInput: BulkScoreInput, options?: RequestInit): Promise<BulkScoreSummary> => {
+
+  return customFetch<BulkScoreSummary>(getBulkScoreUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkScoreInput,)
+  }
+);}
+
+
+
+
+export const getBulkScoreMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkScore>>, TError,{data: BodyType<BulkScoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkScore>>, TError,{data: BodyType<BulkScoreInput>}, TContext> => {
+
+const mutationKey = ['bulkScore'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkScore>>, {data: BodyType<BulkScoreInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkScore(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkScoreMutationResult = NonNullable<Awaited<ReturnType<typeof bulkScore>>>
+    export type BulkScoreMutationBody = BodyType<BulkScoreInput>
+    export type BulkScoreMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Score multiple leads by ID list or campaign
+ */
+export const useBulkScore = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkScore>>, TError,{data: BodyType<BulkScoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkScore>>,
+        TError,
+        {data: BodyType<BulkScoreInput>},
+        TContext
+      > => {
+      return useMutation(getBulkScoreMutationOptions(options));
+    }
+
+export const getScoreLeadUrl = (id: number,) => {
+
+
+
+
+  return `/api/leads/${id}/score`
+}
+
+/**
+ * @summary Score a single lead against campaign objective using AI
+ */
+export const scoreLead = async (id: number, options?: RequestInit): Promise<ScoreResult> => {
+
+  return customFetch<ScoreResult>(getScoreLeadUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getScoreLeadMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scoreLead>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof scoreLead>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['scoreLead'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof scoreLead>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  scoreLead(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ScoreLeadMutationResult = NonNullable<Awaited<ReturnType<typeof scoreLead>>>
+
+    export type ScoreLeadMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Score a single lead against campaign objective using AI
+ */
+export const useScoreLead = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scoreLead>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof scoreLead>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getScoreLeadMutationOptions(options));
     }
 
 export const getBulkCrawlUrl = () => {

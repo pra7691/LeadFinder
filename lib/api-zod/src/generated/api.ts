@@ -331,6 +331,42 @@ export const DeleteLeadParams = zod.object({
 
 
 /**
+ * @summary Score multiple leads by ID list or campaign
+ */
+export const BulkScoreBody = zod.object({
+  "leadIds": zod.array(zod.number()).optional(),
+  "campaignId": zod.number().optional()
+})
+
+export const BulkScoreResponse = zod.object({
+  "attempted": zod.number(),
+  "succeeded": zod.number(),
+  "failed": zod.number(),
+  "results": zod.array(zod.object({
+  "leadId": zod.number(),
+  "score": zod.number(),
+  "reason": zod.string(),
+  "reviewStatus": zod.string()
+})).optional()
+})
+
+
+/**
+ * @summary Score a single lead against campaign objective using AI
+ */
+export const ScoreLeadParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ScoreLeadResponse = zod.object({
+  "leadId": zod.number(),
+  "score": zod.number(),
+  "reason": zod.string(),
+  "reviewStatus": zod.string()
+})
+
+
+/**
  * @summary Crawl multiple leads by ID list or campaign
  */
 export const BulkCrawlBody = zod.object({
