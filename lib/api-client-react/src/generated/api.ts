@@ -22,9 +22,12 @@ import type {
 import type {
   AppSetting,
   AppSettingInput,
+  BulkCrawlInput,
+  BulkCrawlSummary,
   Campaign,
   CampaignInput,
   CampaignPatch,
+  CrawlResult,
   DashboardStats,
   DiscoverySummary,
   EmailAccount,
@@ -1017,6 +1020,147 @@ export const useDeleteLead = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteLeadMutationOptions(options));
+    }
+
+export const getBulkCrawlUrl = () => {
+
+
+
+
+  return `/api/leads/bulk-crawl`
+}
+
+/**
+ * @summary Crawl multiple leads by ID list or campaign
+ */
+export const bulkCrawl = async (bulkCrawlInput: BulkCrawlInput, options?: RequestInit): Promise<BulkCrawlSummary> => {
+
+  return customFetch<BulkCrawlSummary>(getBulkCrawlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkCrawlInput,)
+  }
+);}
+
+
+
+
+export const getBulkCrawlMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkCrawl>>, TError,{data: BodyType<BulkCrawlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkCrawl>>, TError,{data: BodyType<BulkCrawlInput>}, TContext> => {
+
+const mutationKey = ['bulkCrawl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkCrawl>>, {data: BodyType<BulkCrawlInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkCrawl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkCrawlMutationResult = NonNullable<Awaited<ReturnType<typeof bulkCrawl>>>
+    export type BulkCrawlMutationBody = BodyType<BulkCrawlInput>
+    export type BulkCrawlMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Crawl multiple leads by ID list or campaign
+ */
+export const useBulkCrawl = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkCrawl>>, TError,{data: BodyType<BulkCrawlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkCrawl>>,
+        TError,
+        {data: BodyType<BulkCrawlInput>},
+        TContext
+      > => {
+      return useMutation(getBulkCrawlMutationOptions(options));
+    }
+
+export const getRunCrawlUrl = (id: number,) => {
+
+
+
+
+  return `/api/leads/${id}/run-crawl`
+}
+
+/**
+ * @summary Crawl a single lead's website and extract contact info
+ */
+export const runCrawl = async (id: number, options?: RequestInit): Promise<CrawlResult> => {
+
+  return customFetch<CrawlResult>(getRunCrawlUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRunCrawlMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runCrawl>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runCrawl>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['runCrawl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runCrawl>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  runCrawl(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunCrawlMutationResult = NonNullable<Awaited<ReturnType<typeof runCrawl>>>
+
+    export type RunCrawlMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Crawl a single lead's website and extract contact info
+ */
+export const useRunCrawl = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runCrawl>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runCrawl>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRunCrawlMutationOptions(options));
     }
 
 export const getListEmailAccountsUrl = () => {

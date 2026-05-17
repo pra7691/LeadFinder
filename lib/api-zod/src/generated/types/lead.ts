@@ -40,6 +40,10 @@ export interface Lead {
   sourceCountry?: string | null;
   /** @nullable */
   sourceQuery?: string | null;
+  /** @nullable */
+  crawlStatus?: string | null;
+  /** @nullable */
+  crawlError?: string | null;
   createdAt: string;
   updatedAt: string;
 }

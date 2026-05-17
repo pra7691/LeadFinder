@@ -200,6 +200,8 @@ export const ListLeadsResponseItem = zod.object({
   "sourceKeyword": zod.string().nullish(),
   "sourceCountry": zod.string().nullish(),
   "sourceQuery": zod.string().nullish(),
+  "crawlStatus": zod.string().nullish(),
+  "crawlError": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -262,6 +264,8 @@ export const GetLeadResponse = zod.object({
   "sourceKeyword": zod.string().nullish(),
   "sourceCountry": zod.string().nullish(),
   "sourceQuery": zod.string().nullish(),
+  "crawlStatus": zod.string().nullish(),
+  "crawlError": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -311,6 +315,8 @@ export const UpdateLeadResponse = zod.object({
   "sourceKeyword": zod.string().nullish(),
   "sourceCountry": zod.string().nullish(),
   "sourceQuery": zod.string().nullish(),
+  "crawlStatus": zod.string().nullish(),
+  "crawlError": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -321,6 +327,57 @@ export const UpdateLeadResponse = zod.object({
  */
 export const DeleteLeadParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Crawl multiple leads by ID list or campaign
+ */
+export const BulkCrawlBody = zod.object({
+  "leadIds": zod.array(zod.number()).optional(),
+  "campaignId": zod.number().optional()
+})
+
+export const BulkCrawlResponse = zod.object({
+  "attempted": zod.number(),
+  "succeeded": zod.number(),
+  "failed": zod.number(),
+  "capped": zod.number().nullish(),
+  "results": zod.array(zod.object({
+  "leadId": zod.number(),
+  "success": zod.boolean(),
+  "companyName": zod.string().nullish(),
+  "emails": zod.string().nullish(),
+  "phoneNumbers": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "country": zod.string().nullish(),
+  "linkedinUrl": zod.string().nullish(),
+  "pagesAttempted": zod.number(),
+  "pagesSucceeded": zod.number(),
+  "error": zod.string().nullish()
+})).optional()
+})
+
+
+/**
+ * @summary Crawl a single lead's website and extract contact info
+ */
+export const RunCrawlParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RunCrawlResponse = zod.object({
+  "leadId": zod.number(),
+  "success": zod.boolean(),
+  "companyName": zod.string().nullish(),
+  "emails": zod.string().nullish(),
+  "phoneNumbers": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "country": zod.string().nullish(),
+  "linkedinUrl": zod.string().nullish(),
+  "pagesAttempted": zod.number(),
+  "pagesSucceeded": zod.number(),
+  "error": zod.string().nullish()
 })
 
 

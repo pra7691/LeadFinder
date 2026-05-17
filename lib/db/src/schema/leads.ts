@@ -35,6 +35,9 @@ export const leadsTable = pgTable(
     sourceKeyword: text("source_keyword"),
     sourceCountry: text("source_country"),
     sourceQuery: text("source_query"),
+    crawlStatus: text("crawl_status").default("pending"),
+    crawlError: text("crawl_error"),
+    rawText: text("raw_text"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

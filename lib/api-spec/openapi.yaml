@@ -267,6 +267,44 @@ paths:
         "204":
           description: Deleted
 
+  /leads/bulk-crawl:
+    post:
+      operationId: bulkCrawl
+      tags: [leads]
+      summary: Crawl multiple leads by ID list or campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkCrawlInput"
+      responses:
+        "200":
+          description: Bulk crawl summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkCrawlSummary"
+
+  /leads/{id}/run-crawl:
+    post:
+      operationId: runCrawl
+      tags: [leads]
+      summary: Crawl a single lead's website and extract contact info
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Crawl result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrawlResult"
+
   # ── Email Accounts ───────────────────────────────────────────
   /email-accounts:
     get:
@@ -658,6 +696,10 @@ components:
           type: ["string", "null"]
         sourceQuery:
           type: ["string", "null"]
+        crawlStatus:
+          type: ["string", "null"]
+        crawlError:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -913,6 +955,60 @@ components:
           type: array
           items:
             type: string
+
+    CrawlResult:
+      type: object
+      required: [leadId, success, pagesAttempted, pagesSucceeded]
+      properties:
+        leadId:
+          type: integer
+        success:
+          type: boolean
+        companyName:
+          type: ["string", "null"]
+        emails:
+          type: ["string", "null"]
+        phoneNumbers:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+        country:
+          type: ["string", "null"]
+        linkedinUrl:
+          type: ["string", "null"]
+        pagesAttempted:
+          type: integer
+        pagesSucceeded:
+          type: integer
+        error:
+          type: ["string", "null"]
+
+    BulkCrawlInput:
+      type: object
+      properties:
+        leadIds:
+          type: array
+          items:
+            type: integer
+        campaignId:
+          type: integer
+
+    BulkCrawlSummary:
+      type: object
+      required: [attempted, succeeded, failed]
+      properties:
+        attempted:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        capped:
+          type: ["integer", "null"]
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/CrawlResult"
 
     AppSettingInput:
       type: object

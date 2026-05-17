@@ -102,6 +102,10 @@ export interface Lead {
   sourceCountry?: string | null;
   /** @nullable */
   sourceQuery?: string | null;
+  /** @nullable */
+  crawlStatus?: string | null;
+  /** @nullable */
+  crawlError?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -235,6 +239,41 @@ export interface DiscoverySummary {
   duplicatesSkipped: number;
   newLeadsCreated: number;
   queries?: string[];
+}
+
+export interface CrawlResult {
+  leadId: number;
+  success: boolean;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  emails?: string | null;
+  /** @nullable */
+  phoneNumbers?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  country?: string | null;
+  /** @nullable */
+  linkedinUrl?: string | null;
+  pagesAttempted: number;
+  pagesSucceeded: number;
+  /** @nullable */
+  error?: string | null;
+}
+
+export interface BulkCrawlInput {
+  leadIds?: number[];
+  campaignId?: number;
+}
+
+export interface BulkCrawlSummary {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  /** @nullable */
+  capped?: number | null;
+  results?: CrawlResult[];
 }
 
 export interface AppSettingInput {

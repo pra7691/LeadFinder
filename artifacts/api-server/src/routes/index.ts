@@ -8,6 +8,7 @@ import logsRouter from "./logs";
 import settingsRouter from "./settings";
 import dashboardRouter from "./dashboard";
 import discoveryRouter from "./discovery";
+import crawlRouter from "./crawl";
 
 const router: IRouter = Router();
 
@@ -15,6 +16,7 @@ router.use(healthRouter);
 router.use(dashboardRouter);
 router.use(campaignsRouter);
 router.use(discoveryRouter);
+router.use(crawlRouter);
 router.use(leadsRouter);
 router.use(emailAccountsRouter);
 router.use(outreachRouter);

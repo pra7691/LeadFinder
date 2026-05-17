@@ -8,9 +8,12 @@
 
 export * from './appSetting';
 export * from './appSettingInput';
+export * from './bulkCrawlInput';
+export * from './bulkCrawlSummary';
 export * from './campaign';
 export * from './campaignInput';
 export * from './campaignPatch';
+export * from './crawlResult';
 export * from './dashboardStats';
 export * from './discoverySummary';
 export * from './emailAccount';
