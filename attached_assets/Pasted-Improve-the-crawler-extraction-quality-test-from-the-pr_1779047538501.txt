@@ -1,0 +1,197 @@
+Improve the crawler extraction quality test from the previous proof-of-concept.
+
+The previous test successfully:
+
+* searched using Serper.dev
+* extracted company domains
+* crawled websites
+* exported CSV
+
+However, the extraction quality for emails and phone numbers is still weak and must be improved before building the full product.
+
+Do NOT build the full application yet.
+This is still an extraction-quality test only.
+
+==================================================
+MAIN GOAL
+=========
+
+Improve:
+
+* email extraction accuracy
+* phone number extraction accuracy
+* company name cleanup
+* country extraction
+* text cleaning
+* false-positive filtering
+
+==================================================
+NEW TEST QUERY
+==============
+
+Use this query:
+
+computer vision company in USA
+
+Fetch top 10 search results again.
+
+==================================================
+KNOWN EXTRACTION PROBLEMS FROM PREVIOUS TEST
+============================================
+
+Example of incorrect extraction:
+
+Extracted:
+[+917565883102support@tensormatics.comCopyright](mailto:+917565883102support@tensormatics.comCopyright)
+
+Correct extraction should have been:
+[support@tensormatics.com](mailto:support@tensormatics.com)
+
+Problem:
+email parser is capturing surrounding text and phone numbers.
+
+---
+
+Example of incorrect phone extraction:
+
+From objectways.com and hyper.ai:
+many random numeric strings were extracted as phone numbers.
+
+Problem:
+phone extraction regex is too loose and is capturing:
+
+* IDs
+* timestamps
+* metrics
+* coordinates
+* random numeric values
+
+==================================================
+IMPROVE EMAIL EXTRACTION
+========================
+
+Requirements:
+
+1. Use stricter email regex validation.
+2. Remove surrounding text automatically.
+3. Remove invalid concatenated text.
+4. Remove duplicates.
+5. Normalize emails to lowercase.
+6. Ignore obviously broken emails.
+7. Extract only valid RFC-style email formats.
+
+Examples of valid:
+[info@company.com](mailto:info@company.com)
+[sales@company.ai](mailto:sales@company.ai)
+
+Examples of invalid:
+[123support@company.comCopyright](mailto:123support@company.comCopyright)
+email@domain.com12345
+
+==================================================
+IMPROVE PHONE EXTRACTION
+========================
+
+Requirements:
+
+1. Use stricter phone validation.
+2. Ignore random numeric strings.
+3. Ignore decimal values.
+4. Ignore IDs and timestamps.
+5. Extract only realistic phone formats.
+
+Examples:
++1 480-910-8162
++91 9876543210
+
+Avoid:
+139.6379639
+0011914419
+2438104216
+
+6. Prefer phone numbers from:
+
+* contact pages
+* footer
+* tel: links
+
+==================================================
+ADD COUNTRY EXTRACTION
+======================
+
+Extract probable company country using:
+
+* contact page
+* address
+* phone country code
+* footer/company info
+
+If uncertain:
+set as:
+unknown
+
+==================================================
+IMPROVE COMPANY NAME CLEANUP
+============================
+
+Avoid long marketing titles such as:
+
+"Best Data Labeling & Image Annotation Software"
+
+Prefer:
+actual company name:
+Labellerr
+
+Use:
+
+* title cleanup
+* meta tags
+* logo alt text
+* organization schema if available
+
+==================================================
+CRAWLER RULES
+=============
+
+Continue using:
+
+* homepage
+* /contact
+* /contact-us
+* /about
+* /about-us
+
+Do not add deep crawling yet.
+
+==================================================
+EXPORT
+======
+
+Generate:
+
+output/test_leads_v2.csv
+
+Columns:
+
+* company_name
+* website_url
+* root_domain
+* country
+* emails
+* phone_numbers
+* crawl_status
+
+==================================================
+TEST REPORT
+===========
+
+After execution, provide:
+
+* number of domains crawled
+* extraction improvements made
+* examples of cleaned emails
+* examples of cleaned phone numbers
+* remaining extraction limitations
+* whether country extraction worked
+
+This is still only a crawler/extraction validation step before building the full lead intelligence platform.
