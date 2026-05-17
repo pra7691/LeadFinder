@@ -1,0 +1,9 @@
+[2026-05-17T16:35:16.759Z] === Lead Discovery POC ===
+[2026-05-17T16:35:16.760Z] Query: egocentric data company in USA
+[2026-05-17T16:35:16.760Z] Calling Google Custom Search API for: "egocentric data company in USA"
+[2026-05-17T16:35:16.903Z] Google API error: HTTP 400
+[2026-05-17T16:35:16.903Z] Response body: {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","errors":[{"message":"API key not valid. Please pass a valid API key.","domain":"global","reason":"badRequest"}],"status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"customsearch.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"API key not valid. Please pass a valid API key."}]}}
+[2026-05-17T16:35:16.903Z] 
+Search results found: 0
+[2026-05-17T16:35:16.903Z] 
+Unique company domains to crawl: 0

@@ -5,10 +5,16 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "test-leads": "tsx ./src/test-leads.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:"
+  },
+  "dependencies": {
+    "@types/cheerio": "^1.0.0",
+    "axios": "^1.16.1",
+    "cheerio": "^1.2.0"
   }
 }
