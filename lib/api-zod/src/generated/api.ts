@@ -491,6 +491,7 @@ export const RunCrawlResponse = zod.object({
 export const ListEmailAccountsResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "senderName": zod.string(),
   "email": zod.string(),
   "smtpHost": zod.string(),
   "smtpPort": zod.number(),
@@ -498,6 +499,11 @@ export const ListEmailAccountsResponseItem = zod.object({
   "smtpUser": zod.string(),
   "dailySendLimit": zod.number(),
   "isActive": zod.boolean(),
+  "totalSent": zod.number(),
+  "sentToday": zod.number(),
+  "lastSentAt": zod.string().nullish(),
+  "lastTestedAt": zod.string().nullish(),
+  "lastTestResult": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -514,6 +520,7 @@ export const createEmailAccountBodyIsActiveDefault = true;
 
 export const CreateEmailAccountBody = zod.object({
   "name": zod.string(),
+  "senderName": zod.string(),
   "email": zod.string(),
   "smtpHost": zod.string(),
   "smtpPort": zod.number().default(createEmailAccountBodySmtpPortDefault),
@@ -534,14 +541,21 @@ export const UpdateEmailAccountParams = zod.object({
 
 export const UpdateEmailAccountBody = zod.object({
   "name": zod.string().optional(),
+  "senderName": zod.string().optional(),
+  "email": zod.string().optional(),
+  "smtpHost": zod.string().optional(),
+  "smtpPort": zod.number().optional(),
+  "smtpSecure": zod.boolean().optional(),
+  "smtpUser": zod.string().optional(),
+  "smtpPassword": zod.string().optional(),
   "dailySendLimit": zod.number().optional(),
-  "isActive": zod.boolean().optional(),
-  "smtpPassword": zod.string().optional()
+  "isActive": zod.boolean().optional()
 })
 
 export const UpdateEmailAccountResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "senderName": zod.string(),
   "email": zod.string(),
   "smtpHost": zod.string(),
   "smtpPort": zod.number(),
@@ -549,6 +563,11 @@ export const UpdateEmailAccountResponse = zod.object({
   "smtpUser": zod.string(),
   "dailySendLimit": zod.number(),
   "isActive": zod.boolean(),
+  "totalSent": zod.number(),
+  "sentToday": zod.number(),
+  "lastSentAt": zod.string().nullish(),
+  "lastTestedAt": zod.string().nullish(),
+  "lastTestResult": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -559,6 +578,70 @@ export const UpdateEmailAccountResponse = zod.object({
  */
 export const DeleteEmailAccountParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Test SMTP connection for an email account
+ */
+export const TestEmailAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const TestEmailAccountResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string(),
+  "testedAt": zod.string()
+})
+
+
+/**
+ * @summary List email accounts assigned to a campaign
+ */
+export const ListCampaignEmailAccountsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListCampaignEmailAccountsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "senderName": zod.string(),
+  "email": zod.string(),
+  "smtpHost": zod.string(),
+  "smtpPort": zod.number(),
+  "smtpSecure": zod.boolean().optional(),
+  "smtpUser": zod.string(),
+  "dailySendLimit": zod.number(),
+  "isActive": zod.boolean(),
+  "totalSent": zod.number(),
+  "sentToday": zod.number(),
+  "lastSentAt": zod.string().nullish(),
+  "lastTestedAt": zod.string().nullish(),
+  "lastTestResult": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListCampaignEmailAccountsResponse = zod.array(ListCampaignEmailAccountsResponseItem)
+
+
+/**
+ * @summary Assign an email account to a campaign
+ */
+export const AssignCampaignEmailAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AssignCampaignEmailAccountBody = zod.object({
+  "emailAccountId": zod.number()
+})
+
+
+/**
+ * @summary Remove an email account from a campaign
+ */
+export const UnassignCampaignEmailAccountParams = zod.object({
+  "id": zod.coerce.number(),
+  "accountId": zod.coerce.number()
 })
 
 

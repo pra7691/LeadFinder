@@ -510,6 +510,89 @@ paths:
         "204":
           description: Deleted
 
+  /email-accounts/{id}/test:
+    post:
+      operationId: testEmailAccount
+      tags: [email-accounts]
+      summary: Test SMTP connection for an email account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmtpTestResult"
+
+  /campaigns/{id}/email-accounts:
+    get:
+      operationId: listCampaignEmailAccounts
+      tags: [email-accounts]
+      summary: List email accounts assigned to a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of assigned email accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailAccount"
+    post:
+      operationId: assignCampaignEmailAccount
+      tags: [email-accounts]
+      summary: Assign an email account to a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignEmailAccountInput"
+      responses:
+        "201":
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignEmailAccountAssignment"
+
+  /campaigns/{id}/email-accounts/{accountId}:
+    delete:
+      operationId: unassignCampaignEmailAccount
+      tags: [email-accounts]
+      summary: Remove an email account from a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
   # ── Outreach Queue ───────────────────────────────────────────
   /outreach:
     get:
@@ -917,18 +1000,23 @@ components:
       required:
         - id
         - name
+        - senderName
         - email
         - smtpHost
         - smtpPort
         - smtpUser
         - dailySendLimit
         - isActive
+        - totalSent
+        - sentToday
         - createdAt
         - updatedAt
       properties:
         id:
           type: integer
         name:
+          type: string
+        senderName:
           type: string
         email:
           type: string
@@ -944,6 +1032,16 @@ components:
           type: integer
         isActive:
           type: boolean
+        totalSent:
+          type: integer
+        sentToday:
+          type: integer
+        lastSentAt:
+          type: ["string", "null"]
+        lastTestedAt:
+          type: ["string", "null"]
+        lastTestResult:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -951,9 +1049,11 @@ components:
 
     EmailAccountInput:
       type: object
-      required: [name, email, smtpHost, smtpPort, smtpUser, smtpPassword]
+      required: [name, senderName, email, smtpHost, smtpPort, smtpUser, smtpPassword]
       properties:
         name:
+          type: string
+        senderName:
           type: string
         email:
           type: string
@@ -981,11 +1081,52 @@ components:
       properties:
         name:
           type: string
+        senderName:
+          type: string
+        email:
+          type: string
+        smtpHost:
+          type: string
+        smtpPort:
+          type: integer
+        smtpSecure:
+          type: boolean
+        smtpUser:
+          type: string
+        smtpPassword:
+          type: string
         dailySendLimit:
           type: integer
         isActive:
           type: boolean
-        smtpPassword:
+
+    CampaignEmailAccountInput:
+      type: object
+      required: [emailAccountId]
+      properties:
+        emailAccountId:
+          type: integer
+
+    CampaignEmailAccountAssignment:
+      type: object
+      required: [id, campaignId, emailAccountId]
+      properties:
+        id:
+          type: integer
+        campaignId:
+          type: integer
+        emailAccountId:
+          type: integer
+
+    SmtpTestResult:
+      type: object
+      required: [success, message, testedAt]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        testedAt:
           type: string
 
     OutreachItem:

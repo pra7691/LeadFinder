@@ -8,6 +8,7 @@
 
 export interface EmailAccountInput {
   name: string;
+  senderName: string;
   email: string;
   smtpHost: string;
   smtpPort: number;

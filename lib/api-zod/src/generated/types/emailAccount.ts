@@ -9,6 +9,7 @@
 export interface EmailAccount {
   id: number;
   name: string;
+  senderName: string;
   email: string;
   smtpHost: string;
   smtpPort: number;
@@ -16,6 +17,14 @@ export interface EmailAccount {
   smtpUser: string;
   dailySendLimit: number;
   isActive: boolean;
+  totalSent: number;
+  sentToday: number;
+  /** @nullable */
+  lastSentAt?: string | null;
+  /** @nullable */
+  lastTestedAt?: string | null;
+  /** @nullable */
+  lastTestResult?: string | null;
   createdAt: string;
   updatedAt: string;
 }

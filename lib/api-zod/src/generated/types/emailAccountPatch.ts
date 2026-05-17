@@ -8,7 +8,13 @@
 
 export interface EmailAccountPatch {
   name?: string;
+  senderName?: string;
+  email?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  smtpPassword?: string;
   dailySendLimit?: number;
   isActive?: boolean;
-  smtpPassword?: string;
 }

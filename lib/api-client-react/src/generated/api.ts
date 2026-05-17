@@ -29,6 +29,8 @@ import type {
   BulkScoreInput,
   BulkScoreSummary,
   Campaign,
+  CampaignEmailAccountAssignment,
+  CampaignEmailAccountInput,
   CampaignInput,
   CampaignPatch,
   CrawlResult,
@@ -50,6 +52,7 @@ import type {
   OutreachItem,
   OutreachPatch,
   ScoreResult,
+  SmtpTestResult,
   StatusHistoryEntry
 } from './api.schemas';
 
@@ -1897,6 +1900,297 @@ export const useDeleteEmailAccount = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteEmailAccountMutationOptions(options));
+    }
+
+export const getTestEmailAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/email-accounts/${id}/test`
+}
+
+/**
+ * @summary Test SMTP connection for an email account
+ */
+export const testEmailAccount = async (id: number, options?: RequestInit): Promise<SmtpTestResult> => {
+
+  return customFetch<SmtpTestResult>(getTestEmailAccountUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestEmailAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testEmailAccount>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testEmailAccount>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['testEmailAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testEmailAccount>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  testEmailAccount(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestEmailAccountMutationResult = NonNullable<Awaited<ReturnType<typeof testEmailAccount>>>
+
+    export type TestEmailAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test SMTP connection for an email account
+ */
+export const useTestEmailAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testEmailAccount>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testEmailAccount>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getTestEmailAccountMutationOptions(options));
+    }
+
+export const getListCampaignEmailAccountsUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/email-accounts`
+}
+
+/**
+ * @summary List email accounts assigned to a campaign
+ */
+export const listCampaignEmailAccounts = async (id: number, options?: RequestInit): Promise<EmailAccount[]> => {
+
+  return customFetch<EmailAccount[]>(getListCampaignEmailAccountsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCampaignEmailAccountsQueryKey = (id: number,) => {
+    return [
+    `/api/campaigns/${id}/email-accounts`
+    ] as const;
+    }
+
+
+export const getListCampaignEmailAccountsQueryOptions = <TData = Awaited<ReturnType<typeof listCampaignEmailAccounts>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCampaignEmailAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCampaignEmailAccountsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCampaignEmailAccounts>>> = ({ signal }) => listCampaignEmailAccounts(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCampaignEmailAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCampaignEmailAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof listCampaignEmailAccounts>>>
+export type ListCampaignEmailAccountsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List email accounts assigned to a campaign
+ */
+
+export function useListCampaignEmailAccounts<TData = Awaited<ReturnType<typeof listCampaignEmailAccounts>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCampaignEmailAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCampaignEmailAccountsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAssignCampaignEmailAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/email-accounts`
+}
+
+/**
+ * @summary Assign an email account to a campaign
+ */
+export const assignCampaignEmailAccount = async (id: number,
+    campaignEmailAccountInput: CampaignEmailAccountInput, options?: RequestInit): Promise<CampaignEmailAccountAssignment> => {
+
+  return customFetch<CampaignEmailAccountAssignment>(getAssignCampaignEmailAccountUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      campaignEmailAccountInput,)
+  }
+);}
+
+
+
+
+export const getAssignCampaignEmailAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignCampaignEmailAccount>>, TError,{id: number;data: BodyType<CampaignEmailAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assignCampaignEmailAccount>>, TError,{id: number;data: BodyType<CampaignEmailAccountInput>}, TContext> => {
+
+const mutationKey = ['assignCampaignEmailAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assignCampaignEmailAccount>>, {id: number;data: BodyType<CampaignEmailAccountInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  assignCampaignEmailAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssignCampaignEmailAccountMutationResult = NonNullable<Awaited<ReturnType<typeof assignCampaignEmailAccount>>>
+    export type AssignCampaignEmailAccountMutationBody = BodyType<CampaignEmailAccountInput>
+    export type AssignCampaignEmailAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Assign an email account to a campaign
+ */
+export const useAssignCampaignEmailAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignCampaignEmailAccount>>, TError,{id: number;data: BodyType<CampaignEmailAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assignCampaignEmailAccount>>,
+        TError,
+        {id: number;data: BodyType<CampaignEmailAccountInput>},
+        TContext
+      > => {
+      return useMutation(getAssignCampaignEmailAccountMutationOptions(options));
+    }
+
+export const getUnassignCampaignEmailAccountUrl = (id: number,
+    accountId: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/email-accounts/${accountId}`
+}
+
+/**
+ * @summary Remove an email account from a campaign
+ */
+export const unassignCampaignEmailAccount = async (id: number,
+    accountId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getUnassignCampaignEmailAccountUrl(id,accountId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getUnassignCampaignEmailAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unassignCampaignEmailAccount>>, TError,{id: number;accountId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unassignCampaignEmailAccount>>, TError,{id: number;accountId: number}, TContext> => {
+
+const mutationKey = ['unassignCampaignEmailAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unassignCampaignEmailAccount>>, {id: number;accountId: number}> = (props) => {
+          const {id,accountId} = props ?? {};
+
+          return  unassignCampaignEmailAccount(id,accountId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnassignCampaignEmailAccountMutationResult = NonNullable<Awaited<ReturnType<typeof unassignCampaignEmailAccount>>>
+
+    export type UnassignCampaignEmailAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove an email account from a campaign
+ */
+export const useUnassignCampaignEmailAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unassignCampaignEmailAccount>>, TError,{id: number;accountId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unassignCampaignEmailAccount>>,
+        TError,
+        {id: number;accountId: number},
+        TContext
+      > => {
+      return useMutation(getUnassignCampaignEmailAccountMutationOptions(options));
     }
 
 export const getListOutreachUrl = (params?: ListOutreachParams,) => {

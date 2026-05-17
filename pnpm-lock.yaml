@@ -190,6 +190,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      nodemailer:
+        specifier: ^8.0.7
+        version: 8.0.7
       pino:
         specifier: ^9.14.0
         version: 9.14.0
@@ -209,6 +212,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.2
+      '@types/nodemailer':
+        specifier: ^8.0.0
+        version: 8.0.0
       '@types/supertest':
         specifier: ^7.2.0
         version: 7.2.0
@@ -1760,6 +1766,9 @@ packages:
   '@types/node@25.6.2':
     resolution: {integrity: sha512-sokuT28dxf9JT5Kady1fsXOvI4HVpjZa95NKT5y9PNTIrs2AsobR4GFAA90ZG8M+nxVRLysCXsVj6eGC7Vbrlw==}
 
+  '@types/nodemailer@8.0.0':
+    resolution: {integrity: sha512-fyf8jWULsCo0d0BuoQ75i6IeoHs47qcqxWc7yUdUcV0pOZGjUTTOvwdG1PRXUDqN/8A64yQdQdnA2pZgcdi+cA==}
+
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
@@ -2806,6 +2815,10 @@ packages:
 
   node-releases@2.0.38:
     resolution: {integrity: sha512-3qT/88Y3FbH/Kx4szpQQ4HzUbVrHPKTLVpVocKiLfoYvw9XSGOX2FmD2d6DrXbVYyAQTF2HeF6My8jmzx7/CRw==}
+
+  nodemailer@8.0.7:
+    resolution: {integrity: sha512-pkjE4mkBzQjdJT4/UmlKl3pX0rC9fZmjh7c6C9o7lv66Ac6w9WCnzPzhbPNxwZAzlF4mdq4CSWB5+FbK6FWCow==}
+    engines: {node: '>=6.0.0'}
 
   npm-run-path@6.0.0:
     resolution: {integrity: sha512-9qny7Z9DsQU8Ou39ERsPU4OZQlSTP47ShQzuKZ6PRXpYLtIFgl/DEBYEXKlvcEa+9tHVcK8CF81Y2V72qaZhWA==}
@@ -4824,6 +4837,10 @@ snapshots:
     dependencies:
       undici-types: 7.19.2
 
+  '@types/nodemailer@8.0.0':
+    dependencies:
+      '@types/node': 25.6.2
+
   '@types/pg@8.20.0':
     dependencies:
       '@types/node': 25.6.2
@@ -5777,6 +5794,8 @@ snapshots:
       react-dom: 19.1.0(react@19.1.0)
 
   node-releases@2.0.38: {}
+
+  nodemailer@8.0.7: {}
 
   npm-run-path@6.0.0:
     dependencies:

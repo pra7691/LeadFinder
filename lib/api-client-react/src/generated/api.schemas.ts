@@ -159,6 +159,7 @@ export interface LeadPatch {
 export interface EmailAccount {
   id: number;
   name: string;
+  senderName: string;
   email: string;
   smtpHost: string;
   smtpPort: number;
@@ -166,12 +167,21 @@ export interface EmailAccount {
   smtpUser: string;
   dailySendLimit: number;
   isActive: boolean;
+  totalSent: number;
+  sentToday: number;
+  /** @nullable */
+  lastSentAt?: string | null;
+  /** @nullable */
+  lastTestedAt?: string | null;
+  /** @nullable */
+  lastTestResult?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface EmailAccountInput {
   name: string;
+  senderName: string;
   email: string;
   smtpHost: string;
   smtpPort: number;
@@ -184,9 +194,31 @@ export interface EmailAccountInput {
 
 export interface EmailAccountPatch {
   name?: string;
+  senderName?: string;
+  email?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  smtpPassword?: string;
   dailySendLimit?: number;
   isActive?: boolean;
-  smtpPassword?: string;
+}
+
+export interface CampaignEmailAccountInput {
+  emailAccountId: number;
+}
+
+export interface CampaignEmailAccountAssignment {
+  id: number;
+  campaignId: number;
+  emailAccountId: number;
+}
+
+export interface SmtpTestResult {
+  success: boolean;
+  message: string;
+  testedAt: string;
 }
 
 export interface OutreachItem {
