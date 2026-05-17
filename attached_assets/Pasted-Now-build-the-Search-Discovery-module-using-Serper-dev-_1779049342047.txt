@@ -1,0 +1,180 @@
+Now build the Search Discovery module using Serper.dev.
+
+Do not rebuild the app.
+Do not change the glassmorphic UI design.
+Do not remove existing modules.
+Extend the existing campaign system.
+
+Goal:
+Allow a campaign to search the web using its keywords and countries, collect candidate company URLs, filter blocked domains, deduplicate inside the campaign, and save search/crawl candidates into the database.
+
+Important:
+This module is only for search discovery and domain collection.
+Do not implement full email sending yet.
+Do not implement outreach automation yet.
+
+Environment variable:
+SERPER_API_KEY
+
+Backend Requirements:
+
+1. Add Serper search service
+   Create a service that:
+
+* calls Serper.dev Search API
+* accepts query string
+* returns organic results
+* handles API errors
+* logs failures
+* respects rate limits
+
+2. Campaign search logic
+   For a selected campaign:
+
+* read active keywords
+* read active countries
+* generate search queries as:
+  keyword + country
+  Example:
+  “egocentric data company USA”
+
+3. Add run action
+   Add API endpoint:
+   POST /api/campaigns/:id/run-discovery
+
+This should:
+
+* verify campaign exists
+* verify campaign is active
+* verify SERPER_API_KEY exists
+* run searches based on campaign keywords/countries
+* respect campaign max_searches_per_day
+* collect top organic results
+* extract root domains
+* skip blocked final lead domains
+* skip duplicate root domains already present in the same campaign
+* create candidate lead records or search result records
+
+4. Domain filtering
+   Use existing blocked domains setting.
+
+Blocked domains must not be saved as leads:
+google.com
+linkedin.com
+facebook.com
+youtube.com
+twitter.com
+x.com
+instagram.com
+wikipedia.org
+reddit.com
+medium.com
+github.com
+crunchbase.com
+techcrunch.com
+ycombinator.com
+yc.com
+producthunt.com
+angellist.com
+wellfound.com
+glassdoor.com
+indeed.com
+upwork.com
+fiverr.com
+clutch.co
+g2.com
+capterra.com
+
+Important:
+If a blocked source page appears, do not save that blocked domain as a lead.
+For now, simply skip it.
+Discovery-source mining can be added later.
+
+5. Lead creation
+   For every valid new root domain:
+
+* create a lead under that campaign
+* company_name can initially be extracted from search result title
+* website_url from result URL
+* root_domain normalized
+* source_keyword
+* source_country
+* source_query
+* lead_status = discovered
+* review_status = pending
+* email_status = not_sent
+* relevance_score = 0 initially
+* relevance_reason = empty initially
+
+6. Deduplication
+   Same root_domain must not duplicate inside the same campaign.
+   Same root_domain may exist in another campaign.
+
+7. Logs
+   Create log entries for:
+
+* discovery run started
+* each query searched
+* API errors
+* blocked domains skipped
+* duplicate domains skipped
+* new leads created
+* discovery run completed
+
+Frontend Requirements:
+
+1. Campaign detail page
+   Add button:
+   “Run Discovery”
+
+2. Show run progress/state
+   At minimum:
+
+* loading state
+* success message
+* error message
+
+3. Show discovery summary after run:
+
+* searches performed
+* results found
+* blocked domains skipped
+* duplicate domains skipped
+* new leads created
+
+4. Leads page
+   Newly discovered leads should appear in leads table.
+
+Testing Requirements:
+
+Run automated tests for:
+
+* missing SERPER_API_KEY error
+* campaign not found
+* inactive campaign cannot run
+* blocked domains are skipped
+* duplicate campaign domains are skipped
+* new domains are saved as leads
+* discovery logs are created
+* Run Discovery button works from UI
+* leads table updates after run
+
+Use a mocked Serper API response for automated tests.
+Do not consume real API quota during tests unless explicitly running manual live test.
+
+After testing with mocks, run one small live test if SERPER_API_KEY is available:
+
+* one campaign
+* one keyword
+* one country
+* max 1 search
+* confirm leads are created
+
+Completion report must include:
+
+* files changed
+* endpoints added
+* database changes if any
+* test results
+* live test result if performed
+* known limitations

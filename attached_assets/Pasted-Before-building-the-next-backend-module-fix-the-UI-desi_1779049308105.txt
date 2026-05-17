@@ -1,0 +1,93 @@
+Before building the next backend module, fix the UI design.
+
+The current UI is described as “dark cockpit aesthetic,” but the requirement was a premium Apple-like glassmorphic design.
+
+Do not change database schema.
+Do not remove existing API routes.
+Do not rebuild backend.
+Do not break current functionality.
+
+Task 1: Redesign UI to premium glassmorphic style
+
+Design direction:
+
+* Apple-like premium SaaS dashboard
+* Glassmorphic cards and panels
+* Frosted blur surfaces
+* Black and white base theme
+* Dark mode and light mode support
+* Smooth soft shadows
+* Rounded 2xl/3xl corners
+* Thin translucent borders
+* Subtle neon accent outlines only where useful
+* Clean typography
+* Spacious layout
+* Minimal clutter
+* Enterprise-grade polish
+
+Avoid:
+
+* cockpit UI
+* gaming dashboard look
+* heavy gradients
+* harsh colors
+* cheap admin template feel
+* cluttered cards
+
+Apply this design consistently to:
+
+* sidebar
+* top bar
+* dashboard cards
+* tables
+* campaign list
+* campaign detail
+* leads table
+* email accounts page
+* outreach queue page
+* logs page
+* settings page
+* buttons
+* forms
+* toggles
+* modals/drawers if any
+
+Required UI behavior:
+
+* keep all existing data/API integrations working
+* dark/light mode toggle must work
+* active sidebar route must be clear
+* tables must remain readable
+* forms must remain usable
+* mobile/tablet layout should not break
+
+Task 2: Add UI testing after redesign
+
+Run automated UI tests to verify:
+
+* app loads
+* all sidebar pages open
+* dashboard stats show
+* campaigns page opens
+* campaign detail opens
+* leads page opens
+* approve/reject actions still work
+* settings page opens
+* dark/light mode toggle works
+* no console errors
+* layout does not visibly break
+
+Fix all UI test failures before reporting completion.
+
+Task 3: Only after UI is fixed, prepare for next module
+
+Do not implement Serper crawler yet in this step unless the UI redesign is fully done and tested.
+
+Completion report must include:
+
+* files changed
+* design changes made
+* before/after explanation
+* tests run
+* test results
+* any remaining UI issues
