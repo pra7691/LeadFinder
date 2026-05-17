@@ -3,8 +3,7 @@ import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
 
-const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
-const GOOGLE_SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID;
+const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const SEARCH_QUERY = "egocentric data company in USA";
 const OUTPUT_DIR = path.resolve("output");
 const CSV_PATH = path.join(OUTPUT_DIR, "test_leads.csv");
