@@ -28,9 +28,11 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   body: text("body").notNull(),
   status: text("status").notNull().default("draft"),
   failureReason: text("failure_reason"),
+  retryCount: integer("retry_count").notNull().default(0),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
+  bouncedAt: timestamp("bounced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

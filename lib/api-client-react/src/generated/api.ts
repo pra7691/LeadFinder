@@ -57,6 +57,10 @@ import type {
   OutreachPatch,
   QueueLeadInput,
   ScoreResult,
+  SendBatchResult,
+  SendStats,
+  SendTestEmail200,
+  SendTestInput,
   SmtpTestResult,
   StatusHistoryEntry
 } from './api.schemas';
@@ -2706,6 +2710,364 @@ export const useApproveOutreach = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getApproveOutreachMutationOptions(options));
     }
+
+export const getSendOutreachItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/outreach/${id}/send`
+}
+
+/**
+ * @summary Send a single approved outreach item now
+ */
+export const sendOutreachItem = async (id: number, options?: RequestInit): Promise<OutreachItem> => {
+
+  return customFetch<OutreachItem>(getSendOutreachItemUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSendOutreachItemMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendOutreachItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendOutreachItem>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['sendOutreachItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendOutreachItem>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  sendOutreachItem(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendOutreachItemMutationResult = NonNullable<Awaited<ReturnType<typeof sendOutreachItem>>>
+
+    export type SendOutreachItemMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send a single approved outreach item now
+ */
+export const useSendOutreachItem = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendOutreachItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendOutreachItem>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getSendOutreachItemMutationOptions(options));
+    }
+
+export const getRetryOutreachItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/outreach/${id}/retry`
+}
+
+/**
+ * @summary Retry a failed or bounced outreach item
+ */
+export const retryOutreachItem = async (id: number, options?: RequestInit): Promise<OutreachItem> => {
+
+  return customFetch<OutreachItem>(getRetryOutreachItemUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryOutreachItemMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryOutreachItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryOutreachItem>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['retryOutreachItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryOutreachItem>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retryOutreachItem(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryOutreachItemMutationResult = NonNullable<Awaited<ReturnType<typeof retryOutreachItem>>>
+
+    export type RetryOutreachItemMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Retry a failed or bounced outreach item
+ */
+export const useRetryOutreachItem = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryOutreachItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryOutreachItem>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRetryOutreachItemMutationOptions(options));
+    }
+
+export const getSendOutreachBatchUrl = () => {
+
+
+
+
+  return `/api/outreach/send-batch`
+}
+
+/**
+ * @summary Send all approved outreach items respecting campaign and account daily limits
+ */
+export const sendOutreachBatch = async ( options?: RequestInit): Promise<SendBatchResult> => {
+
+  return customFetch<SendBatchResult>(getSendOutreachBatchUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSendOutreachBatchMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendOutreachBatch>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendOutreachBatch>>, TError,void, TContext> => {
+
+const mutationKey = ['sendOutreachBatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendOutreachBatch>>, void> = () => {
+
+
+          return  sendOutreachBatch(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendOutreachBatchMutationResult = NonNullable<Awaited<ReturnType<typeof sendOutreachBatch>>>
+
+    export type SendOutreachBatchMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send all approved outreach items respecting campaign and account daily limits
+ */
+export const useSendOutreachBatch = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendOutreachBatch>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendOutreachBatch>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSendOutreachBatchMutationOptions(options));
+    }
+
+export const getSendTestEmailUrl = () => {
+
+
+
+
+  return `/api/outreach/send-test`
+}
+
+/**
+ * @summary Send a test email using a configured email account
+ */
+export const sendTestEmail = async (sendTestInput: SendTestInput, options?: RequestInit): Promise<SendTestEmail200> => {
+
+  return customFetch<SendTestEmail200>(getSendTestEmailUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendTestInput,)
+  }
+);}
+
+
+
+
+export const getSendTestEmailMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendTestEmail>>, TError,{data: BodyType<SendTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendTestEmail>>, TError,{data: BodyType<SendTestInput>}, TContext> => {
+
+const mutationKey = ['sendTestEmail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendTestEmail>>, {data: BodyType<SendTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendTestEmail(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendTestEmailMutationResult = NonNullable<Awaited<ReturnType<typeof sendTestEmail>>>
+    export type SendTestEmailMutationBody = BodyType<SendTestInput>
+    export type SendTestEmailMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send a test email using a configured email account
+ */
+export const useSendTestEmail = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendTestEmail>>, TError,{data: BodyType<SendTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendTestEmail>>,
+        TError,
+        {data: BodyType<SendTestInput>},
+        TContext
+      > => {
+      return useMutation(getSendTestEmailMutationOptions(options));
+    }
+
+export const getGetSendStatsUrl = () => {
+
+
+
+
+  return `/api/outreach/send-stats`
+}
+
+/**
+ * @summary Get daily send statistics for campaigns and accounts
+ */
+export const getSendStats = async ( options?: RequestInit): Promise<SendStats> => {
+
+  return customFetch<SendStats>(getGetSendStatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSendStatsQueryKey = () => {
+    return [
+    `/api/outreach/send-stats`
+    ] as const;
+    }
+
+
+export const getGetSendStatsQueryOptions = <TData = Awaited<ReturnType<typeof getSendStats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSendStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSendStatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSendStats>>> = ({ signal }) => getSendStats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSendStats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSendStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getSendStats>>>
+export type GetSendStatsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get daily send statistics for campaigns and accounts
+ */
+
+export function useGetSendStats<TData = Awaited<ReturnType<typeof getSendStats>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSendStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSendStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListLogsUrl = (params?: ListLogsParams,) => {
   const normalizedParams = new URLSearchParams();

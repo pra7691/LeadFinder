@@ -730,6 +730,95 @@ paths:
               schema:
                 $ref: "#/components/schemas/OutreachItem"
 
+  /outreach/{id}/send:
+    post:
+      operationId: sendOutreachItem
+      tags: [outreach]
+      summary: Send a single approved outreach item now
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Send result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+
+  /outreach/{id}/retry:
+    post:
+      operationId: retryOutreachItem
+      tags: [outreach]
+      summary: Retry a failed or bounced outreach item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Retry result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+
+  /outreach/send-batch:
+    post:
+      operationId: sendOutreachBatch
+      tags: [outreach]
+      summary: Send all approved outreach items respecting campaign and account daily limits
+      responses:
+        "200":
+          description: Batch send result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendBatchResult"
+
+  /outreach/send-test:
+    post:
+      operationId: sendTestEmail
+      tags: [outreach]
+      summary: Send a test email using a configured email account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTestInput"
+      responses:
+        "200":
+          description: Test send result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+
+  /outreach/send-stats:
+    get:
+      operationId: getSendStats
+      tags: [outreach]
+      summary: Get daily send statistics for campaigns and accounts
+      responses:
+        "200":
+          description: Send stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendStats"
+
   # ── Logs ─────────────────────────────────────────────────────
   /logs:
     get:
@@ -1232,6 +1321,7 @@ components:
         - subject
         - body
         - status
+        - retryCount
         - createdAt
         - updatedAt
       properties:
@@ -1253,11 +1343,15 @@ components:
           type: string
         failureReason:
           type: ["string", "null"]
+        retryCount:
+          type: integer
         approvedAt:
           type: ["string", "null"]
         scheduledAt:
           type: ["string", "null"]
         sentAt:
+          type: ["string", "null"]
+        bouncedAt:
           type: ["string", "null"]
         companyName:
           type: ["string", "null"]
@@ -1336,6 +1430,73 @@ components:
       properties:
         approved:
           type: integer
+
+    SendBatchResult:
+      type: object
+      required: [sent, failed, skipped]
+      properties:
+        sent:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutreachItem"
+
+    SendTestInput:
+      type: object
+      required: [emailAccountId, toEmail]
+      properties:
+        emailAccountId:
+          type: integer
+        toEmail:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+
+    SendStatsItem:
+      type: object
+      required: [campaignId, campaignName, sentToday, dailyLimit]
+      properties:
+        campaignId:
+          type: integer
+        campaignName:
+          type: string
+        sentToday:
+          type: integer
+        dailyLimit:
+          type: integer
+
+    AccountStatItem:
+      type: object
+      required: [accountId, smtpUser, sentToday, dailyLimit]
+      properties:
+        accountId:
+          type: integer
+        smtpUser:
+          type: string
+        sentToday:
+          type: integer
+        dailyLimit:
+          type: integer
+
+    SendStats:
+      type: object
+      required: [campaigns, accounts]
+      properties:
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/SendStatsItem"
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountStatItem"
 
     LogEntry:
       type: object

@@ -18,12 +18,15 @@ export interface OutreachItem {
   status: string;
   /** @nullable */
   failureReason?: string | null;
+  retryCount: number;
   /** @nullable */
   approvedAt?: string | null;
   /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  bouncedAt?: string | null;
   /** @nullable */
   companyName?: string | null;
   /** @nullable */

@@ -668,9 +668,11 @@ export const ListOutreachResponseItem = zod.object({
   "body": zod.string(),
   "status": zod.string(),
   "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
   "createdAt": zod.string(),
@@ -712,9 +714,11 @@ export const BulkQueueLeadsResponse = zod.object({
   "body": zod.string(),
   "status": zod.string(),
   "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
   "createdAt": zod.string(),
@@ -760,9 +764,11 @@ export const UpdateOutreachResponse = zod.object({
   "body": zod.string(),
   "status": zod.string(),
   "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
   "createdAt": zod.string(),
@@ -795,13 +801,138 @@ export const ApproveOutreachResponse = zod.object({
   "body": zod.string(),
   "status": zod.string(),
   "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Send a single approved outreach item now
+ */
+export const SendOutreachItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendOutreachItemResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Retry a failed or bounced outreach item
+ */
+export const RetryOutreachItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RetryOutreachItemResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Send all approved outreach items respecting campaign and account daily limits
+ */
+export const SendOutreachBatchResponse = zod.object({
+  "sent": zod.number(),
+  "failed": zod.number(),
+  "skipped": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional()
+})
+
+
+/**
+ * @summary Send a test email using a configured email account
+ */
+export const SendTestEmailBody = zod.object({
+  "emailAccountId": zod.number(),
+  "toEmail": zod.string(),
+  "subject": zod.string().optional(),
+  "body": zod.string().optional()
+})
+
+export const SendTestEmailResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string().optional()
+})
+
+
+/**
+ * @summary Get daily send statistics for campaigns and accounts
+ */
+export const GetSendStatsResponse = zod.object({
+  "campaigns": zod.array(zod.object({
+  "campaignId": zod.number(),
+  "campaignName": zod.string(),
+  "sentToday": zod.number(),
+  "dailyLimit": zod.number()
+})),
+  "accounts": zod.array(zod.object({
+  "accountId": zod.number(),
+  "smtpUser": zod.string(),
+  "sentToday": zod.number(),
+  "dailyLimit": zod.number()
+}))
 })
 
 

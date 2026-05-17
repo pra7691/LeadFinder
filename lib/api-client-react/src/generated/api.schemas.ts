@@ -238,12 +238,15 @@ export interface OutreachItem {
   status: string;
   /** @nullable */
   failureReason?: string | null;
+  retryCount: number;
   /** @nullable */
   approvedAt?: string | null;
   /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  bouncedAt?: string | null;
   /** @nullable */
   companyName?: string | null;
   /** @nullable */
@@ -287,6 +290,39 @@ export interface BulkApproveInput {
 
 export interface BulkApproveResult {
   approved: number;
+}
+
+export interface SendBatchResult {
+  sent: number;
+  failed: number;
+  skipped: number;
+  items?: OutreachItem[];
+}
+
+export interface SendTestInput {
+  emailAccountId: number;
+  toEmail: string;
+  subject?: string;
+  body?: string;
+}
+
+export interface SendStatsItem {
+  campaignId: number;
+  campaignName: string;
+  sentToday: number;
+  dailyLimit: number;
+}
+
+export interface AccountStatItem {
+  accountId: number;
+  smtpUser: string;
+  sentToday: number;
+  dailyLimit: number;
+}
+
+export interface SendStats {
+  campaigns: SendStatsItem[];
+  accounts: AccountStatItem[];
 }
 
 export interface LogEntry {
@@ -428,6 +464,11 @@ offset?: number;
 export type ListOutreachParams = {
 campaignId?: number;
 status?: string;
+};
+
+export type SendTestEmail200 = {
+  ok: boolean;
+  message?: string;
 };
 
 export type ListLogsParams = {

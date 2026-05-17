@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './accountStatItem';
 export * from './appSetting';
 export * from './appSettingInput';
 export * from './bulkActionInput';
@@ -43,5 +44,10 @@ export * from './outreachItem';
 export * from './outreachPatch';
 export * from './queueLeadInput';
 export * from './scoreResult';
+export * from './sendBatchResult';
+export * from './sendStats';
+export * from './sendStatsItem';
+export * from './sendTestEmail200';
+export * from './sendTestInput';
 export * from './smtpTestResult';
 export * from './statusHistoryEntry';
