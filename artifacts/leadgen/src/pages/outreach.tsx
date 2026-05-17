@@ -783,11 +783,21 @@ export function Outreach() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground animate-pulse">
-                    Loading queue…
-                  </TableCell>
-                </TableRow>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i} className="border-border/20">
+                    <TableCell className="pl-4"><div className="w-4 h-4 rounded bg-muted/50 animate-pulse" /></TableCell>
+                    <TableCell>
+                      <div className="space-y-1.5">
+                        <div className="h-4 w-32 bg-muted/50 rounded animate-pulse" />
+                        <div className="h-3 w-44 bg-muted/50 rounded animate-pulse" />
+                      </div>
+                    </TableCell>
+                    <TableCell><div className="h-4 bg-muted/50 rounded animate-pulse" style={{ width: `${55 + i * 7}%` }} /></TableCell>
+                    <TableCell><div className="h-5 w-20 bg-muted/50 rounded-full animate-pulse" /></TableCell>
+                    <TableCell><div className="h-4 w-24 bg-muted/50 rounded animate-pulse" /></TableCell>
+                    <TableCell><div className="h-7 w-16 bg-muted/50 rounded-lg animate-pulse ml-auto" /></TableCell>
+                  </TableRow>
+                ))
               ) : outreachItems?.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-40 text-center">

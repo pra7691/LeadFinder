@@ -693,9 +693,33 @@ export function EmailAccounts() {
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {isLoading ? (
-          <div className="text-sm text-muted-foreground animate-pulse col-span-full">
-            Loading accounts…
-          </div>
+          Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="glass-card">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-muted/50 animate-pulse shrink-0" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-4 w-36 bg-muted/50 rounded animate-pulse" />
+                    <div className="h-3 w-48 bg-muted/50 rounded animate-pulse" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 p-3 bg-muted/20 rounded-xl">
+                  {Array.from({ length: 3 }).map((_, j) => (
+                    <div key={j} className="space-y-1.5 text-center">
+                      <div className="h-3 w-10 bg-muted/50 rounded animate-pulse mx-auto" />
+                      <div className="h-5 w-8 bg-muted/50 rounded animate-pulse mx-auto" />
+                    </div>
+                  ))}
+                </div>
+                <div className="h-8 w-full bg-muted/50 rounded-lg animate-pulse" />
+                <div className="flex gap-2">
+                  <div className="h-8 flex-1 bg-muted/50 rounded-xl animate-pulse" />
+                  <div className="h-8 w-8 bg-muted/50 rounded-xl animate-pulse" />
+                  <div className="h-8 w-8 bg-muted/50 rounded-xl animate-pulse" />
+                </div>
+              </CardContent>
+            </Card>
+          ))
         ) : allAccounts?.length === 0 ? (
           <div className="col-span-full flex flex-col items-center justify-center p-14 text-center bg-muted/20 border border-border/50 rounded-2xl border-dashed">
             <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">

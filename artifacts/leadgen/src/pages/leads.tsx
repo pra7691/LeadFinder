@@ -46,7 +46,7 @@ import {
   Send,
   Download,
   FileText,
-  Sheet,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   Dialog,
@@ -217,7 +217,7 @@ function ExportDialog({
                   {f === "csv" ? (
                     <FileText className="w-4 h-4" />
                   ) : (
-                    <Sheet className="w-4 h-4" />
+                    <FileSpreadsheet className="w-4 h-4" />
                   )}
                   {f.toUpperCase()}
                 </button>
