@@ -1,0 +1,335 @@
+We are building a single-user internal lead discovery and outreach tool.
+
+Do not build the full product in one step. Start with the foundation only.
+
+Product Goal:
+Create a campaign-based lead intelligence system where I can create different campaigns for different services/products, search for companies using keywords and countries, crawl company websites, extract contact details, score relevance, manually approve leads, and later send outreach emails using Google Workspace SMTP.
+
+Important:
+This is a single-user internal tool for now. Do not add multi-user login, roles, billing, CRM integrations, or advanced analytics.
+
+Tech Stack:
+
+* Frontend: React + Tailwind
+* Backend: Node.js + Express
+* Database: PostgreSQL
+* ORM: Drizzle or Prisma, whichever is more reliable in this project
+* Search API later: Serper.dev
+* Crawler later: fetch + Cheerio first, Playwright fallback later
+* Email later: Google Workspace SMTP
+* Export later: CSV/XLSX
+
+Design Requirement:
+Build a premium Apple-like glassmorphic UI.
+
+Visual style:
+
+* Black and white base
+* Dark mode and light mode support
+* Futuristic glass morphism
+* High-quality premium SaaS dashboard feel
+* Soft blur panels
+* Frosted glass cards
+* Rounded corners
+* Subtle shadows
+* Clean typography
+* Minimal clutter
+* Optional neon accent outlines on cards/buttons/active states
+* Elegant spacing
+* Smooth hover states
+* Professional enterprise-grade look
+
+Avoid:
+
+* cheap gradients
+* cluttered colors
+* childish UI
+* heavy animations
+* low-quality admin templates
+
+For this first step, build only:
+
+1. Project structure
+2. Database schema
+3. Basic UI layout
+4. Navigation/sidebar
+5. Empty pages for core modules
+6. Environment variable structure
+7. Seed/default settings
+8. Automatic UI testing for the created screens
+
+Do not implement search, crawling, scoring, or email sending yet.
+
+Core Menu Pages:
+
+* Dashboard
+* Campaigns
+* Leads
+* Email Accounts
+* Outreach Queue
+* Exports
+* Logs
+* Settings
+
+Database Schema:
+Create tables for:
+
+1. campaigns
+   Fields:
+
+* id
+* name
+* objective
+* min_relevance_score
+* max_searches_per_day
+* max_leads_per_day
+* max_emails_per_day
+* is_active
+* email_template
+* unsubscribe_footer
+* created_at
+* updated_at
+
+2. campaign_keywords
+   Fields:
+
+* id
+* campaign_id
+* keyword
+* is_active
+* created_at
+
+3. campaign_countries
+   Fields:
+
+* id
+* campaign_id
+* country
+* is_active
+* created_at
+
+4. leads
+   Important: leads are campaign-specific.
+   Same domain should not duplicate inside the same campaign, but the same domain may exist in another campaign.
+
+Fields:
+
+* id
+* campaign_id
+* company_name
+* root_domain
+* website_url
+* country
+* emails
+* phone_numbers
+* address
+* linkedin_url
+* relevance_score
+* relevance_reason
+* contact_quality
+* lead_status
+* review_status
+* email_status
+* notes
+* source_keyword
+* source_country
+* source_query
+* created_at
+* updated_at
+
+Add unique constraint:
+campaign_id + root_domain
+
+5. email_accounts
+   Fields:
+
+* id
+* name
+* email
+* smtp_host
+* smtp_port
+* smtp_secure
+* smtp_user
+* smtp_password_encrypted_or_stored_securely
+* daily_send_limit
+* is_active
+* created_at
+* updated_at
+
+6. campaign_email_accounts
+   Fields:
+
+* id
+* campaign_id
+* email_account_id
+* is_active
+
+7. outreach_queue
+   Fields:
+
+* id
+* campaign_id
+* lead_id
+* email_account_id
+* recipient_email
+* subject
+* body
+* status
+* scheduled_at
+* sent_at
+* created_at
+
+8. logs
+   Fields:
+
+* id
+* campaign_id nullable
+* type
+* message
+* metadata_json
+* created_at
+
+9. app_settings
+   Fields:
+
+* id
+* key
+* value
+* created_at
+* updated_at
+
+Blocked Final Lead Domains:
+Create a default app setting or seed list for blocked final lead domains.
+
+These domains must not be saved as final leads:
+google.com
+linkedin.com
+facebook.com
+youtube.com
+twitter.com
+x.com
+instagram.com
+wikipedia.org
+reddit.com
+medium.com
+github.com
+crunchbase.com
+techcrunch.com
+ycombinator.com
+yc.com
+producthunt.com
+angellist.com
+wellfound.com
+glassdoor.com
+indeed.com
+upwork.com
+fiverr.com
+clutch.co
+g2.com
+capterra.com
+
+Important blacklist behavior:
+These domains should not be saved as leads.
+Later, if these sites mention a real company website, the real company domain may still be saved.
+Do not build discovery-source mining yet, but structure the setting so we can support it later.
+
+UI Requirements:
+
+* Premium glassmorphic admin dashboard
+* Sidebar navigation
+* Top bar
+* Dark/light mode toggle
+* Cards on dashboard:
+
+  * Total campaigns
+  * Active campaigns
+  * Total leads
+  * Leads pending review
+  * Emails queued
+  * Emails sent today
+* Empty table layouts for Campaigns and Leads
+* Settings page with placeholder sections:
+
+  * Serper API Key
+  * Global blocked domains
+  * Default crawler delay
+  * Default unsubscribe footer
+
+Campaign Page:
+For now, create basic campaign list and create/edit form.
+Fields:
+
+* campaign name
+* objective
+* keywords textarea, one per line
+* countries textarea, one per line
+* minimum relevance score
+* max searches per day
+* max leads per day
+* max emails per day
+* active/inactive toggle
+* email template textarea
+* unsubscribe footer textarea
+
+Do not implement actual search yet.
+
+Testing Requirement:
+After this module is built, run automatic UI testing.
+
+Testing must verify:
+
+* app loads successfully
+* sidebar navigation works
+* all menu pages open without crashing
+* dashboard cards are visible
+* campaign list page opens
+* campaign create/edit form opens
+* settings page opens
+* dark/light mode toggle works
+* responsive layout does not break on common screen sizes
+* no visible console errors
+
+Use Playwright tests if available. If Playwright is not practical, use the best available automated frontend test setup in this Replit project.
+
+Important:
+Every future module should include automatic testing for that module before it is considered complete.
+
+Demo Data:
+Do not add large demo data yet.
+Only seed essential default settings and one sample campaign if needed for UI testing.
+
+Sample Campaign:
+Name: Egocentric Video Data Collection
+Objective: Find companies likely to need egocentric video data, computer vision datasets, robotics perception data, or multimodal AI training data.
+Keywords:
+egocentric data company
+computer vision company
+robotics perception company
+multimodal AI company
+Countries:
+USA
+Singapore
+Germany
+Minimum relevance score: 50
+
+After implementation:
+
+* Run database migration
+* Seed default blocked domains
+* Run automatic UI tests
+* Fix any failed tests
+* Provide a testing report
+
+Testing Report:
+After building, provide:
+
+* files created
+* database tables created
+* migration status
+* seed data created
+* UI pages created
+* tests run
+* test results
+* screenshots if possible
+* what works
+* what is intentionally not built yet

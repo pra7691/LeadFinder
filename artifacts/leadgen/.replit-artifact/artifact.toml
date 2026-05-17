@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Lead Intelligence Platform"
+version = "1.0.0"
+id = "artifacts/leadgen"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21351
+
+[services.development]
+run = "pnpm --filter @workspace/leadgen run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/leadgen", "run", "build" ]
+publicDir = "artifacts/leadgen/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21351"
+BASE_PATH = "/"
