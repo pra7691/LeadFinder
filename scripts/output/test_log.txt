@@ -1,9 +1,9 @@
-[2026-05-17T18:53:09.417Z] === Lead Discovery POC ===
-[2026-05-17T18:53:09.419Z] Query: egocentric data company in USA
-[2026-05-17T18:53:09.419Z] Calling Google Custom Search API for: "egocentric data company in USA"
-[2026-05-17T18:53:09.581Z] Google API error: HTTP 403
-[2026-05-17T18:53:09.581Z] Response body: {"error":{"code":403,"message":"This project does not have the access to Custom Search JSON API.","errors":[{"message":"This project does not have the access to Custom Search JSON API.","domain":"global","reason":"forbidden"}],"status":"PERMISSION_DENIED"}}
-[2026-05-17T18:53:09.581Z] 
+[2026-05-17T19:07:19.777Z] === Lead Discovery POC ===
+[2026-05-17T19:07:19.778Z] Query: egocentric data company in USA
+[2026-05-17T19:07:19.778Z] Calling Google Custom Search API for: "egocentric data company in USA"
+[2026-05-17T19:07:19.946Z] Google API error: HTTP 403
+[2026-05-17T19:07:19.947Z] Response body: {"error":{"code":403,"message":"This project does not have the access to Custom Search JSON API.","errors":[{"message":"This project does not have the access to Custom Search JSON API.","domain":"global","reason":"forbidden"}],"status":"PERMISSION_DENIED"}}
+[2026-05-17T19:07:19.947Z] 
 Search results found: 0
-[2026-05-17T18:53:09.581Z] 
+[2026-05-17T19:07:19.947Z] 
 Unique company domains to crawl: 0
