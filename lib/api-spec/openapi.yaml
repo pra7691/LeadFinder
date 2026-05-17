@@ -617,12 +617,67 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/OutreachItem"
+    post:
+      operationId: queueLead
+      tags: [outreach]
+      summary: Queue a lead for outreach (generates subject/body from template)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueueLeadInput"
+      responses:
+        "201":
+          description: Queued item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+
+  /outreach/bulk-queue:
+    post:
+      operationId: bulkQueueLeads
+      tags: [outreach]
+      summary: Queue multiple leads for outreach
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkQueueInput"
+      responses:
+        "200":
+          description: Bulk queue result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkQueueResult"
+
+  /outreach/bulk-approve:
+    post:
+      operationId: bulkApproveOutreach
+      tags: [outreach]
+      summary: Approve multiple outreach items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkApproveInput"
+      responses:
+        "200":
+          description: Bulk approve result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkApproveResult"
 
   /outreach/{id}:
     patch:
       operationId: updateOutreach
       tags: [outreach]
-      summary: Update outreach item status
+      summary: Update an outreach item (subject, body, status, email account)
       parameters:
         - name: id
           in: path
@@ -638,6 +693,38 @@ paths:
       responses:
         "200":
           description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+    delete:
+      operationId: deleteOutreach
+      tags: [outreach]
+      summary: Remove an item from the queue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /outreach/{id}/approve:
+    post:
+      operationId: approveOutreach
+      tags: [outreach]
+      summary: Approve a single outreach item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved item
           content:
             application/json:
               schema:
@@ -776,6 +863,8 @@ components:
           type: integer
         maxEmailsPerDay:
           type: integer
+        subjectTemplate:
+          type: ["string", "null"]
         emailTemplate:
           type: ["string", "null"]
         unsubscribeFooter:
@@ -817,6 +906,8 @@ components:
         maxEmailsPerDay:
           type: integer
           default: 20
+        subjectTemplate:
+          type: string
         emailTemplate:
           type: string
         unsubscribeFooter:
@@ -847,6 +938,8 @@ components:
           type: integer
         maxEmailsPerDay:
           type: integer
+        subjectTemplate:
+          type: ["string", "null"]
         emailTemplate:
           type: ["string", "null"]
         unsubscribeFooter:
@@ -1140,6 +1233,7 @@ components:
         - body
         - status
         - createdAt
+        - updatedAt
       properties:
         id:
           type: integer
@@ -1157,20 +1251,91 @@ components:
           type: string
         status:
           type: string
+        failureReason:
+          type: ["string", "null"]
+        approvedAt:
+          type: ["string", "null"]
         scheduledAt:
           type: ["string", "null"]
         sentAt:
           type: ["string", "null"]
+        companyName:
+          type: ["string", "null"]
+        campaignName:
+          type: ["string", "null"]
         createdAt:
+          type: string
+        updatedAt:
           type: string
 
     OutreachPatch:
       type: object
       properties:
+        subject:
+          type: string
+        body:
+          type: string
         status:
           type: string
+        emailAccountId:
+          type: ["integer", "null"]
         scheduledAt:
           type: ["string", "null"]
+
+    QueueLeadInput:
+      type: object
+      required: [leadId, campaignId]
+      properties:
+        leadId:
+          type: integer
+        campaignId:
+          type: integer
+        emailAccountId:
+          type: integer
+        recipientEmail:
+          type: string
+
+    BulkQueueInput:
+      type: object
+      required: [leadIds, campaignId]
+      properties:
+        leadIds:
+          type: array
+          items:
+            type: integer
+        campaignId:
+          type: integer
+        emailAccountId:
+          type: integer
+
+    BulkQueueResult:
+      type: object
+      required: [queued, skipped]
+      properties:
+        queued:
+          type: integer
+        skipped:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutreachItem"
+
+    BulkApproveInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+
+    BulkApproveResult:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: integer
 
     LogEntry:
       type: object

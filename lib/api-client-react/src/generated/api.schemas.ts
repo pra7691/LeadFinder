@@ -28,6 +28,8 @@ export interface Campaign {
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
   /** @nullable */
+  subjectTemplate?: string | null;
+  /** @nullable */
   emailTemplate?: string | null;
   /** @nullable */
   unsubscribeFooter?: string | null;
@@ -46,6 +48,7 @@ export interface CampaignInput {
   maxSearchesPerDay?: number;
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
+  subjectTemplate?: string;
   emailTemplate?: string;
   unsubscribeFooter?: string;
   keywords?: string[];
@@ -60,6 +63,8 @@ export interface CampaignPatch {
   maxSearchesPerDay?: number;
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
+  /** @nullable */
+  subjectTemplate?: string | null;
   /** @nullable */
   emailTemplate?: string | null;
   /** @nullable */
@@ -232,16 +237,56 @@ export interface OutreachItem {
   body: string;
   status: string;
   /** @nullable */
+  failureReason?: string | null;
+  /** @nullable */
+  approvedAt?: string | null;
+  /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  campaignName?: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface OutreachPatch {
+  subject?: string;
+  body?: string;
   status?: string;
   /** @nullable */
+  emailAccountId?: number | null;
+  /** @nullable */
   scheduledAt?: string | null;
+}
+
+export interface QueueLeadInput {
+  leadId: number;
+  campaignId: number;
+  emailAccountId?: number;
+  recipientEmail?: string;
+}
+
+export interface BulkQueueInput {
+  leadIds: number[];
+  campaignId: number;
+  emailAccountId?: number;
+}
+
+export interface BulkQueueResult {
+  queued: number;
+  skipped: number;
+  items?: OutreachItem[];
+}
+
+export interface BulkApproveInput {
+  ids: number[];
+}
+
+export interface BulkApproveResult {
+  approved: number;
 }
 
 export interface LogEntry {

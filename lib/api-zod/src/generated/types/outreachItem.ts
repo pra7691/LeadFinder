@@ -17,8 +17,17 @@ export interface OutreachItem {
   body: string;
   status: string;
   /** @nullable */
+  failureReason?: string | null;
+  /** @nullable */
+  approvedAt?: string | null;
+  /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  campaignName?: string | null;
   createdAt: string;
+  updatedAt: string;
 }

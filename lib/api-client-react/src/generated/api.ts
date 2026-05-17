@@ -24,8 +24,12 @@ import type {
   AppSettingInput,
   BulkActionInput,
   BulkActionResult,
+  BulkApproveInput,
+  BulkApproveResult,
   BulkCrawlInput,
   BulkCrawlSummary,
+  BulkQueueInput,
+  BulkQueueResult,
   BulkScoreInput,
   BulkScoreSummary,
   Campaign,
@@ -51,6 +55,7 @@ import type {
   LogEntry,
   OutreachItem,
   OutreachPatch,
+  QueueLeadInput,
   ScoreResult,
   SmtpTestResult,
   StatusHistoryEntry
@@ -2277,6 +2282,219 @@ export function useListOutreach<TData = Awaited<ReturnType<typeof listOutreach>>
 
 
 
+export const getQueueLeadUrl = () => {
+
+
+
+
+  return `/api/outreach`
+}
+
+/**
+ * @summary Queue a lead for outreach (generates subject/body from template)
+ */
+export const queueLead = async (queueLeadInput: QueueLeadInput, options?: RequestInit): Promise<OutreachItem> => {
+
+  return customFetch<OutreachItem>(getQueueLeadUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      queueLeadInput,)
+  }
+);}
+
+
+
+
+export const getQueueLeadMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof queueLead>>, TError,{data: BodyType<QueueLeadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof queueLead>>, TError,{data: BodyType<QueueLeadInput>}, TContext> => {
+
+const mutationKey = ['queueLead'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof queueLead>>, {data: BodyType<QueueLeadInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  queueLead(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type QueueLeadMutationResult = NonNullable<Awaited<ReturnType<typeof queueLead>>>
+    export type QueueLeadMutationBody = BodyType<QueueLeadInput>
+    export type QueueLeadMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Queue a lead for outreach (generates subject/body from template)
+ */
+export const useQueueLead = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof queueLead>>, TError,{data: BodyType<QueueLeadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof queueLead>>,
+        TError,
+        {data: BodyType<QueueLeadInput>},
+        TContext
+      > => {
+      return useMutation(getQueueLeadMutationOptions(options));
+    }
+
+export const getBulkQueueLeadsUrl = () => {
+
+
+
+
+  return `/api/outreach/bulk-queue`
+}
+
+/**
+ * @summary Queue multiple leads for outreach
+ */
+export const bulkQueueLeads = async (bulkQueueInput: BulkQueueInput, options?: RequestInit): Promise<BulkQueueResult> => {
+
+  return customFetch<BulkQueueResult>(getBulkQueueLeadsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkQueueInput,)
+  }
+);}
+
+
+
+
+export const getBulkQueueLeadsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkQueueLeads>>, TError,{data: BodyType<BulkQueueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkQueueLeads>>, TError,{data: BodyType<BulkQueueInput>}, TContext> => {
+
+const mutationKey = ['bulkQueueLeads'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkQueueLeads>>, {data: BodyType<BulkQueueInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkQueueLeads(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkQueueLeadsMutationResult = NonNullable<Awaited<ReturnType<typeof bulkQueueLeads>>>
+    export type BulkQueueLeadsMutationBody = BodyType<BulkQueueInput>
+    export type BulkQueueLeadsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Queue multiple leads for outreach
+ */
+export const useBulkQueueLeads = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkQueueLeads>>, TError,{data: BodyType<BulkQueueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkQueueLeads>>,
+        TError,
+        {data: BodyType<BulkQueueInput>},
+        TContext
+      > => {
+      return useMutation(getBulkQueueLeadsMutationOptions(options));
+    }
+
+export const getBulkApproveOutreachUrl = () => {
+
+
+
+
+  return `/api/outreach/bulk-approve`
+}
+
+/**
+ * @summary Approve multiple outreach items
+ */
+export const bulkApproveOutreach = async (bulkApproveInput: BulkApproveInput, options?: RequestInit): Promise<BulkApproveResult> => {
+
+  return customFetch<BulkApproveResult>(getBulkApproveOutreachUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkApproveInput,)
+  }
+);}
+
+
+
+
+export const getBulkApproveOutreachMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkApproveOutreach>>, TError,{data: BodyType<BulkApproveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkApproveOutreach>>, TError,{data: BodyType<BulkApproveInput>}, TContext> => {
+
+const mutationKey = ['bulkApproveOutreach'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkApproveOutreach>>, {data: BodyType<BulkApproveInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkApproveOutreach(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkApproveOutreachMutationResult = NonNullable<Awaited<ReturnType<typeof bulkApproveOutreach>>>
+    export type BulkApproveOutreachMutationBody = BodyType<BulkApproveInput>
+    export type BulkApproveOutreachMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve multiple outreach items
+ */
+export const useBulkApproveOutreach = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkApproveOutreach>>, TError,{data: BodyType<BulkApproveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkApproveOutreach>>,
+        TError,
+        {data: BodyType<BulkApproveInput>},
+        TContext
+      > => {
+      return useMutation(getBulkApproveOutreachMutationOptions(options));
+    }
+
 export const getUpdateOutreachUrl = (id: number,) => {
 
 
@@ -2286,7 +2504,7 @@ export const getUpdateOutreachUrl = (id: number,) => {
 }
 
 /**
- * @summary Update outreach item status
+ * @summary Update an outreach item (subject, body, status, email account)
  */
 export const updateOutreach = async (id: number,
     outreachPatch: OutreachPatch, options?: RequestInit): Promise<OutreachItem> => {
@@ -2336,7 +2554,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateOutreachMutationError = ErrorType<unknown>
 
     /**
- * @summary Update outreach item status
+ * @summary Update an outreach item (subject, body, status, email account)
  */
 export const useUpdateOutreach = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOutreach>>, TError,{id: number;data: BodyType<OutreachPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -2347,6 +2565,146 @@ export const useUpdateOutreach = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateOutreachMutationOptions(options));
+    }
+
+export const getDeleteOutreachUrl = (id: number,) => {
+
+
+
+
+  return `/api/outreach/${id}`
+}
+
+/**
+ * @summary Remove an item from the queue
+ */
+export const deleteOutreach = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteOutreachUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteOutreachMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteOutreach>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteOutreach'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteOutreach>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteOutreach(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteOutreachMutationResult = NonNullable<Awaited<ReturnType<typeof deleteOutreach>>>
+
+    export type DeleteOutreachMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove an item from the queue
+ */
+export const useDeleteOutreach = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteOutreach>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteOutreachMutationOptions(options));
+    }
+
+export const getApproveOutreachUrl = (id: number,) => {
+
+
+
+
+  return `/api/outreach/${id}/approve`
+}
+
+/**
+ * @summary Approve a single outreach item
+ */
+export const approveOutreach = async (id: number, options?: RequestInit): Promise<OutreachItem> => {
+
+  return customFetch<OutreachItem>(getApproveOutreachUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveOutreachMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveOutreach>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['approveOutreach'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveOutreach>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveOutreach(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveOutreachMutationResult = NonNullable<Awaited<ReturnType<typeof approveOutreach>>>
+
+    export type ApproveOutreachMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve a single outreach item
+ */
+export const useApproveOutreach = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveOutreach>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApproveOutreachMutationOptions(options));
     }
 
 export const getListLogsUrl = (params?: ListLogsParams,) => {

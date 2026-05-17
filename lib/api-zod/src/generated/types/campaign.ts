@@ -16,6 +16,8 @@ export interface Campaign {
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
   /** @nullable */
+  subjectTemplate?: string | null;
+  /** @nullable */
   emailTemplate?: string | null;
   /** @nullable */
   unsubscribeFooter?: string | null;

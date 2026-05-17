@@ -15,6 +15,7 @@ export interface CampaignInput {
   maxSearchesPerDay?: number;
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
+  subjectTemplate?: string;
   emailTemplate?: string;
   unsubscribeFooter?: string;
   keywords?: string[];

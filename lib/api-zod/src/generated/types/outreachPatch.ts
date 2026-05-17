@@ -7,7 +7,11 @@
  */
 
 export interface OutreachPatch {
+  subject?: string;
+  body?: string;
   status?: string;
+  /** @nullable */
+  emailAccountId?: number | null;
   /** @nullable */
   scheduledAt?: string | null;
 }

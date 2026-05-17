@@ -41,6 +41,7 @@ export const ListCampaignsResponseItem = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
@@ -69,6 +70,7 @@ export const CreateCampaignBody = zod.object({
   "maxSearchesPerDay": zod.number().default(createCampaignBodyMaxSearchesPerDayDefault),
   "maxLeadsPerDay": zod.number().default(createCampaignBodyMaxLeadsPerDayDefault),
   "maxEmailsPerDay": zod.number().default(createCampaignBodyMaxEmailsPerDayDefault),
+  "subjectTemplate": zod.string().optional(),
   "emailTemplate": zod.string().optional(),
   "unsubscribeFooter": zod.string().optional(),
   "keywords": zod.array(zod.string()).optional(),
@@ -92,6 +94,7 @@ export const GetCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
@@ -116,6 +119,7 @@ export const UpdateCampaignBody = zod.object({
   "maxSearchesPerDay": zod.number().optional(),
   "maxLeadsPerDay": zod.number().optional(),
   "maxEmailsPerDay": zod.number().optional(),
+  "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
@@ -131,6 +135,7 @@ export const UpdateCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
   "keywords": zod.array(zod.string()).optional(),
@@ -662,22 +667,86 @@ export const ListOutreachResponseItem = zod.object({
   "subject": zod.string(),
   "body": zod.string(),
   "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
-  "createdAt": zod.string()
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
 })
 export const ListOutreachResponse = zod.array(ListOutreachResponseItem)
 
 
 /**
- * @summary Update outreach item status
+ * @summary Queue a lead for outreach (generates subject/body from template)
+ */
+export const QueueLeadBody = zod.object({
+  "leadId": zod.number(),
+  "campaignId": zod.number(),
+  "emailAccountId": zod.number().optional(),
+  "recipientEmail": zod.string().optional()
+})
+
+
+/**
+ * @summary Queue multiple leads for outreach
+ */
+export const BulkQueueLeadsBody = zod.object({
+  "leadIds": zod.array(zod.number()),
+  "campaignId": zod.number(),
+  "emailAccountId": zod.number().optional()
+})
+
+export const BulkQueueLeadsResponse = zod.object({
+  "queued": zod.number(),
+  "skipped": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional()
+})
+
+
+/**
+ * @summary Approve multiple outreach items
+ */
+export const BulkApproveOutreachBody = zod.object({
+  "ids": zod.array(zod.number())
+})
+
+export const BulkApproveOutreachResponse = zod.object({
+  "approved": zod.number()
+})
+
+
+/**
+ * @summary Update an outreach item (subject, body, status, email account)
  */
 export const UpdateOutreachParams = zod.object({
   "id": zod.coerce.number()
 })
 
 export const UpdateOutreachBody = zod.object({
+  "subject": zod.string().optional(),
+  "body": zod.string().optional(),
   "status": zod.string().optional(),
+  "emailAccountId": zod.number().nullish(),
   "scheduledAt": zod.string().nullish()
 })
 
@@ -690,9 +759,49 @@ export const UpdateOutreachResponse = zod.object({
   "subject": zod.string(),
   "body": zod.string(),
   "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
-  "createdAt": zod.string()
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Remove an item from the queue
+ */
+export const DeleteOutreachParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Approve a single outreach item
+ */
+export const ApproveOutreachParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ApproveOutreachResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
 })
 
 

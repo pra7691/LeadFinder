@@ -26,16 +26,22 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   recipientEmail: text("recipient_email").notNull(),
   subject: text("subject").notNull(),
   body: text("body").notNull(),
-  status: text("status").notNull().default("queued"),
+  status: text("status").notNull().default("draft"),
+  failureReason: text("failure_reason"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 export const insertOutreachQueueSchema = createInsertSchema(
   outreachQueueTable,
-).omit({ id: true, createdAt: true });
+).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOutreachQueue = z.infer<typeof insertOutreachQueueSchema>;
 export type OutreachQueue = typeof outreachQueueTable.$inferSelect;
