@@ -1,9 +1,9 @@
-[2026-05-17T16:47:04.781Z] === Lead Discovery POC ===
-[2026-05-17T16:47:04.782Z] Query: egocentric data company in USA
-[2026-05-17T16:47:04.783Z] Calling Google Custom Search API for: "egocentric data company in USA"
-[2026-05-17T16:47:04.934Z] Google API error: HTTP 403
-[2026-05-17T16:47:04.934Z] Response body: {"error":{"code":403,"message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked.","errors":[{"message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked.","domain":"global","reason":"forbidden"}],"status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_SERVICE_BLOCKED","domain":"googleapis.com","metadata":{"consumer":"projects/145021508132","methodName":"google.customsearch.v1.CustomSearchService.List","apiName":"customsearch","service":"customsearch.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked."}]}}
-[2026-05-17T16:47:04.934Z] 
+[2026-05-17T16:50:49.989Z] === Lead Discovery POC ===
+[2026-05-17T16:50:49.990Z] Query: egocentric data company in USA
+[2026-05-17T16:50:49.990Z] Calling Google Custom Search API for: "egocentric data company in USA"
+[2026-05-17T16:50:50.126Z] Google API error: HTTP 403
+[2026-05-17T16:50:50.126Z] Response body: {"error":{"code":403,"message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked.","errors":[{"message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked.","domain":"global","reason":"forbidden"}],"status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_SERVICE_BLOCKED","domain":"googleapis.com","metadata":{"consumer":"projects/145021508132","methodName":"google.customsearch.v1.CustomSearchService.List","apiName":"customsearch","service":"customsearch.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"Requests to this API customsearch method google.customsearch.v1.CustomSearchService.List are blocked."}]}}
+[2026-05-17T16:50:50.126Z] 
 Search results found: 0
-[2026-05-17T16:47:04.934Z] 
+[2026-05-17T16:50:50.126Z] 
 Unique company domains to crawl: 0
