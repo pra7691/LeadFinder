@@ -241,6 +241,45 @@ export interface DiscoverySummary {
   queries?: string[];
 }
 
+export interface LeadNote {
+  id: number;
+  leadId: number;
+  authorName: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface LeadNoteInput {
+  content: string;
+  authorName?: string;
+}
+
+export interface StatusHistoryEntry {
+  id: number;
+  leadId: number;
+  /** @nullable */
+  fromStatus?: string | null;
+  toStatus: string;
+  /** @nullable */
+  fromReviewStatus?: string | null;
+  /** @nullable */
+  toReviewStatus?: string | null;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface BulkActionInput {
+  action: string;
+  leadIds?: number[];
+  campaignId?: number;
+}
+
+export interface BulkActionResult {
+  action: string;
+  affected: number;
+}
+
 export interface ScoreResult {
   leadId: number;
   score: number;
@@ -302,6 +341,9 @@ export interface AppSettingInput {
 export type ListLeadsParams = {
 campaignId?: number;
 reviewStatus?: string;
+leadStatus?: string;
+hasEmail?: boolean;
+minScore?: number;
 limit?: number;
 offset?: number;
 };

@@ -9,6 +9,9 @@
 export type ListLeadsParams = {
 campaignId?: number;
 reviewStatus?: string;
+leadStatus?: string;
+hasEmail?: boolean;
+minScore?: number;
 limit?: number;
 offset?: number;
 };

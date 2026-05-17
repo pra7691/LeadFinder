@@ -1,9 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { leadsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, gte, type SQL } from "drizzle-orm";
 import {
-  ListLeadsQueryParams,
   CreateLeadBody,
   UpdateLeadBody,
   UpdateLeadParams,
@@ -14,19 +13,38 @@ import {
 const router = Router();
 
 router.get("/leads", async (req, res) => {
-  const params = ListLeadsQueryParams.parse({
-    campaignId: req.query.campaignId ? Number(req.query.campaignId) : undefined,
-    reviewStatus: req.query.reviewStatus,
-    limit: req.query.limit ? Number(req.query.limit) : 50,
-    offset: req.query.offset ? Number(req.query.offset) : 0,
-  });
+  const campaignId = req.query.campaignId
+    ? Number(req.query.campaignId)
+    : undefined;
+  const reviewStatus = req.query.reviewStatus as string | undefined;
+  const leadStatus = req.query.leadStatus as string | undefined;
+  const hasEmailRaw = req.query.hasEmail;
+  const hasEmail =
+    hasEmailRaw !== undefined
+      ? hasEmailRaw === "true" || hasEmailRaw === "1"
+      : undefined;
+  const minScore = req.query.minScore ? Number(req.query.minScore) : undefined;
+  const limit = req.query.limit ? Number(req.query.limit) : 200;
+  const offset = req.query.offset ? Number(req.query.offset) : 0;
 
-  const conditions = [];
-  if (params.campaignId !== undefined) {
-    conditions.push(eq(leadsTable.campaignId, params.campaignId));
+  const conditions: SQL[] = [];
+  if (campaignId !== undefined) {
+    conditions.push(eq(leadsTable.campaignId, campaignId));
   }
-  if (params.reviewStatus !== undefined) {
-    conditions.push(eq(leadsTable.reviewStatus, params.reviewStatus));
+  if (reviewStatus !== undefined) {
+    conditions.push(eq(leadsTable.reviewStatus, reviewStatus));
+  }
+  if (leadStatus !== undefined) {
+    conditions.push(eq(leadsTable.leadStatus, leadStatus));
+  }
+  if (hasEmail === true) {
+    conditions.push(isNotNull(leadsTable.emails));
+  }
+  if (hasEmail === false) {
+    conditions.push(isNull(leadsTable.emails));
+  }
+  if (minScore !== undefined && !isNaN(minScore)) {
+    conditions.push(gte(leadsTable.relevanceScore, minScore));
   }
 
   const leads =
@@ -35,13 +53,9 @@ router.get("/leads", async (req, res) => {
           .select()
           .from(leadsTable)
           .where(and(...conditions))
-          .limit(params.limit ?? 50)
-          .offset(params.offset ?? 0)
-      : await db
-          .select()
-          .from(leadsTable)
-          .limit(params.limit ?? 50)
-          .offset(params.offset ?? 0);
+          .limit(limit)
+          .offset(offset)
+      : await db.select().from(leadsTable).limit(limit).offset(offset);
 
   res.json(leads);
 });
@@ -65,6 +79,8 @@ router.get("/leads/:id", async (req, res) => {
   res.json(lead);
 });
 
+// PATCH is handled by lead-workflow.ts (registered before this router)
+// which records status history. This route is a structural fallback.
 router.patch("/leads/:id", async (req, res) => {
   const { id } = UpdateLeadParams.parse({ id: Number(req.params.id) });
   const body = UpdateLeadBody.parse(req.body);

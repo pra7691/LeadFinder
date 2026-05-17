@@ -2,6 +2,8 @@ export * from "./campaigns";
 export * from "./campaign-keywords";
 export * from "./campaign-countries";
 export * from "./leads";
+export * from "./lead-notes";
+export * from "./lead-status-history";
 export * from "./email-accounts";
 export * from "./campaign-email-accounts";
 export * from "./outreach-queue";

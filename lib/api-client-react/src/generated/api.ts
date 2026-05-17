@@ -22,6 +22,8 @@ import type {
 import type {
   AppSetting,
   AppSettingInput,
+  BulkActionInput,
+  BulkActionResult,
   BulkCrawlInput,
   BulkCrawlSummary,
   BulkScoreInput,
@@ -38,6 +40,8 @@ import type {
   HealthStatus,
   Lead,
   LeadInput,
+  LeadNote,
+  LeadNoteInput,
   LeadPatch,
   ListLeadsParams,
   ListLogsParams,
@@ -45,7 +49,8 @@ import type {
   LogEntry,
   OutreachItem,
   OutreachPatch,
-  ScoreResult
+  ScoreResult,
+  StatusHistoryEntry
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1024,6 +1029,303 @@ export const useDeleteLead = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getDeleteLeadMutationOptions(options));
     }
+
+export const getBulkLeadActionUrl = () => {
+
+
+
+
+  return `/api/leads/bulk-action`
+}
+
+/**
+ * @summary Bulk apply a status action to multiple leads
+ */
+export const bulkLeadAction = async (bulkActionInput: BulkActionInput, options?: RequestInit): Promise<BulkActionResult> => {
+
+  return customFetch<BulkActionResult>(getBulkLeadActionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkActionInput,)
+  }
+);}
+
+
+
+
+export const getBulkLeadActionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkLeadAction>>, TError,{data: BodyType<BulkActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkLeadAction>>, TError,{data: BodyType<BulkActionInput>}, TContext> => {
+
+const mutationKey = ['bulkLeadAction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkLeadAction>>, {data: BodyType<BulkActionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkLeadAction(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkLeadActionMutationResult = NonNullable<Awaited<ReturnType<typeof bulkLeadAction>>>
+    export type BulkLeadActionMutationBody = BodyType<BulkActionInput>
+    export type BulkLeadActionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Bulk apply a status action to multiple leads
+ */
+export const useBulkLeadAction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkLeadAction>>, TError,{data: BodyType<BulkActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkLeadAction>>,
+        TError,
+        {data: BodyType<BulkActionInput>},
+        TContext
+      > => {
+      return useMutation(getBulkLeadActionMutationOptions(options));
+    }
+
+export const getListLeadNotesUrl = (id: number,) => {
+
+
+
+
+  return `/api/leads/${id}/notes`
+}
+
+/**
+ * @summary List notes for a lead
+ */
+export const listLeadNotes = async (id: number, options?: RequestInit): Promise<LeadNote[]> => {
+
+  return customFetch<LeadNote[]>(getListLeadNotesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLeadNotesQueryKey = (id: number,) => {
+    return [
+    `/api/leads/${id}/notes`
+    ] as const;
+    }
+
+
+export const getListLeadNotesQueryOptions = <TData = Awaited<ReturnType<typeof listLeadNotes>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeadNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLeadNotesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLeadNotes>>> = ({ signal }) => listLeadNotes(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLeadNotes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLeadNotesQueryResult = NonNullable<Awaited<ReturnType<typeof listLeadNotes>>>
+export type ListLeadNotesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List notes for a lead
+ */
+
+export function useListLeadNotes<TData = Awaited<ReturnType<typeof listLeadNotes>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeadNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLeadNotesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAddLeadNoteUrl = (id: number,) => {
+
+
+
+
+  return `/api/leads/${id}/notes`
+}
+
+/**
+ * @summary Add a note to a lead
+ */
+export const addLeadNote = async (id: number,
+    leadNoteInput: LeadNoteInput, options?: RequestInit): Promise<LeadNote> => {
+
+  return customFetch<LeadNote>(getAddLeadNoteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      leadNoteInput,)
+  }
+);}
+
+
+
+
+export const getAddLeadNoteMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addLeadNote>>, TError,{id: number;data: BodyType<LeadNoteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addLeadNote>>, TError,{id: number;data: BodyType<LeadNoteInput>}, TContext> => {
+
+const mutationKey = ['addLeadNote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addLeadNote>>, {id: number;data: BodyType<LeadNoteInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  addLeadNote(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddLeadNoteMutationResult = NonNullable<Awaited<ReturnType<typeof addLeadNote>>>
+    export type AddLeadNoteMutationBody = BodyType<LeadNoteInput>
+    export type AddLeadNoteMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add a note to a lead
+ */
+export const useAddLeadNote = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addLeadNote>>, TError,{id: number;data: BodyType<LeadNoteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addLeadNote>>,
+        TError,
+        {id: number;data: BodyType<LeadNoteInput>},
+        TContext
+      > => {
+      return useMutation(getAddLeadNoteMutationOptions(options));
+    }
+
+export const getGetLeadStatusHistoryUrl = (id: number,) => {
+
+
+
+
+  return `/api/leads/${id}/status-history`
+}
+
+/**
+ * @summary Get status change history for a lead
+ */
+export const getLeadStatusHistory = async (id: number, options?: RequestInit): Promise<StatusHistoryEntry[]> => {
+
+  return customFetch<StatusHistoryEntry[]>(getGetLeadStatusHistoryUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLeadStatusHistoryQueryKey = (id: number,) => {
+    return [
+    `/api/leads/${id}/status-history`
+    ] as const;
+    }
+
+
+export const getGetLeadStatusHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getLeadStatusHistory>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeadStatusHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLeadStatusHistoryQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLeadStatusHistory>>> = ({ signal }) => getLeadStatusHistory(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLeadStatusHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLeadStatusHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getLeadStatusHistory>>>
+export type GetLeadStatusHistoryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get status change history for a lead
+ */
+
+export function useGetLeadStatusHistory<TData = Awaited<ReturnType<typeof getLeadStatusHistory>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeadStatusHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLeadStatusHistoryQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getBulkScoreUrl = () => {
 

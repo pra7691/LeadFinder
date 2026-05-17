@@ -10,6 +10,7 @@ import dashboardRouter from "./dashboard";
 import discoveryRouter from "./discovery";
 import crawlRouter from "./crawl";
 import scoreRouter from "./score";
+import leadWorkflowRouter from "./lead-workflow";
 
 const router: IRouter = Router();
 
@@ -17,6 +18,7 @@ router.use(healthRouter);
 router.use(dashboardRouter);
 router.use(campaignsRouter);
 router.use(discoveryRouter);
+router.use(leadWorkflowRouter);
 router.use(scoreRouter);
 router.use(crawlRouter);
 router.use(leadsRouter);

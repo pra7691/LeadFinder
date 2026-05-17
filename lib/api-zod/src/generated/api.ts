@@ -169,12 +169,15 @@ export const RunDiscoveryResponse = zod.object({
 /**
  * @summary List leads (optionally filter by campaign)
  */
-export const listLeadsQueryLimitDefault = 50;
+export const listLeadsQueryLimitDefault = 200;
 export const listLeadsQueryOffsetDefault = 0;
 
 export const ListLeadsQueryParams = zod.object({
   "campaignId": zod.coerce.number().optional(),
   "reviewStatus": zod.coerce.string().optional(),
+  "leadStatus": zod.coerce.string().optional(),
+  "hasEmail": zod.coerce.boolean().optional(),
+  "minScore": zod.coerce.number().optional(),
   "limit": zod.coerce.number().default(listLeadsQueryLimitDefault),
   "offset": zod.coerce.number().default(listLeadsQueryOffsetDefault)
 })
@@ -328,6 +331,71 @@ export const UpdateLeadResponse = zod.object({
 export const DeleteLeadParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
+/**
+ * @summary Bulk apply a status action to multiple leads
+ */
+export const BulkLeadActionBody = zod.object({
+  "action": zod.string(),
+  "leadIds": zod.array(zod.number()).optional(),
+  "campaignId": zod.number().optional()
+})
+
+export const BulkLeadActionResponse = zod.object({
+  "action": zod.string(),
+  "affected": zod.number()
+})
+
+
+/**
+ * @summary List notes for a lead
+ */
+export const ListLeadNotesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListLeadNotesResponseItem = zod.object({
+  "id": zod.number(),
+  "leadId": zod.number(),
+  "authorName": zod.string(),
+  "content": zod.string(),
+  "createdAt": zod.string()
+})
+export const ListLeadNotesResponse = zod.array(ListLeadNotesResponseItem)
+
+
+/**
+ * @summary Add a note to a lead
+ */
+export const AddLeadNoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AddLeadNoteBody = zod.object({
+  "content": zod.string(),
+  "authorName": zod.string().optional()
+})
+
+
+/**
+ * @summary Get status change history for a lead
+ */
+export const GetLeadStatusHistoryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetLeadStatusHistoryResponseItem = zod.object({
+  "id": zod.number(),
+  "leadId": zod.number(),
+  "fromStatus": zod.string().nullish(),
+  "toStatus": zod.string(),
+  "fromReviewStatus": zod.string().nullish(),
+  "toReviewStatus": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const GetLeadStatusHistoryResponse = zod.array(GetLeadStatusHistoryResponseItem)
 
 
 /**

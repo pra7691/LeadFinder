@@ -8,6 +8,8 @@
 
 export * from './appSetting';
 export * from './appSettingInput';
+export * from './bulkActionInput';
+export * from './bulkActionResult';
 export * from './bulkCrawlInput';
 export * from './bulkCrawlSummary';
 export * from './bulkScoreInput';
@@ -24,6 +26,8 @@ export * from './emailAccountPatch';
 export * from './healthStatus';
 export * from './lead';
 export * from './leadInput';
+export * from './leadNote';
+export * from './leadNoteInput';
 export * from './leadPatch';
 export * from './listLeadsParams';
 export * from './listLogsParams';
@@ -32,3 +36,4 @@ export * from './logEntry';
 export * from './outreachItem';
 export * from './outreachPatch';
 export * from './scoreResult';
+export * from './statusHistoryEntry';

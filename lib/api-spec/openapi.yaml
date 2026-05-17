@@ -173,11 +173,23 @@ paths:
           in: query
           schema:
             type: string
+        - name: leadStatus
+          in: query
+          schema:
+            type: string
+        - name: hasEmail
+          in: query
+          schema:
+            type: boolean
+        - name: minScore
+          in: query
+          schema:
+            type: integer
         - name: limit
           in: query
           schema:
             type: integer
-            default: 50
+            default: 200
         - name: offset
           in: query
           schema:
@@ -266,6 +278,90 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /leads/bulk-action:
+    post:
+      operationId: bulkLeadAction
+      tags: [leads]
+      summary: Bulk apply a status action to multiple leads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkActionInput"
+      responses:
+        "200":
+          description: Bulk action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /leads/{id}/notes:
+    get:
+      operationId: listLeadNotes
+      tags: [leads]
+      summary: List notes for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeadNote"
+    post:
+      operationId: addLeadNote
+      tags: [leads]
+      summary: Add a note to a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadNoteInput"
+      responses:
+        "201":
+          description: Created note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadNote"
+
+  /leads/{id}/status-history:
+    get:
+      operationId: getLeadStatusHistory
+      tags: [leads]
+      summary: Get status change history for a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of status history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatusHistoryEntry"
 
   /leads/bulk-score:
     post:
@@ -993,6 +1089,73 @@ components:
           type: array
           items:
             type: string
+
+    LeadNote:
+      type: object
+      required: [id, leadId, authorName, content, createdAt]
+      properties:
+        id:
+          type: integer
+        leadId:
+          type: integer
+        authorName:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+
+    LeadNoteInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        authorName:
+          type: string
+
+    StatusHistoryEntry:
+      type: object
+      required: [id, leadId, toStatus, createdAt]
+      properties:
+        id:
+          type: integer
+        leadId:
+          type: integer
+        fromStatus:
+          type: ["string", "null"]
+        toStatus:
+          type: string
+        fromReviewStatus:
+          type: ["string", "null"]
+        toReviewStatus:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    BulkActionInput:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+        leadIds:
+          type: array
+          items:
+            type: integer
+        campaignId:
+          type: integer
+
+    BulkActionResult:
+      type: object
+      required: [action, affected]
+      properties:
+        action:
+          type: string
+        affected:
+          type: integer
 
     ScoreResult:
       type: object

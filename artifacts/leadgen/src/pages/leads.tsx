@@ -1,10 +1,10 @@
 import {
   useListLeads,
-  useUpdateLead,
   useRunCrawl,
   useBulkCrawl,
   useScoreLead,
   useBulkScore,
+  useBulkLeadAction,
   getListLeadsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,15 +19,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useState } from "react";
 import {
-  Check,
   X,
   Search,
   Globe,
@@ -41,86 +34,96 @@ import {
   Clock,
   Sparkles,
   Filter,
-  TrendingUp,
+  Check,
+  AlertTriangle,
+  Archive,
+  BadgeCheck,
+  ChevronRight,
 } from "lucide-react";
+import { ScoreBadge } from "@/components/ScoreBadge";
+import { LeadDrawer } from "@/components/LeadDrawer";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type CrawlRowState = "idle" | "crawling" | "done" | "error";
 type ScoreRowState = "idle" | "scoring" | "done" | "error";
-type RelevanceFilter = "all" | "high" | "medium" | "low" | "unscored";
 
-// ── Score badge ────────────────────────────────────────────────────────────
+type QuickFilter =
+  | "all"
+  | "pending"
+  | "approved"
+  | "contacted"
+  | "high_relevance"
+  | "no_email"
+  | "invalid"
+  | "low_relevance";
 
-function ScoreBadge({
-  score,
-  reason,
-  rowState,
+// ── Status meta ────────────────────────────────────────────────────────────
+
+const LEAD_STATUS_META: Record<string, { label: string; color: string }> = {
+  discovered:    { label: "Discovered",    color: "bg-slate-500/10 text-slate-400" },
+  crawled:       { label: "Crawled",        color: "bg-sky-500/10 text-sky-400" },
+  scored:        { label: "Scored",         color: "bg-violet-500/10 text-violet-400" },
+  approved:      { label: "Approved",       color: "bg-emerald-500/10 text-emerald-500" },
+  rejected:      { label: "Rejected",       color: "bg-red-500/10 text-red-400" },
+  contacted:     { label: "Contacted",      color: "bg-blue-500/10 text-blue-400" },
+  followup_sent: { label: "Follow-up",      color: "bg-indigo-500/10 text-indigo-400" },
+  invalid:       { label: "Invalid",        color: "bg-orange-500/10 text-orange-400" },
+  archived:      { label: "Archived",       color: "bg-muted text-muted-foreground" },
+  new:           { label: "New",            color: "bg-slate-500/10 text-slate-400" },
+};
+
+const REVIEW_STATUS_META: Record<string, { label: string; color: string }> = {
+  pending:       { label: "Pending",        color: "bg-amber-500/10 text-amber-500" },
+  approved:      { label: "Approved",       color: "bg-emerald-500/10 text-emerald-500" },
+  rejected:      { label: "Rejected",       color: "bg-red-500/10 text-red-400" },
+  low_relevance: { label: "Low Relevance",  color: "bg-orange-500/10 text-orange-400" },
+};
+
+// ── Contact quality ────────────────────────────────────────────────────────
+
+function ContactQualityBadge({
+  emails,
+  phones,
+  linkedin,
 }: {
-  score?: number | null;
-  reason?: string | null;
-  rowState: ScoreRowState;
+  emails?: string | null;
+  phones?: string | null;
+  linkedin?: string | null;
 }) {
-  if (rowState === "scoring") {
+  const hasEmail = !!emails;
+  const hasPhone = !!phones;
+  const hasLinkedin = !!linkedin;
+
+  if (hasEmail && hasPhone && hasLinkedin)
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-primary">
-        <Loader2 className="w-3 h-3 animate-spin" /> Scoring…
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 font-medium">
+        <BadgeCheck className="w-3 h-3" /> Excellent
       </span>
     );
-  }
-
-  if (rowState === "error") {
+  if (hasEmail && (hasPhone || hasLinkedin))
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
-        <AlertCircle className="w-3 h-3" /> Error
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-sky-400 font-medium">
+        <BadgeCheck className="w-3 h-3" /> Good
       </span>
     );
-  }
-
-  const s = score ?? null;
-
-  if (s === null) {
+  if (hasEmail)
     return (
-      <span className="inline-flex items-center text-[11px] text-muted-foreground/40 italic">
-        —
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 font-medium">
+        <MailIcon className="w-3 h-3" /> Email only
       </span>
     );
-  }
-
-  const colorClass =
-    s >= 80
-      ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/30"
-      : s >= 60
-        ? "bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/30"
-        : s >= 40
-          ? "bg-amber-500/15 text-amber-500 ring-1 ring-amber-500/30"
-          : "bg-red-500/15 text-red-400 ring-1 ring-red-500/30";
-
-  const badge = (
-    <span
-      className={`inline-flex items-center justify-center w-[38px] h-[22px] rounded-full text-[11px] font-semibold ${colorClass} cursor-default`}
-    >
-      {s}
+  if (hasPhone)
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-orange-400 font-medium">
+        <Phone className="w-3 h-3" /> Phone only
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/40 italic">
+      No contact
     </span>
   );
-
-  if (reason) {
-    return (
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>{badge}</TooltipTrigger>
-          <TooltipContent
-            side="top"
-            className="max-w-[260px] text-xs text-center"
-          >
-            {reason}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return badge;
 }
 
 // ── Crawl status badge ─────────────────────────────────────────────────────
@@ -141,27 +144,24 @@ function CrawlStatusBadge({
           ? "crawling"
           : (status ?? "pending");
 
-  if (effective === "crawling") {
+  if (effective === "crawling")
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-primary">
         <Loader2 className="w-3 h-3 animate-spin" /> crawling…
       </span>
     );
-  }
-  if (effective === "crawled") {
+  if (effective === "crawled")
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500">
         <CheckCircle2 className="w-3 h-3" /> crawled
       </span>
     );
-  }
-  if (effective === "failed") {
+  if (effective === "failed")
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-destructive">
         <AlertCircle className="w-3 h-3" /> failed
       </span>
     );
-  }
   return (
     <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50">
       <Clock className="w-3 h-3" /> pending
@@ -169,149 +169,122 @@ function CrawlStatusBadge({
   );
 }
 
-// ── Relevance filter tabs ──────────────────────────────────────────────────
+// ── Filter bar ─────────────────────────────────────────────────────────────
 
-const FILTER_OPTIONS: { value: RelevanceFilter; label: string; color?: string }[] = [
-  { value: "all", label: "All" },
-  { value: "high", label: "High ≥80", color: "text-emerald-500" },
-  { value: "medium", label: "Medium 40–79", color: "text-amber-500" },
-  { value: "low", label: "Low <40", color: "text-red-400" },
-  { value: "unscored", label: "Unscored" },
+const FILTERS: { value: QuickFilter; label: string; color?: string }[] = [
+  { value: "all",           label: "All" },
+  { value: "pending",       label: "Pending",        color: "text-amber-500" },
+  { value: "approved",      label: "Approved",       color: "text-emerald-500" },
+  { value: "contacted",     label: "Contacted",      color: "text-blue-400" },
+  { value: "high_relevance",label: "Score ≥80",      color: "text-emerald-400" },
+  { value: "low_relevance", label: "Low Relevance",  color: "text-orange-400" },
+  { value: "no_email",      label: "No Email",       color: "text-muted-foreground" },
+  { value: "invalid",       label: "Invalid",        color: "text-orange-400" },
 ];
 
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function Leads() {
   const { data: leads, isLoading } = useListLeads({ limit: 200 });
-  const updateLead = useUpdateLead();
   const runCrawl = useRunCrawl();
   const bulkCrawl = useBulkCrawl();
   const scoreLeadMut = useScoreLead();
   const bulkScoreMut = useBulkScore();
+  const bulkAction = useBulkLeadAction();
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
-  const [relevanceFilter, setRelevanceFilter] = useState<RelevanceFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<QuickFilter>("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [openLeadId, setOpenLeadId] = useState<number | null>(null);
 
   const [crawlStates, setCrawlStates] = useState<Record<number, CrawlRowState>>({});
   const [scoreStates, setScoreStates] = useState<Record<number, ScoreRowState>>({});
 
-  const [bulkCrawlState, setBulkCrawlState] = useState<"idle" | "running" | "done">("idle");
-  const [bulkCrawlSummary, setBulkCrawlSummary] = useState<{
-    attempted: number;
-    succeeded: number;
-    failed: number;
-  } | null>(null);
-
-  const [bulkScoreState, setBulkScoreState] = useState<"idle" | "running" | "done">("idle");
-  const [bulkScoreSummary, setBulkScoreSummary] = useState<{
-    attempted: number;
-    succeeded: number;
-    failed: number;
-  } | null>(null);
+  type BulkOp = "idle" | "running" | "done";
+  const [bulkCrawlState, setBulkCrawlState] = useState<BulkOp>("idle");
+  const [bulkCrawlSummary, setBulkCrawlSummary] = useState<{ attempted: number; succeeded: number; failed: number } | null>(null);
+  const [bulkScoreState, setBulkScoreState] = useState<BulkOp>("idle");
+  const [bulkScoreSummary, setBulkScoreSummary] = useState<{ attempted: number; succeeded: number; failed: number } | null>(null);
+  const [bulkActionState, setBulkActionState] = useState<BulkOp>("idle");
 
   const invalidateLeads = () =>
     queryClient.invalidateQueries({ queryKey: getListLeadsQueryKey() });
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // ── Per-row actions ──────────────────────────────────────────────────────
 
-  const handleReview = (id: number, status: string) => {
-    updateLead.mutate(
-      { id, data: { reviewStatus: "reviewed", leadStatus: status } },
-      { onSuccess: invalidateLeads },
-    );
-  };
-
-  const handleSingleCrawl = (leadId: number) => {
+  const handleSingleCrawl = (e: React.MouseEvent, leadId: number) => {
+    e.stopPropagation();
     setCrawlStates((s) => ({ ...s, [leadId]: "crawling" }));
     runCrawl.mutate(
       { id: leadId },
       {
-        onSuccess: () => {
-          setCrawlStates((s) => ({ ...s, [leadId]: "done" }));
-          invalidateLeads();
-        },
-        onError: () => {
-          setCrawlStates((s) => ({ ...s, [leadId]: "error" }));
-          invalidateLeads();
-        },
+        onSuccess: () => { setCrawlStates((s) => ({ ...s, [leadId]: "done" })); invalidateLeads(); },
+        onError:   () => { setCrawlStates((s) => ({ ...s, [leadId]: "error" })); invalidateLeads(); },
       },
     );
   };
 
-  const handleSingleScore = (leadId: number) => {
+  const handleSingleScore = (e: React.MouseEvent, leadId: number) => {
+    e.stopPropagation();
     setScoreStates((s) => ({ ...s, [leadId]: "scoring" }));
     scoreLeadMut.mutate(
       { id: leadId },
       {
-        onSuccess: () => {
-          setScoreStates((s) => ({ ...s, [leadId]: "done" }));
-          invalidateLeads();
-        },
-        onError: () => {
-          setScoreStates((s) => ({ ...s, [leadId]: "error" }));
-          invalidateLeads();
-        },
+        onSuccess: () => { setScoreStates((s) => ({ ...s, [leadId]: "done" })); invalidateLeads(); },
+        onError:   () => { setScoreStates((s) => ({ ...s, [leadId]: "error" })); invalidateLeads(); },
       },
     );
   };
 
-  const handleBulkCrawl = () => {
-    const ids =
-      selected.size > 0
-        ? [...selected]
-        : (searchFiltered?.map((l) => l.id) ?? []);
-    if (ids.length === 0) return;
+  // ── Bulk ops ─────────────────────────────────────────────────────────────
 
+  const isBulkBusy = bulkCrawlState === "running" || bulkScoreState === "running" || bulkActionState === "running";
+
+  const selectedIds = [...selected];
+
+  const handleBulkCrawl = () => {
+    const ids = selectedIds.length > 0 ? selectedIds : (searchFiltered?.map((l) => l.id) ?? []);
+    if (!ids.length) return;
     setBulkCrawlState("running");
-    setBulkCrawlSummary(null);
     bulkCrawl.mutate(
       { data: { leadIds: ids } },
       {
-        onSuccess: (result) => {
-          setBulkCrawlState("done");
-          setBulkCrawlSummary({
-            attempted: result.attempted,
-            succeeded: result.succeeded,
-            failed: result.failed,
-          });
-          invalidateLeads();
-        },
-        onError: () => setBulkCrawlState("idle"),
+        onSuccess: (r) => { setBulkCrawlState("done"); setBulkCrawlSummary({ attempted: r.attempted, succeeded: r.succeeded, failed: r.failed }); invalidateLeads(); },
+        onError:   () => setBulkCrawlState("idle"),
       },
     );
   };
 
   const handleBulkScore = () => {
-    const ids =
-      selected.size > 0
-        ? [...selected]
-        : (searchFiltered?.map((l) => l.id) ?? []);
-    if (ids.length === 0) return;
-
+    const ids = selectedIds.length > 0 ? selectedIds : (searchFiltered?.map((l) => l.id) ?? []);
+    if (!ids.length) return;
     setBulkScoreState("running");
-    setBulkScoreSummary(null);
     bulkScoreMut.mutate(
       { data: { leadIds: ids } },
       {
-        onSuccess: (result) => {
-          setBulkScoreState("done");
-          setBulkScoreSummary({
-            attempted: result.attempted,
-            succeeded: result.succeeded,
-            failed: result.failed,
-          });
-          invalidateLeads();
-        },
-        onError: () => setBulkScoreState("idle"),
+        onSuccess: (r) => { setBulkScoreState("done"); setBulkScoreSummary({ attempted: r.attempted, succeeded: r.succeeded, failed: r.failed }); invalidateLeads(); },
+        onError:   () => setBulkScoreState("idle"),
+      },
+    );
+  };
+
+  const handleBulkActionOp = (action: string) => {
+    if (!selectedIds.length) return;
+    setBulkActionState("running");
+    bulkAction.mutate(
+      { data: { action, leadIds: selectedIds } },
+      {
+        onSuccess: () => { setBulkActionState("done"); setSelected(new Set()); invalidateLeads(); setTimeout(() => setBulkActionState("idle"), 1500); },
+        onError:   () => setBulkActionState("idle"),
       },
     );
   };
 
   // ── Selection ─────────────────────────────────────────────────────────────
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (e: React.MouseEvent | React.ChangeEvent, id: number) => {
+    e.stopPropagation?.();
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -328,51 +301,47 @@ export function Leads() {
   );
 
   const filteredLeads = searchFiltered?.filter((l) => {
-    if (relevanceFilter === "all") return true;
-    if (relevanceFilter === "unscored") return l.relevanceScore == null;
-    const s = l.relevanceScore ?? -1;
-    if (relevanceFilter === "high") return s >= 80;
-    if (relevanceFilter === "medium") return s >= 40 && s < 80;
-    if (relevanceFilter === "low") return s >= 0 && s < 40;
-    return true;
+    switch (activeFilter) {
+      case "pending":        return l.reviewStatus === "pending";
+      case "approved":       return l.reviewStatus === "approved" || l.leadStatus === "approved";
+      case "contacted":      return l.leadStatus === "contacted" || l.leadStatus === "followup_sent";
+      case "high_relevance": return (l.relevanceScore ?? -1) >= 80;
+      case "low_relevance":  return l.reviewStatus === "low_relevance";
+      case "no_email":       return !l.emails;
+      case "invalid":        return l.leadStatus === "invalid";
+      default:               return true;
+    }
   });
 
   const allSelected =
-    !!filteredLeads &&
-    filteredLeads.length > 0 &&
-    filteredLeads.every((l) => selected.has(l.id));
+    !!filteredLeads && filteredLeads.length > 0 && filteredLeads.every((l) => selected.has(l.id));
 
-  const toggleAll = () =>
+  const toggleAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
     allSelected
       ? setSelected(new Set())
       : setSelected(new Set(filteredLeads?.map((l) => l.id) ?? []));
-
-  const selectionLabel = selected.size > 0 ? `${selected.size} selected` : null;
-
-  const crawlLabel =
-    selected.size > 0 ? `Crawl ${selected.size}` : `Crawl all`;
-  const scoreLabel =
-    selected.size > 0 ? `Score ${selected.size}` : `Score all`;
-
-  const isBulkBusy = bulkCrawlState === "running" || bulkScoreState === "running";
-
-  // ── Counts for filter tabs ─────────────────────────────────────────────
-
-  const countFor = (f: RelevanceFilter) => {
-    if (!searchFiltered) return 0;
-    if (f === "all") return searchFiltered.length;
-    if (f === "unscored") return searchFiltered.filter((l) => l.relevanceScore == null).length;
-    return searchFiltered.filter((l) => {
-      const s = l.relevanceScore ?? -1;
-      if (f === "high") return s >= 80;
-      if (f === "medium") return s >= 40 && s < 80;
-      if (f === "low") return s >= 0 && s < 40;
-      return false;
-    }).length;
   };
 
+  const countFor = (f: QuickFilter) => {
+    if (!searchFiltered) return 0;
+    switch (f) {
+      case "all":            return searchFiltered.length;
+      case "pending":        return searchFiltered.filter((l) => l.reviewStatus === "pending").length;
+      case "approved":       return searchFiltered.filter((l) => l.reviewStatus === "approved" || l.leadStatus === "approved").length;
+      case "contacted":      return searchFiltered.filter((l) => l.leadStatus === "contacted" || l.leadStatus === "followup_sent").length;
+      case "high_relevance": return searchFiltered.filter((l) => (l.relevanceScore ?? -1) >= 80).length;
+      case "low_relevance":  return searchFiltered.filter((l) => l.reviewStatus === "low_relevance").length;
+      case "no_email":       return searchFiltered.filter((l) => !l.emails).length;
+      case "invalid":        return searchFiltered.filter((l) => l.leadStatus === "invalid").length;
+    }
+  };
+
+  const crawlLabel  = selectedIds.length > 0 ? `Crawl ${selectedIds.length}` : "Crawl all";
+  const scoreLabel  = selectedIds.length > 0 ? `Score ${selectedIds.length}` : "Score all";
+
   return (
-    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-3xl font-semibold tracking-tight">Leads Queue</h1>
@@ -387,126 +356,87 @@ export function Leads() {
               data-testid="lead-search"
             />
           </div>
-
-          {/* Bulk crawl */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl gap-1.5"
-            onClick={handleBulkCrawl}
-            disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0}
-            data-testid="btn-bulk-crawl"
-          >
-            {bulkCrawlState === "running" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Layers className="w-4 h-4" />
-            )}
+          <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={handleBulkCrawl}
+            disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0} data-testid="btn-bulk-crawl">
+            {bulkCrawlState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
             {bulkCrawlState === "running" ? "Crawling…" : crawlLabel}
           </Button>
-
-          {/* Bulk score */}
-          <Button
-            variant="outline"
-            size="sm"
+          <Button variant="outline" size="sm"
             className="rounded-xl gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
-            onClick={handleBulkScore}
-            disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0}
-            data-testid="btn-bulk-score"
-          >
-            {bulkScoreState === "running" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4" />
-            )}
+            onClick={handleBulkScore} disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0} data-testid="btn-bulk-score">
+            {bulkScoreState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {bulkScoreState === "running" ? "Scoring…" : scoreLabel}
           </Button>
         </div>
       </div>
 
-      {/* Relevance filter tabs */}
+      {/* Filter tabs */}
       <div className="flex items-center gap-1 flex-wrap">
-        <Filter className="w-3.5 h-3.5 text-muted-foreground mr-1" />
-        {FILTER_OPTIONS.map((opt) => {
+        <Filter className="w-3.5 h-3.5 text-muted-foreground mr-1 shrink-0" />
+        {FILTERS.map((opt) => {
           const count = countFor(opt.value);
-          const active = relevanceFilter === opt.value;
+          const active = activeFilter === opt.value;
           return (
-            <button
-              key={opt.value}
-              onClick={() => setRelevanceFilter(opt.value)}
+            <button key={opt.value} onClick={() => setActiveFilter(opt.value)}
               data-testid={`filter-${opt.value}`}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium transition-all ${
-                active
-                  ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-              }`}
-            >
+                active ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}>
               <span className={active ? "" : (opt.color ?? "")}>{opt.label}</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  active ? "bg-primary/20" : "bg-muted"
-                }`}
-              >
-                {count}
-              </span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? "bg-primary/20" : "bg-muted"}`}>{count}</span>
             </button>
           );
         })}
-        {selectionLabel && (
-          <span className="ml-auto text-[12px] text-muted-foreground">
-            <TrendingUp className="w-3.5 h-3.5 inline mr-1 opacity-60" />
-            {selectionLabel}
-          </span>
-        )}
       </div>
 
-      {/* Bulk crawl result banner */}
-      {bulkCrawlState === "done" && bulkCrawlSummary && (
-        <div
-          className="glass-card p-4 flex items-center gap-3 text-sm"
-          data-testid="bulk-crawl-summary"
-        >
-          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-          <span>
-            Bulk crawl complete —{" "}
-            <strong>{bulkCrawlSummary.succeeded}</strong> succeeded,{" "}
-            <strong>{bulkCrawlSummary.failed}</strong> failed out of{" "}
-            <strong>{bulkCrawlSummary.attempted}</strong> attempted.
+      {/* Bulk action toolbar — appears when items are selected */}
+      {selectedIds.length > 0 && (
+        <div className="glass-card p-3 flex items-center gap-2 flex-wrap" data-testid="bulk-action-bar">
+          <span className="text-sm font-medium text-foreground mr-1">
+            {selectedIds.length} selected
           </span>
-          <button
-            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => {
-              setBulkCrawlState("idle");
-              setBulkCrawlSummary(null);
-            }}
-          >
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10"
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("approve")}>
+            <Check className="w-3 h-3" /> Approve
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("reject")}>
+            <X className="w-3 h-3" /> Reject
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-orange-400 border-orange-400/30 hover:bg-orange-400/10"
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("invalid")}>
+            <AlertTriangle className="w-3 h-3" /> Invalid
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-muted-foreground"
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
+            <Archive className="w-3 h-3" /> Archive
+          </Button>
+          {bulkActionState === "running" && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          {bulkActionState === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+          <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={() => setSelected(new Set())}>
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Bulk score result banner */}
+      {/* Banners */}
+      {bulkCrawlState === "done" && bulkCrawlSummary && (
+        <div className="glass-card p-4 flex items-center gap-3 text-sm" data-testid="bulk-crawl-summary">
+          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+          <span>Bulk crawl complete — <strong>{bulkCrawlSummary.succeeded}</strong> succeeded, <strong>{bulkCrawlSummary.failed}</strong> failed out of <strong>{bulkCrawlSummary.attempted}</strong>.</span>
+          <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={() => { setBulkCrawlState("idle"); setBulkCrawlSummary(null); }}><X className="w-4 h-4" /></button>
+        </div>
+      )}
       {bulkScoreState === "done" && bulkScoreSummary && (
-        <div
-          className="glass-card p-4 flex items-center gap-3 text-sm border-primary/20"
-          data-testid="bulk-score-summary"
-        >
+        <div className="glass-card p-4 flex items-center gap-3 text-sm border-primary/20" data-testid="bulk-score-summary">
           <Sparkles className="w-5 h-5 text-primary shrink-0" />
-          <span>
-            Bulk scoring complete —{" "}
-            <strong>{bulkScoreSummary.succeeded}</strong> scored,{" "}
-            <strong>{bulkScoreSummary.failed}</strong> failed out of{" "}
-            <strong>{bulkScoreSummary.attempted}</strong> attempted.
-          </span>
-          <button
-            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => {
-              setBulkScoreState("idle");
-              setBulkScoreSummary(null);
-            }}
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <span>Bulk scoring complete — <strong>{bulkScoreSummary.succeeded}</strong> scored, <strong>{bulkScoreSummary.failed}</strong> failed out of <strong>{bulkScoreSummary.attempted}</strong>.</span>
+          <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={() => { setBulkScoreState("idle"); setBulkScoreSummary(null); }}><X className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -516,35 +446,25 @@ export function Leads() {
           <TableHeader className="bg-muted/30">
             <TableRow className="border-border/30 hover:bg-transparent">
               <TableHead className="w-10 pl-4">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={toggleAll}
-                  aria-label="Select all"
-                  data-testid="checkbox-select-all"
-                />
+                <Checkbox checked={allSelected} onCheckedChange={() => {}} onClick={toggleAll}
+                  aria-label="Select all" data-testid="checkbox-select-all" />
               </TableHead>
               <TableHead className="w-[190px]">Company</TableHead>
-              <TableHead>Domain</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead className="w-[110px]">Crawl</TableHead>
-              <TableHead className="w-[130px]">Score</TableHead>
-              <TableHead className="w-[160px]">Status</TableHead>
-              <TableHead className="text-right w-[100px]">Actions</TableHead>
+              <TableHead>Domain / Contact</TableHead>
+              <TableHead className="w-[90px]">Crawl</TableHead>
+              <TableHead className="w-[120px]">Score</TableHead>
+              <TableHead className="w-[180px]">Status</TableHead>
+              <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="h-32 text-center text-muted-foreground animate-pulse"
-                >
-                  Loading leads…
-                </TableCell>
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground animate-pulse">Loading leads…</TableCell>
               </TableRow>
             ) : filteredLeads?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center">
+                <TableCell colSpan={7} className="h-32 text-center">
                   <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                     <Search className="w-6 h-6 opacity-20" />
                     <p>No leads found.</p>
@@ -556,175 +476,112 @@ export function Leads() {
                 const crawlRowState = crawlStates[lead.id] ?? "idle";
                 const scoreRowState = scoreStates[lead.id] ?? "idle";
                 const isCrawling = crawlRowState === "crawling";
-                const isScoring = scoreRowState === "scoring";
+                const isScoring  = scoreRowState === "scoring";
+                const lsMeta = LEAD_STATUS_META[lead.leadStatus] ?? { label: lead.leadStatus, color: "bg-muted text-muted-foreground" };
+                const rvMeta = REVIEW_STATUS_META[lead.reviewStatus] ?? { label: lead.reviewStatus, color: "bg-muted text-muted-foreground" };
 
                 return (
                   <TableRow
                     key={lead.id}
-                    className="group border-border/30 transition-colors"
+                    className="group border-border/30 transition-colors cursor-pointer hover:bg-muted/20"
                     data-testid={`lead-row-${lead.id}`}
+                    onClick={() => setOpenLeadId(lead.id)}
                   >
                     {/* Select */}
-                    <TableCell className="pl-4">
-                      <Checkbox
-                        checked={selected.has(lead.id)}
-                        onCheckedChange={() => toggleSelect(lead.id)}
+                    <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox checked={selected.has(lead.id)}
+                        onCheckedChange={() => {}}
+                        onClick={(e) => toggleSelect(e, lead.id)}
                         aria-label={`Select ${lead.companyName}`}
-                        data-testid={`checkbox-lead-${lead.id}`}
-                      />
+                        data-testid={`checkbox-lead-${lead.id}`} />
                     </TableCell>
 
                     {/* Company */}
-                    <TableCell className="font-medium text-foreground">
-                      {lead.companyName}
+                    <TableCell className="font-medium text-foreground leading-tight">
+                      <div>{lead.companyName}</div>
+                      <ContactQualityBadge emails={lead.emails} phones={lead.phoneNumbers} linkedin={lead.linkedinUrl} />
                     </TableCell>
 
-                    {/* Domain */}
-                    <TableCell>
-                      <a
-                        href={`https://${lead.rootDomain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center text-muted-foreground hover:text-primary transition-colors text-sm"
-                      >
-                        <Globe className="w-3.5 h-3.5 mr-1.5 opacity-70" />
-                        {lead.rootDomain}
-                      </a>
-                    </TableCell>
-
-                    {/* Contact */}
+                    {/* Domain + contact */}
                     <TableCell>
                       <div className="space-y-0.5">
+                        <a href={`https://${lead.rootDomain}`} target="_blank" rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center text-muted-foreground hover:text-primary transition-colors text-sm">
+                          <Globe className="w-3.5 h-3.5 mr-1.5 opacity-70" />{lead.rootDomain}
+                        </a>
                         {lead.emails ? (
                           <div className="flex items-center text-[11px] text-muted-foreground gap-1">
                             <MailIcon className="w-3 h-3 opacity-60 shrink-0" />
-                            <span className="truncate max-w-[150px] font-mono">
-                              {lead.emails.split(",")[0]?.trim()}
-                            </span>
+                            <span className="truncate max-w-[160px] font-mono">{lead.emails.split(",")[0]?.trim()}</span>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-muted-foreground/40 italic">
-                            No email
-                          </span>
+                          <span className="text-[11px] text-muted-foreground/30 italic">No email</span>
                         )}
                         {lead.phoneNumbers && (
                           <div className="flex items-center text-[11px] text-muted-foreground/70 gap-1">
                             <Phone className="w-3 h-3 opacity-60 shrink-0" />
-                            <span className="truncate max-w-[150px] font-mono">
-                              {lead.phoneNumbers.split(",")[0]?.trim()}
-                            </span>
+                            <span className="truncate max-w-[160px] font-mono">{lead.phoneNumbers.split(",")[0]?.trim()}</span>
                           </div>
                         )}
                       </div>
                     </TableCell>
 
-                    {/* Crawl status + per-row button */}
-                    <TableCell>
+                    {/* Crawl */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-col gap-1">
-                        <CrawlStatusBadge
-                          status={lead.crawlStatus}
-                          rowState={crawlRowState}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        <CrawlStatusBadge status={lead.crawlStatus} rowState={crawlRowState} />
+                        <Button variant="ghost" size="sm"
                           className="h-7 px-2 rounded-lg text-[11px] gap-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 w-fit"
-                          onClick={() => handleSingleCrawl(lead.id)}
-                          disabled={isCrawling || isBulkBusy}
-                          data-testid={`btn-crawl-${lead.id}`}
-                        >
-                          {isCrawling ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <ScanSearch className="w-3 h-3" />
-                          )}
+                          onClick={(e) => handleSingleCrawl(e, lead.id)}
+                          disabled={isCrawling || isBulkBusy} data-testid={`btn-crawl-${lead.id}`}>
+                          {isCrawling ? <Loader2 className="w-3 h-3 animate-spin" /> : <ScanSearch className="w-3 h-3" />}
                           {isCrawling ? "Crawling" : "Crawl"}
                         </Button>
                       </div>
                     </TableCell>
 
-                    {/* Relevance score + per-row button */}
-                    <TableCell>
+                    {/* Score */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-col gap-1">
-                        <ScoreBadge
-                          score={lead.relevanceScore}
-                          reason={lead.relevanceReason}
-                          rowState={scoreRowState}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        {scoreRowState === "scoring" ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Scoring…
+                          </span>
+                        ) : scoreRowState === "error" ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
+                            <AlertCircle className="w-3 h-3" /> Error
+                          </span>
+                        ) : lead.relevanceScore != null ? (
+                          <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} />
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground/40 italic">—</span>
+                        )}
+                        <Button variant="ghost" size="sm"
                           className="h-7 px-2 rounded-lg text-[11px] gap-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 w-fit"
-                          onClick={() => handleSingleScore(lead.id)}
-                          disabled={isScoring || isBulkBusy}
-                          data-testid={`btn-score-${lead.id}`}
-                        >
-                          {isScoring ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3 h-3" />
-                          )}
+                          onClick={(e) => handleSingleScore(e, lead.id)}
+                          disabled={isScoring || isBulkBusy} data-testid={`btn-score-${lead.id}`}>
+                          {isScoring ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
                           {isScoring ? "Scoring" : "Score"}
                         </Button>
                       </div>
                     </TableCell>
 
-                    {/* Review + lead status */}
+                    {/* Status */}
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[11px] font-medium capitalize ${
-                            lead.reviewStatus === "pending"
-                              ? "bg-amber-500/10 text-amber-500"
-                              : lead.reviewStatus === "low_relevance"
-                                ? "bg-red-500/10 text-red-400"
-                                : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {lead.reviewStatus === "low_relevance"
-                            ? "low relevance"
-                            : lead.reviewStatus}
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium w-fit ${lsMeta.color}`}>
+                          {lsMeta.label}
                         </span>
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[11px] font-medium capitalize ${
-                            lead.leadStatus === "approved"
-                              ? "bg-primary/10 text-primary"
-                              : lead.leadStatus === "rejected"
-                                ? "bg-destructive/10 text-destructive"
-                                : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {lead.leadStatus}
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium w-fit ${rvMeta.color}`}>
+                          {rvMeta.label}
                         </span>
                       </div>
                     </TableCell>
 
-                    {/* Approve / reject */}
-                    <TableCell className="text-right">
-                      {lead.reviewStatus === "pending" && (
-                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 rounded-full text-primary hover:bg-primary/10"
-                            onClick={() => handleReview(lead.id, "approved")}
-                            disabled={updateLead.isPending}
-                            data-testid={`btn-approve-${lead.id}`}
-                          >
-                            <Check className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 rounded-full text-destructive hover:bg-destructive/10"
-                            onClick={() => handleReview(lead.id, "rejected")}
-                            disabled={updateLead.isPending}
-                            data-testid={`btn-reject-${lead.id}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
+                    {/* Open chevron */}
+                    <TableCell className="text-right pr-3">
+                      <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                     </TableCell>
                   </TableRow>
                 );
@@ -733,6 +590,9 @@ export function Leads() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Lead detail drawer */}
+      <LeadDrawer leadId={openLeadId} onClose={() => setOpenLeadId(null)} />
     </div>
   );
 }
