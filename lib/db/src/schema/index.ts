@@ -9,6 +9,7 @@ export * from "./lead-lists";
 export * from "./lead-list-items";
 export * from "./email-accounts";
 export * from "./campaign-email-accounts";
+export * from "./email-templates";
 export * from "./outreach-queue";
 export * from "./logs";
 export * from "./app-settings";

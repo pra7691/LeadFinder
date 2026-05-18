@@ -394,6 +394,116 @@ export const GetCampaignRunLeadsResponse = zod.array(GetCampaignRunLeadsResponse
 
 
 /**
+ * @summary List all email templates
+ */
+export const ListEmailTemplatesQueryParams = zod.object({
+  "includeInactive": zod.coerce.boolean().optional()
+})
+
+export const ListEmailTemplatesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "personalizationPrompt": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListEmailTemplatesResponse = zod.array(ListEmailTemplatesResponseItem)
+
+
+/**
+ * @summary Create a template
+ */
+
+
+
+export const createEmailTemplateBodyIsActiveDefault = true;
+
+export const CreateEmailTemplateBody = zod.object({
+  "name": zod.string().min(1),
+  "subject": zod.string().min(1),
+  "body": zod.string().min(1),
+  "personalizationPrompt": zod.string().optional(),
+  "isActive": zod.boolean().default(createEmailTemplateBodyIsActiveDefault)
+})
+
+
+/**
+ * @summary Get a template
+ */
+export const GetEmailTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetEmailTemplateResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "personalizationPrompt": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update a template
+ */
+export const UpdateEmailTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateEmailTemplateBody = zod.object({
+  "name": zod.string().optional(),
+  "subject": zod.string().optional(),
+  "body": zod.string().optional(),
+  "personalizationPrompt": zod.string().nullish(),
+  "isActive": zod.boolean().optional()
+})
+
+export const UpdateEmailTemplateResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "personalizationPrompt": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a template
+ */
+export const DeleteEmailTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Preview a template rendered with sample data or a lead
+ */
+export const PreviewEmailTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PreviewEmailTemplateBody = zod.object({
+  "leadId": zod.number().optional(),
+  "sampleData": zod.record(zod.string(), zod.string()).optional()
+})
+
+export const PreviewEmailTemplateResponse = zod.object({
+  "subject": zod.string(),
+  "body": zod.string(),
+  "aiUsed": zod.boolean().optional()
+})
+
+
+/**
  * @summary List all lead lists
  */
 export const ListLeadListsQueryParams = zod.object({
@@ -1082,9 +1192,11 @@ export const ListOutreachQueryParams = zod.object({
 
 export const ListOutreachResponseItem = zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1108,9 +1220,48 @@ export const ListOutreachResponse = zod.array(ListOutreachResponseItem)
  */
 export const QueueLeadBody = zod.object({
   "leadId": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().optional(),
+  "emailTemplateId": zod.number().optional(),
   "emailAccountId": zod.number().optional(),
+  "listId": zod.number().optional(),
   "recipientEmail": zod.string().optional()
+})
+
+
+/**
+ * @summary Create outreach drafts for all leads in a list
+ */
+export const OutreachFromListBody = zod.object({
+  "listId": zod.number(),
+  "emailTemplateId": zod.number(),
+  "emailAccountId": zod.number().optional()
+})
+
+export const OutreachFromListResponse = zod.object({
+  "queued": zod.number(),
+  "skipped": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number().nullish(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.string(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional()
 })
 
 
@@ -1119,8 +1270,10 @@ export const QueueLeadBody = zod.object({
  */
 export const BulkQueueLeadsBody = zod.object({
   "leadIds": zod.array(zod.number()),
-  "campaignId": zod.number(),
-  "emailAccountId": zod.number().optional()
+  "campaignId": zod.number().optional(),
+  "emailTemplateId": zod.number().optional(),
+  "emailAccountId": zod.number().optional(),
+  "listId": zod.number().optional()
 })
 
 export const BulkQueueLeadsResponse = zod.object({
@@ -1128,9 +1281,11 @@ export const BulkQueueLeadsResponse = zod.object({
   "skipped": zod.number(),
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1178,9 +1333,11 @@ export const UpdateOutreachBody = zod.object({
 
 export const UpdateOutreachResponse = zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1215,9 +1372,11 @@ export const ApproveOutreachParams = zod.object({
 
 export const ApproveOutreachResponse = zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1244,9 +1403,11 @@ export const SendOutreachItemParams = zod.object({
 
 export const SendOutreachItemResponse = zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1273,9 +1434,11 @@ export const RetryOutreachItemParams = zod.object({
 
 export const RetryOutreachItemResponse = zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1302,9 +1465,11 @@ export const SendOutreachBatchResponse = zod.object({
   "skipped": zod.number(),
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "campaignId": zod.number(),
+  "campaignId": zod.number().nullish(),
   "leadId": zod.number(),
   "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
@@ -1378,6 +1543,16 @@ export const ListLogsResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const ListLogsResponse = zod.array(ListLogsResponseItem)
+
+
+/**
+ * @summary Test AI (OpenAI) connection
+ */
+export const TestAIConnectionResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string(),
+  "model": zod.string().nullish()
+})
 
 
 /**

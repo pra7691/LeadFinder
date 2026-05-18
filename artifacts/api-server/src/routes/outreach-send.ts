@@ -102,14 +102,18 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
     .select({ companyName: leadsTable.companyName })
     .from(leadsTable)
     .where(eq(leadsTable.id, item.leadId));
-  const [campaign] = await db
-    .select({ name: campaignsTable.name })
-    .from(campaignsTable)
-    .where(eq(campaignsTable.id, item.campaignId));
+  let campaignName: string | null = null;
+  if (item.campaignId !== null) {
+    const [campaign] = await db
+      .select({ name: campaignsTable.name })
+      .from(campaignsTable)
+      .where(eq(campaignsTable.id, item.campaignId));
+    campaignName = campaign?.name ?? null;
+  }
   return {
     ...item,
     companyName: lead?.companyName ?? null,
-    campaignName: campaign?.name ?? null,
+    campaignName,
   };
 }
 
@@ -120,9 +124,9 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
 async function doSend(
   item: typeof outreachQueueTable.$inferSelect,
   account: typeof emailAccountsTable.$inferSelect,
-  campaign: typeof campaignsTable.$inferSelect,
+  campaign?: typeof campaignsTable.$inferSelect,
 ): Promise<boolean> {
-  const fullBody = buildEmailBody(item.body, campaign.unsubscribeFooter ?? null);
+  const fullBody = buildEmailBody(item.body, campaign?.unsubscribeFooter ?? null);
 
   try {
     const transporter = await getTransporter(account);
@@ -201,21 +205,22 @@ async function antiSpamCheck(
     return { ok: false, reason: "Lead has been rejected or marked invalid" };
   }
 
-  // No duplicate sends — check if same lead+campaign already sent
-  const duplicate = await db
-    .select({ id: outreachQueueTable.id })
-    .from(outreachQueueTable)
-    .where(
-      and(
-        eq(outreachQueueTable.leadId, item.leadId),
-        eq(outreachQueueTable.campaignId, item.campaignId),
-        eq(outreachQueueTable.status, "sent"),
-      ),
-    )
-    .limit(1);
-
-  if (duplicate.length > 0 && duplicate[0].id !== item.id) {
-    return { ok: false, reason: "Email already sent to this lead for this campaign" };
+  // No duplicate sends — check if same lead+campaign already sent (only when campaign is set)
+  if (item.campaignId !== null) {
+    const duplicate = await db
+      .select({ id: outreachQueueTable.id })
+      .from(outreachQueueTable)
+      .where(
+        and(
+          eq(outreachQueueTable.leadId, item.leadId),
+          eq(outreachQueueTable.campaignId, item.campaignId),
+          eq(outreachQueueTable.status, "sent"),
+        ),
+      )
+      .limit(1);
+    if (duplicate.length > 0 && duplicate[0].id !== item.id) {
+      return { ok: false, reason: "Email already sent to this lead for this campaign" };
+    }
   }
 
   return { ok: true };
@@ -254,23 +259,27 @@ router.post("/outreach/send-batch", async (req, res) => {
       continue;
     }
 
-    // Load campaign
-    if (!campaignCache.has(item.campaignId)) {
-      const [c] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, item.campaignId));
-      if (c) campaignCache.set(item.campaignId, c);
-    }
-    const campaign = campaignCache.get(item.campaignId);
-    if (!campaign) { skipped++; continue; }
+    // Load campaign (optional — outreach items can exist without a campaign)
+    let campaign: typeof campaignsTable.$inferSelect | undefined;
+    if (item.campaignId !== null) {
+      if (!campaignCache.has(item.campaignId)) {
+        const [c] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, item.campaignId));
+        if (c) campaignCache.set(item.campaignId, c);
+      }
+      campaign = campaignCache.get(item.campaignId);
 
-    // Campaign daily limit
-    if (!campaignSentToday.has(item.campaignId)) {
-      campaignSentToday.set(item.campaignId, await getCampaignSentToday(item.campaignId));
-    }
-    const campSent = campaignSentToday.get(item.campaignId) ?? 0;
-    if (campSent >= campaign.maxEmailsPerDay) {
-      await logSend(item.campaignId, "send_skip", `Campaign daily limit reached (${campaign.maxEmailsPerDay})`, { outreachId: item.id });
-      skipped++;
-      continue;
+      // Campaign daily limit (only when campaign exists)
+      if (campaign) {
+        if (!campaignSentToday.has(item.campaignId)) {
+          campaignSentToday.set(item.campaignId, await getCampaignSentToday(item.campaignId));
+        }
+        const campSent = campaignSentToday.get(item.campaignId) ?? 0;
+        if (campSent >= campaign.maxEmailsPerDay) {
+          await logSend(item.campaignId, "send_skip", `Campaign daily limit reached (${campaign.maxEmailsPerDay})`, { outreachId: item.id });
+          skipped++;
+          continue;
+        }
+      }
     }
 
     // Load email account
@@ -311,7 +320,10 @@ router.post("/outreach/send-batch", async (req, res) => {
 
     if (success) {
       sent++;
-      campaignSentToday.set(item.campaignId, campSent + 1);
+      if (item.campaignId !== null) {
+        const campSent = campaignSentToday.get(item.campaignId) ?? 0;
+        campaignSentToday.set(item.campaignId, campSent + 1);
+      }
       accountSentToday.set(accountId, acctSent + 1);
       // Refresh account cache counter
       const acct = accountCache.get(accountId)!;
@@ -449,21 +461,20 @@ router.post("/outreach/:id/send", async (req, res) => {
     return;
   }
 
-  const [campaign] = await db
-    .select()
-    .from(campaignsTable)
-    .where(eq(campaignsTable.id, item.campaignId));
-
-  if (!campaign) {
-    res.status(400).json({ error: "Campaign not found" });
-    return;
-  }
-
-  // Campaign daily limit
-  const campSent = await getCampaignSentToday(item.campaignId);
-  if (campSent >= campaign.maxEmailsPerDay) {
-    res.status(429).json({ error: `Campaign daily limit reached (${campaign.maxEmailsPerDay})` });
-    return;
+  let campaign: typeof campaignsTable.$inferSelect | undefined;
+  if (item.campaignId !== null) {
+    const [c] = await db
+      .select()
+      .from(campaignsTable)
+      .where(eq(campaignsTable.id, item.campaignId));
+    campaign = c;
+    if (campaign) {
+      const campSent = await getCampaignSentToday(item.campaignId);
+      if (campSent >= campaign.maxEmailsPerDay) {
+        res.status(429).json({ error: `Campaign daily limit reached (${campaign.maxEmailsPerDay})` });
+        return;
+      }
+    }
   }
 
   await doSend(item, account, campaign);
@@ -527,17 +538,16 @@ router.post("/outreach/:id/retry", async (req, res) => {
     return;
   }
 
-  const [campaign] = await db
-    .select()
-    .from(campaignsTable)
-    .where(eq(campaignsTable.id, resetItem.campaignId));
-
-  if (!campaign) {
-    res.status(400).json({ error: "Campaign not found" });
-    return;
+  let retryCampaign: typeof campaignsTable.$inferSelect | undefined;
+  if (resetItem.campaignId !== null) {
+    const [c] = await db
+      .select()
+      .from(campaignsTable)
+      .where(eq(campaignsTable.id, resetItem.campaignId));
+    retryCampaign = c;
   }
 
-  await doSend(resetItem, account, campaign);
+  await doSend(resetItem, account, retryCampaign);
 
   const [updated] = await db
     .select()

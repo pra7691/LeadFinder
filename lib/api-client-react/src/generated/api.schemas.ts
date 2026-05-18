@@ -361,10 +361,15 @@ export interface SmtpTestResult {
 
 export interface OutreachItem {
   id: number;
-  campaignId: number;
+  /** @nullable */
+  campaignId?: number | null;
   leadId: number;
   /** @nullable */
   emailAccountId?: number | null;
+  /** @nullable */
+  emailTemplateId?: number | null;
+  /** @nullable */
+  listId?: number | null;
   recipientEmail: string;
   subject: string;
   body: string;
@@ -400,14 +405,24 @@ export interface OutreachPatch {
 
 export interface QueueLeadInput {
   leadId: number;
-  campaignId: number;
+  campaignId?: number;
+  emailTemplateId?: number;
   emailAccountId?: number;
+  listId?: number;
   recipientEmail?: string;
 }
 
 export interface BulkQueueInput {
   leadIds: number[];
-  campaignId: number;
+  campaignId?: number;
+  emailTemplateId?: number;
+  emailAccountId?: number;
+  listId?: number;
+}
+
+export interface OutreachFromListInput {
+  listId: number;
+  emailTemplateId: number;
   emailAccountId?: number;
 }
 
@@ -681,8 +696,64 @@ export interface AppSettingInput {
   value: string;
 }
 
+export interface EmailTemplate {
+  id: number;
+  name: string;
+  subject: string;
+  body: string;
+  /** @nullable */
+  personalizationPrompt?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailTemplateInput {
+  /** @minLength 1 */
+  name: string;
+  /** @minLength 1 */
+  subject: string;
+  /** @minLength 1 */
+  body: string;
+  personalizationPrompt?: string;
+  isActive?: boolean;
+}
+
+export interface EmailTemplatePatch {
+  name?: string;
+  subject?: string;
+  body?: string;
+  /** @nullable */
+  personalizationPrompt?: string | null;
+  isActive?: boolean;
+}
+
+export type PreviewTemplateInputSampleData = {[key: string]: string};
+
+export interface PreviewTemplateInput {
+  leadId?: number;
+  sampleData?: PreviewTemplateInputSampleData;
+}
+
+export interface PreviewTemplateResult {
+  subject: string;
+  body: string;
+  aiUsed?: boolean;
+}
+
+export interface TestAIResult {
+  success: boolean;
+  message: string;
+  /** @nullable */
+  model?: string | null;
+}
+
 export type ListCampaignRunsParams = {
 campaignId?: number;
+};
+
+export type ListEmailTemplatesParams = {
+includeInactive?: boolean;
 };
 
 export type ListLeadListsParams = {

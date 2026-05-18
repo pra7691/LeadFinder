@@ -13,6 +13,7 @@ tags:
   - name: leads
   - name: lists
   - name: email-accounts
+  - name: email-templates
   - name: outreach
   - name: logs
   - name: settings
@@ -281,6 +282,130 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Lead"
+
+  # ── Email Templates ───────────────────────────────────────────
+  /email-templates:
+    get:
+      operationId: listEmailTemplates
+      tags: [email-templates]
+      summary: List all email templates
+      parameters:
+        - name: includeInactive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailTemplate"
+    post:
+      operationId: createEmailTemplate
+      tags: [email-templates]
+      summary: Create a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailTemplateInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTemplate"
+
+  /email-templates/{id}:
+    get:
+      operationId: getEmailTemplate
+      tags: [email-templates]
+      summary: Get a template
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTemplate"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateEmailTemplate
+      tags: [email-templates]
+      summary: Update a template
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailTemplatePatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTemplate"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteEmailTemplate
+      tags: [email-templates]
+      summary: Delete a template
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /email-templates/{id}/preview:
+    post:
+      operationId: previewEmailTemplate
+      tags: [email-templates]
+      summary: Preview a template rendered with sample data or a lead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewTemplateInput"
+      responses:
+        "200":
+          description: Rendered preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewTemplateResult"
+        "404":
+          description: Not found
 
   # ── Lists ─────────────────────────────────────────────────────
   /lists:
@@ -954,6 +1079,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/OutreachItem"
 
+  /outreach/from-list:
+    post:
+      operationId: outreachFromList
+      tags: [outreach]
+      summary: Create outreach drafts for all leads in a list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutreachFromListInput"
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkQueueResult"
+
   /outreach/bulk-queue:
     post:
       operationId: bulkQueueLeads
@@ -1169,6 +1313,19 @@ paths:
                   $ref: "#/components/schemas/LogEntry"
 
   # ── Settings ─────────────────────────────────────────────────
+  /settings/test-ai:
+    post:
+      operationId: testAIConnection
+      tags: [settings]
+      summary: Test AI (OpenAI) connection
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestAIResult"
+
   /settings:
     get:
       operationId: listSettings
@@ -1737,7 +1894,6 @@ components:
       type: object
       required:
         - id
-        - campaignId
         - leadId
         - recipientEmail
         - subject
@@ -1750,10 +1906,14 @@ components:
         id:
           type: integer
         campaignId:
-          type: integer
+          type: ["integer", "null"]
         leadId:
           type: integer
         emailAccountId:
+          type: ["integer", "null"]
+        emailTemplateId:
+          type: ["integer", "null"]
+        listId:
           type: ["integer", "null"]
         recipientEmail:
           type: string
@@ -1800,26 +1960,45 @@ components:
 
     QueueLeadInput:
       type: object
-      required: [leadId, campaignId]
+      required: [leadId]
       properties:
         leadId:
           type: integer
         campaignId:
           type: integer
+        emailTemplateId:
+          type: integer
         emailAccountId:
+          type: integer
+        listId:
           type: integer
         recipientEmail:
           type: string
 
     BulkQueueInput:
       type: object
-      required: [leadIds, campaignId]
+      required: [leadIds]
       properties:
         leadIds:
           type: array
           items:
             type: integer
         campaignId:
+          type: integer
+        emailTemplateId:
+          type: integer
+        emailAccountId:
+          type: integer
+        listId:
+          type: integer
+
+    OutreachFromListInput:
+      type: object
+      required: [listId, emailTemplateId]
+      properties:
+        listId:
+          type: integer
+        emailTemplateId:
           type: integer
         emailAccountId:
           type: integer
@@ -2250,3 +2429,89 @@ components:
       properties:
         value:
           type: string
+
+    EmailTemplate:
+      type: object
+      required: [id, name, subject, body, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        personalizationPrompt:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    EmailTemplateInput:
+      type: object
+      required: [name, subject, body]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        subject:
+          type: string
+          minLength: 1
+        body:
+          type: string
+          minLength: 1
+        personalizationPrompt:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+
+    EmailTemplatePatch:
+      type: object
+      properties:
+        name:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        personalizationPrompt:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+
+    PreviewTemplateInput:
+      type: object
+      properties:
+        leadId:
+          type: integer
+        sampleData:
+          type: object
+          additionalProperties:
+            type: string
+
+    PreviewTemplateResult:
+      type: object
+      required: [subject, body]
+      properties:
+        subject:
+          type: string
+        body:
+          type: string
+        aiUsed:
+          type: boolean
+
+    TestAIResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        model:
+          type: ["string", "null"]

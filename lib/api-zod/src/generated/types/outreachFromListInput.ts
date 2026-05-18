@@ -6,11 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface QueueLeadInput {
-  leadId: number;
-  campaignId?: number;
-  emailTemplateId?: number;
+export interface OutreachFromListInput {
+  listId: number;
+  emailTemplateId: number;
   emailAccountId?: number;
-  listId?: number;
-  recipientEmail?: string;
 }

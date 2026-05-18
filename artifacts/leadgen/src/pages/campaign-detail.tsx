@@ -77,8 +77,6 @@ type FormData = {
   maxSearchesPerDay: number;
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
-  subjectTemplate: string;
-  emailTemplate: string;
   keywords: string;
   countries: string;
   scheduleType: string;
@@ -200,8 +198,6 @@ export function CampaignDetail() {
     maxSearchesPerDay: 10,
     maxLeadsPerDay: 50,
     maxEmailsPerDay: 20,
-    subjectTemplate: "",
-    emailTemplate: "",
     keywords: "",
     countries: "",
     scheduleType: "manual",
@@ -225,8 +221,6 @@ export function CampaignDetail() {
         maxSearchesPerDay: campaign.maxSearchesPerDay,
         maxLeadsPerDay: campaign.maxLeadsPerDay,
         maxEmailsPerDay: campaign.maxEmailsPerDay,
-        subjectTemplate: campaign.subjectTemplate || "",
-        emailTemplate: campaign.emailTemplate || "",
         keywords: campaign.keywords?.join(", ") || "",
         countries: campaign.countries?.join(", ") || "",
         scheduleType: campaign.scheduleType || "manual",
@@ -253,8 +247,6 @@ export function CampaignDetail() {
           maxSearchesPerDay: formData.maxSearchesPerDay,
           maxLeadsPerDay: formData.maxLeadsPerDay,
           maxEmailsPerDay: formData.maxEmailsPerDay,
-          subjectTemplate: formData.subjectTemplate,
-          emailTemplate: formData.emailTemplate,
           keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
           countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
           scheduleType: formData.scheduleType as Campaign["scheduleType"],
@@ -558,25 +550,12 @@ export function CampaignDetail() {
               ))}
             </div>
 
-            <div className="space-y-2 pt-2 border-t border-border/30">
-              <Label className="text-xs font-medium text-foreground">Subject Template</Label>
-              <Input
-                value={formData.subjectTemplate}
-                onChange={(e) => setFormData({ ...formData, subjectTemplate: e.target.value })}
-                className="rounded-xl bg-background/50 border-primary/20"
-                placeholder="Outreach from {{campaign_name}} — {{company_name}}"
-              />
-              <p className="text-[11px] text-muted-foreground">Variables: {"{{company_name}}"}, {"{{country}}"}, {"{{campaign_name}}"}</p>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-foreground">Email Body Template</Label>
-              <Textarea
-                value={formData.emailTemplate}
-                onChange={(e) => setFormData({ ...formData, emailTemplate: e.target.value })}
-                className="rounded-xl bg-background/50 min-h-[200px] resize-y font-mono text-sm leading-relaxed border-primary/20"
-                placeholder={"Hi,\n\nI noticed {{company_name}} and wanted to reach out…"}
-              />
-              <p className="text-[11px] text-muted-foreground">Variables: {"{{company_name}}"}, {"{{country}}"}, {"{{campaign_name}}"}</p>
+            <div className="pt-2 border-t border-border/30">
+              <p className="text-xs text-muted-foreground">
+                Email templates are now managed in the{" "}
+                <a href="/email-templates" className="text-primary hover:underline">Email Templates</a>{" "}
+                section and can be assigned when queuing outreach.
+              </p>
             </div>
           </CardContent>
         </Card>

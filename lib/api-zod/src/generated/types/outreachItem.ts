@@ -8,10 +8,15 @@
 
 export interface OutreachItem {
   id: number;
-  campaignId: number;
+  /** @nullable */
+  campaignId?: number | null;
   leadId: number;
   /** @nullable */
   emailAccountId?: number | null;
+  /** @nullable */
+  emailTemplateId?: number | null;
+  /** @nullable */
+  listId?: number | null;
   recipientEmail: string;
   subject: string;
   body: string;

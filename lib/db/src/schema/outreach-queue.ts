@@ -10,17 +10,26 @@ import { z } from "zod/v4";
 import { campaignsTable } from "./campaigns";
 import { leadsTable } from "./leads";
 import { emailAccountsTable } from "./email-accounts";
+import { emailTemplatesTable } from "./email-templates";
+import { leadListsTable } from "./lead-lists";
 
 export const outreachQueueTable = pgTable("outreach_queue", {
   id: serial("id").primaryKey(),
   campaignId: integer("campaign_id")
-    .notNull()
-    .references(() => campaignsTable.id, { onDelete: "cascade" }),
+    .references(() => campaignsTable.id, { onDelete: "set null" }),
   leadId: integer("lead_id")
     .notNull()
     .references(() => leadsTable.id, { onDelete: "cascade" }),
   emailAccountId: integer("email_account_id").references(
     () => emailAccountsTable.id,
+    { onDelete: "set null" },
+  ),
+  emailTemplateId: integer("email_template_id").references(
+    () => emailTemplatesTable.id,
+    { onDelete: "set null" },
+  ),
+  listId: integer("list_id").references(
+    () => leadListsTable.id,
     { onDelete: "set null" },
   ),
   recipientEmail: text("recipient_email").notNull(),

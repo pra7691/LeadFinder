@@ -8,6 +8,8 @@
 
 export interface BulkQueueInput {
   leadIds: number[];
-  campaignId: number;
+  campaignId?: number;
+  emailTemplateId?: number;
   emailAccountId?: number;
+  listId?: number;
 }

@@ -7,12 +7,33 @@ import {
   getGetListLeadsQueryKey,
   useRemoveLeadFromList,
   useUpdateLeadList,
+  useOutreachFromList,
+  useListEmailTemplates,
+  useListEmailAccounts,
+  getListEmailAccountsQueryKey,
   getListLeadListsQueryKey,
+  getListEmailTemplatesQueryKey,
 } from "@workspace/api-client-react";
 import type { Lead } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ChevronLeft,
   Users,
@@ -21,6 +42,9 @@ import {
   Trash2,
   ExternalLink,
   Mail,
+  Send,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -130,8 +154,22 @@ export function ListDetail() {
   const { data: leads, isLoading: leadsLoading } = useGetListLeads(listId, {
     query: { staleTime: 10_000, queryKey: getGetListLeadsQueryKey(listId) },
   });
+  const { data: templates } = useListEmailTemplates(
+    { includeInactive: false },
+    { query: { queryKey: getListEmailTemplatesQueryKey({ includeInactive: false }), staleTime: 30_000 } },
+  );
+  const { data: emailAccounts } = useListEmailAccounts({
+    query: { queryKey: getListEmailAccountsQueryKey(), staleTime: 30_000 },
+  });
 
   const updateMut = useUpdateLeadList();
+  const outreachFromListMut = useOutreachFromList();
+
+  // Outreach modal state
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const [outreachResult, setOutreachResult] = useState<{ queued: number; skipped: number } | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getGetLeadListQueryKey(listId) });
@@ -152,6 +190,29 @@ export function ListDetail() {
       },
     );
   };
+
+  const handleCreateOutreach = () => {
+    if (!selectedTemplateId) return;
+    outreachFromListMut.mutate(
+      {
+        data: {
+          listId,
+          emailTemplateId: Number(selectedTemplateId),
+          emailAccountId: selectedAccountId ? Number(selectedAccountId) : undefined,
+        },
+      },
+      {
+        onSuccess: (r) => {
+          setOutreachResult({ queued: r.queued, skipped: r.skipped });
+          qc.invalidateQueries({ queryKey: ["outreach"] });
+          toast({ title: `Queued ${r.queued} outreach drafts (${r.skipped} skipped — no email)` });
+        },
+        onError: () => toast({ title: "Failed to create outreach", variant: "destructive" }),
+      },
+    );
+  };
+
+  const activeTemplates = (templates ?? []).filter((t) => t.isActive);
 
   if (listLoading) {
     return (
@@ -196,19 +257,30 @@ export function ListDetail() {
               <p className="text-sm text-muted-foreground mt-1">{list.description}</p>
             )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl gap-2 shrink-0"
-            onClick={handleArchive}
-            disabled={updateMut.isPending}
-          >
-            {list.listStatus === "active" ? (
-              <><Archive className="w-3.5 h-3.5" />Archive</>
-            ) : (
-              <><RefreshCw className="w-3.5 h-3.5" />Restore</>
-            )}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              className="rounded-xl gap-2"
+              onClick={() => { setOutreachOpen(true); setOutreachResult(null); }}
+              disabled={(list.leadCount ?? 0) === 0}
+              data-testid="button-create-outreach"
+            >
+              <Send className="w-3.5 h-3.5" /> Create Outreach
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl gap-2"
+              onClick={handleArchive}
+              disabled={updateMut.isPending}
+            >
+              {list.listStatus === "active" ? (
+                <><Archive className="w-3.5 h-3.5" />Archive</>
+              ) : (
+                <><RefreshCw className="w-3.5 h-3.5" />Restore</>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -273,6 +345,90 @@ export function ListDetail() {
           </div>
         )}
       </div>
+
+      {/* Create Outreach modal */}
+      <Dialog open={outreachOpen} onOpenChange={(v) => { if (!v) { setOutreachOpen(false); setOutreachResult(null); } }}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-4 h-4 text-primary" /> Create Outreach From List
+            </DialogTitle>
+            <DialogDescription>
+              Queue draft outreach emails for all leads in <strong>{list.name}</strong> using a template. Leads without an email address will be skipped.
+            </DialogDescription>
+          </DialogHeader>
+
+          {outreachResult ? (
+            <div className="space-y-4">
+              <div className="flex flex-col items-center py-6 gap-3 text-center">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                <div>
+                  <p className="text-lg font-semibold">{outreachResult.queued} drafts created</p>
+                  {outreachResult.skipped > 0 && (
+                    <p className="text-sm text-muted-foreground mt-1">{outreachResult.skipped} leads skipped (no email address).</p>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">Review and approve them in the <a href="/outreach" className="text-primary hover:underline">Outreach Queue</a>.</p>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => { setOutreachOpen(false); setOutreachResult(null); }} className="w-full rounded-xl">Done</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Email Template *</Label>
+                {activeTemplates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground rounded-xl border border-border/50 px-4 py-3">
+                    No active templates. <a href="/email-templates" className="text-primary hover:underline">Create one first.</a>
+                  </p>
+                ) : (
+                  <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                    <SelectTrigger className="rounded-xl" data-testid="select-template">
+                      <SelectValue placeholder="Select a template…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeTemplates.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Sending Account <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                  <SelectTrigger className="rounded-xl" data-testid="select-account">
+                    <SelectValue placeholder="Assign later in Outreach Queue" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(emailAccounts ?? []).map((a) => (
+                      <SelectItem key={a.id} value={String(a.id)}>{a.name} ({a.email})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button variant="ghost" onClick={() => setOutreachOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={handleCreateOutreach}
+                  disabled={!selectedTemplateId || outreachFromListMut.isPending}
+                  className="gap-2"
+                  data-testid="button-confirm-outreach"
+                >
+                  {outreachFromListMut.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</>
+                  ) : (
+                    <><Send className="w-4 h-4" /> Create Outreach Drafts</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
