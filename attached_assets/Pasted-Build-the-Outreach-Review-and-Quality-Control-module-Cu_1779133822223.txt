@@ -1,0 +1,206 @@
+Build the Outreach Review and Quality Control module.
+
+Current system status:
+
+* discovery works
+* lists work
+* templates work
+* AI personalization exists
+* outreach queue exists
+
+But there is no strong human review layer before sending.
+
+This is dangerous for deliverability and lead quality.
+
+Goal:
+Create a professional review workflow before emails are sent.
+
+Do not build full automation yet.
+Do not auto-send emails.
+
+==================================================
+PART 1 — OUTREACH REVIEW SCREEN
+===============================
+
+Add a dedicated page:
+Outreach Review
+
+Purpose:
+Review queued outreach drafts before sending.
+
+Show table/cards with:
+
+* company name
+* recipient email
+* sender account
+* selected template
+* generated subject
+* generated preview snippet
+* qualification status
+* relevance score
+* campaign
+* list
+* AI personalized or not
+* queue status
+
+Statuses:
+
+* draft
+* pending_review
+* approved_to_send
+* rejected
+* sent
+* failed
+
+Default newly generated outreach:
+pending_review
+
+==================================================
+PART 2 — REVIEW ACTIONS
+=======================
+
+Actions:
+
+* approve
+* reject
+* edit subject
+* edit body
+* regenerate with AI
+* preview full email
+* bulk approve
+* bulk reject
+
+Rules:
+
+* only approved_to_send can later be sent
+* rejected cannot be sent
+
+==================================================
+PART 3 — EMAIL QUALITY WARNINGS
+===============================
+
+Add warning indicators:
+
+* no personalization
+* missing company name
+* suspicious generic email
+* missing unsubscribe text
+* low relevance lead
+* no website
+* no country
+* duplicate email recipient
+* risky domain
+
+Display quality badges/colors.
+
+==================================================
+PART 4 — DELIVERABILITY PROTECTION
+==================================
+
+Add first-level protections:
+
+1. Duplicate protection
+   Do not queue duplicate recipient email for same campaign/list/template combination.
+
+2. Cooldown tracking
+   Track last_contacted_at per lead.
+
+3. Sending limits
+   Show warnings if:
+
+* sender daily limit nearly reached
+* too many emails queued
+
+4. Domain health warnings
+   Add warning if:
+
+* sender domain differs heavily from campaign niche
+* too many pending sends
+
+==================================================
+PART 5 — LIST HEALTH
+====================
+
+Inside List Detail page add:
+List Health summary.
+
+Show:
+
+* total leads
+* leads with emails
+* leads without emails
+* qualified leads
+* rejected leads
+* AI-personalized drafts count
+* duplicate emails
+* risky emails
+
+==================================================
+PART 6 — BETTER EMAIL VALIDATION
+================================
+
+Improve email validation before outreach:
+Reject:
+
+* noreply@
+* no-reply@
+* donotreply@
+* example@
+* test@
+* fake-looking emails
+
+Flag generic emails:
+
+* info@
+* contact@
+* support@
+* hello@
+
+Do not reject generic emails automatically.
+Only flag them.
+
+==================================================
+PART 7 — OUTREACH ANALYTICS
+===========================
+
+Add dashboard widgets:
+
+* drafts pending review
+* approved to send
+* rejected drafts
+* emails sent today
+* risky queued emails
+* lists ready for outreach
+
+==================================================
+PART 8 — TESTING
+================
+
+Run full UI dry-run tests:
+
+* review workflow
+* editing drafts
+* bulk actions
+* duplicate prevention
+* warnings
+* filters
+* quality badges
+* list health calculations
+* status transitions
+
+Fix discovered issues.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* pages added
+* database changes
+* review workflow added
+* validation logic added
+* deliverability protections added
+* analytics added
+* tests run
+* remaining risks
