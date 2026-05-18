@@ -42,6 +42,9 @@ export const leadsTable = pgTable(
     sourceKeyword: text("source_keyword"),
     sourceCountry: text("source_country"),
     sourceQuery: text("source_query"),
+    sourceType: text("source_type").default("direct"), // "direct" | "mined"
+    discoverySourceDomain: text("discovery_source_domain"),
+    discoverySourceUrl: text("discovery_source_url"),
     crawlStatus: text("crawl_status").default("pending"),
     crawlError: text("crawl_error"),
     rawText: text("raw_text"),

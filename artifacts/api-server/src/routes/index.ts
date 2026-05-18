@@ -17,6 +17,7 @@ import scoreRouter from "./score";
 import leadWorkflowRouter from "./lead-workflow";
 import schedulerRouter from "./scheduler";
 import exportRouter from "./export";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(outreachSendRouter);
 router.use(outreachRouter);
 router.use(logsRouter);
 router.use(settingsRouter);
+router.use(adminRouter);
 
 export default router;

@@ -9,4 +9,6 @@
 export interface TriggerResult {
   status: string;
   campaignId: number;
+  /** ID of the campaign_runs record created for this pipeline execution */
+  runId?: number;
 }

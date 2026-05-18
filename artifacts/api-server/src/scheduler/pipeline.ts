@@ -17,7 +17,7 @@ import {
 } from "@workspace/db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
-import { crawlWebsite } from "../services/crawler";
+import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
 import { scoreLead } from "../services/scorer";
 import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
@@ -75,49 +75,187 @@ const JUNK_TITLE_WORDS = [
 ];
 
 /**
- * Returns true if this search result should be skipped (not inserted as a lead).
- * Checks domain blocklist, URL path patterns, TLD patterns, and title signals.
+ * Known listing/directory domains. These are useful as discovery sources to
+ * mine company links from, but must never be saved as final company leads.
  */
-function isJunkResult(
+const DIRECTORY_DOMAINS = new Set([
+  "clutch.co", "goodfirms.co", "designrush.com", "themanifest.com",
+  "businessofapps.com", "buildfire.com", "g2.com", "capterra.com",
+  "softwareworld.co", "appdevelopmentcompanies.co", "topdevelopers.co",
+  "selectedfirms.co", "techreviewer.co", "appfutura.com",
+  "guru.com", "sortlist.com", "upcity.com", "expertise.com",
+  "itfirms.co", "agencyspotter.com", "semrush.com", "similarweb.com",
+  "trustpilot.com", "yelp.com", "bark.com", "thumbtack.com",
+  "checkatrade.com", "clutch.io", "goodfirms.io",
+]);
+
+/** Title words indicating this is a listicle/ranking article, not a company page. */
+const LISTICLE_TITLE_WORDS = [
+  "top ", " top ", "best ", " best ", " companies", " agencies", " firms",
+  " developers", " services", "list of", " rankings", " ranked",
+  " reviews", "directory of", " vs ", " vs.", "comparison", "alternatives to",
+  "in 2024", "in 2025", "in 2026", "in 2027",
+];
+
+/** URL path patterns that indicate a listicle article on any domain. */
+const LISTICLE_URL_PATTERNS = [
+  /\/top[-_\d]/i, /\/best[-_]/i, /\/\d+-(?:top|best)/i,
+  /\/list\b/i, /\/rankings?\b/i, /\/compare\b/i, /\/alternatives\b/i,
+  /\/reviews?\b/i,
+];
+
+type ResultClass = "direct" | "discovery_source" | "blocked";
+
+/**
+ * Classifies a search result into:
+ * - "direct"            → real company website — save as lead
+ * - "discovery_source"  → listicle/directory — mine for company links, don't save as lead
+ * - "blocked"           → junk/social/gov — skip entirely
+ */
+function classifySearchResult(
   rootDomain: string,
   url: string,
   title: string,
   blockedDomains: Set<string>,
-): boolean {
+): ResultClass {
   const domainLower = rootDomain.toLowerCase();
+  const titleLower = title.toLowerCase();
 
-  // User-configured blocked domains (exact match + subdomain match)
+  // User-configured blocked domains
   for (const blocked of blockedDomains) {
-    if (domainLower === blocked || domainLower.endsWith(`.${blocked}`)) return true;
+    if (domainLower === blocked || domainLower.endsWith(`.${blocked}`)) return "blocked";
   }
 
-  // Hard-coded junk domains
-  if (JUNK_DOMAINS.has(domainLower)) return true;
-  // Also match subdomains of junk domains
+  // Hard-coded junk/social/news domains
+  if (JUNK_DOMAINS.has(domainLower)) return "blocked";
   for (const junk of JUNK_DOMAINS) {
-    if (domainLower.endsWith(`.${junk}`)) return true;
+    if (domainLower.endsWith(`.${junk}`)) return "blocked";
   }
 
   // Government / education TLDs
-  if (JUNK_TLD_PATTERN.test(domainLower)) return true;
+  if (JUNK_TLD_PATTERN.test(domainLower)) return "blocked";
 
-  // URL path patterns (blog, article, docs…)
+  // Known directory/listing domains → treat as discovery sources to mine
+  if (DIRECTORY_DOMAINS.has(domainLower)) return "discovery_source";
+  for (const dir of DIRECTORY_DOMAINS) {
+    if (domainLower.endsWith(`.${dir}`)) return "discovery_source";
+  }
+
+  // URL path patterns that flag junk content (blog, docs, dataset…)
   try {
     const { pathname } = new URL(url);
     for (const pat of JUNK_PATH_PATTERNS) {
-      if (pat.test(pathname)) return true;
+      if (pat.test(pathname)) return "blocked";
+    }
+    // URL patterns that indicate a listicle article (on any domain) → mine it
+    for (const pat of LISTICLE_URL_PATTERNS) {
+      if (pat.test(pathname)) return "discovery_source";
     }
   } catch {
-    // invalid URL — skip
+    // invalid URL
   }
 
-  // Title/snippet signals
-  const titleLower = title.toLowerCase();
+  // Title words that strongly indicate a listicle → mine it
+  for (const word of LISTICLE_TITLE_WORDS) {
+    if (titleLower.includes(word)) return "discovery_source";
+  }
+
+  // Title words that indicate pure junk → block
   for (const word of JUNK_TITLE_WORDS) {
-    if (titleLower.includes(word)) return true;
+    if (titleLower.includes(word)) return "blocked";
   }
 
-  return false;
+  return "direct";
+}
+
+/** Format a root domain into a readable placeholder company name. */
+function formatDomainName(rootDomain: string): string {
+  const base = rootDomain.split(".")[0] ?? rootDomain;
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+interface MineArgs {
+  discoveryUrl: string;
+  sourceRootDomain: string;
+  campaign: typeof campaignsTable.$inferSelect;
+  campaignRunId?: number;
+  sourceKeyword: string;
+  sourceCountry: string;
+  sourceQuery: string;
+  blockedDomains: Set<string>;
+  existingDomains: Set<string>;
+}
+
+/**
+ * Fetches a discovery-source page (listicle/directory), extracts outbound company
+ * links, and creates lead rows for each real company found on that page.
+ */
+async function mineDiscoverySource({
+  discoveryUrl,
+  sourceRootDomain,
+  campaign,
+  campaignRunId,
+  sourceKeyword,
+  sourceCountry,
+  sourceQuery,
+  blockedDomains,
+  existingDomains,
+}: MineArgs): Promise<number> {
+  let links: { href: string; rootDomain: string; anchorText: string }[];
+  try {
+    links = await extractCompanyLinksFromPage(discoveryUrl, sourceRootDomain);
+  } catch {
+    return 0;
+  }
+
+  let mined = 0;
+  for (const { href, rootDomain, anchorText } of links) {
+    if (existingDomains.has(rootDomain)) continue;
+
+    // Re-classify the extracted link — only save direct company links
+    const cls = classifySearchResult(rootDomain, href, anchorText, blockedDomains);
+    if (cls !== "direct") continue;
+
+    // Use domain-based placeholder name; crawl step will overwrite with real name
+    const cleanName = formatDomainName(rootDomain);
+
+    try {
+      await db.insert(leadsTable).values({
+        campaignId: campaign.id,
+        campaignRunId: campaignRunId ?? null,
+        companyName: cleanName,
+        rootDomain,
+        websiteUrl: href,
+        leadStatus: "discovered",
+        reviewStatus: "pending",
+        qualificationStatus: "unqualified",
+        outreachStatus: "not_queued",
+        emailStatus: "not_sent",
+        relevanceScore: 0,
+        relevanceReason: "",
+        sourceKeyword,
+        sourceCountry,
+        sourceQuery,
+        sourceType: "mined",
+        discoverySourceDomain: sourceRootDomain,
+        discoverySourceUrl: discoveryUrl,
+      });
+      existingDomains.add(rootDomain);
+      mined++;
+    } catch {
+      // unique constraint violation = race dupe — skip
+    }
+  }
+
+  if (mined > 0) {
+    await schedulerLog(
+      campaign.id,
+      `Mined ${mined} company lead${mined !== 1 ? "s" : ""} from ${sourceRootDomain}`,
+      { discoveryUrl, mined },
+    );
+  }
+
+  return mined;
 }
 
 /**
@@ -226,22 +364,47 @@ async function runDiscovery(
       for (const result of results) {
         const rootDomain = extractRootDomain(result.link);
         if (!rootDomain) continue;
-        if (existingDomains.has(rootDomain)) continue;
 
-        // Apply hard qualification filters before inserting
-        if (isJunkResult(rootDomain, result.link, result.title, blockedDomains)) {
-          await schedulerLog(campaign.id, `Filtered (junk): ${rootDomain}`, { url: result.link });
+        const classification = classifySearchResult(
+          rootDomain, result.link, result.title, blockedDomains,
+        );
+
+        if (classification === "blocked") {
+          await schedulerLog(
+            campaign.id,
+            `Filtered (blocked): ${rootDomain}`,
+            { url: result.link },
+          );
           continue;
         }
 
-        const qualificationStatus = autoQualificationStatus(rootDomain, result.link);
+        if (classification === "discovery_source") {
+          await schedulerLog(
+            campaign.id,
+            `Mining discovery source: ${rootDomain}`,
+            { url: result.link, title: result.title },
+          );
+          const mined = await mineDiscoverySource({
+            discoveryUrl: result.link,
+            sourceRootDomain: rootDomain,
+            campaign,
+            campaignRunId,
+            sourceKeyword: kw.keyword,
+            sourceCountry: co.country,
+            sourceQuery: query,
+            blockedDomains,
+            existingDomains,
+          });
+          newLeadsCreated += mined;
+          continue;
+        }
 
-        // Clean company name: strip pipe/dash suffixes and common noise
-        const cleanName = result.title
-          .split(/[-|–|:]/, 1)[0]
-          .trim()
-          .replace(/\s+(Inc\.?|LLC\.?|Ltd\.?|Corp\.?|GmbH|S\.A\.|SAS|BV)$/i, (m) => m)
-          .trim() || rootDomain;
+        // classification === "direct" — a real company page
+        if (existingDomains.has(rootDomain)) continue;
+
+        // Use a domain-based placeholder company name; the crawl step will
+        // overwrite this with the real name from og:site_name / JSON-LD / etc.
+        const cleanName = formatDomainName(rootDomain);
 
         try {
           await db.insert(leadsTable).values({
@@ -252,7 +415,7 @@ async function runDiscovery(
             websiteUrl: result.link,
             leadStatus: "discovered",
             reviewStatus: "pending",
-            qualificationStatus,
+            qualificationStatus: autoQualificationStatus(rootDomain, result.link),
             outreachStatus: "not_queued",
             emailStatus: "not_sent",
             relevanceScore: 0,
@@ -260,6 +423,7 @@ async function runDiscovery(
             sourceKeyword: kw.keyword,
             sourceCountry: co.country,
             sourceQuery: query,
+            sourceType: "direct",
           });
           existingDomains.add(rootDomain);
           newLeadsCreated++;

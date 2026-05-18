@@ -1788,6 +1788,15 @@ components:
           type: ["string", "null"]
         sourceQuery:
           type: ["string", "null"]
+        sourceType:
+          type: ["string", "null"]
+          description: '"direct" = came from search result, "mined" = extracted from a discovery source page'
+        discoverySourceDomain:
+          type: ["string", "null"]
+          description: Root domain of the listicle/directory page this lead was mined from
+        discoverySourceUrl:
+          type: ["string", "null"]
+          description: Full URL of the discovery source page this lead was extracted from
         crawlStatus:
           type: ["string", "null"]
         crawlError:
@@ -1838,6 +1847,12 @@ components:
         sourceCountry:
           type: string
         sourceQuery:
+          type: string
+        sourceType:
+          type: string
+        discoverySourceDomain:
+          type: string
+        discoverySourceUrl:
           type: string
 
     LeadPatch:

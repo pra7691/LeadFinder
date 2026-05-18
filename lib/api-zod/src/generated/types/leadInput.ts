@@ -25,4 +25,7 @@ export interface LeadInput {
   sourceKeyword?: string;
   sourceCountry?: string;
   sourceQuery?: string;
+  sourceType?: string;
+  discoverySourceDomain?: string;
+  discoverySourceUrl?: string;
 }

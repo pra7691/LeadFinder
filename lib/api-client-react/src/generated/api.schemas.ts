@@ -156,6 +156,8 @@ export interface SchedulerStatus {
 export interface TriggerResult {
   status: string;
   campaignId: number;
+  /** ID of the campaign_runs record created for this pipeline execution */
+  runId?: number;
 }
 
 export interface PipelineResult {
@@ -228,6 +230,21 @@ export interface Lead {
   sourceCountry?: string | null;
   /** @nullable */
   sourceQuery?: string | null;
+  /**
+     * "direct" = came from search result, "mined" = extracted from a discovery source page
+     * @nullable
+     */
+  sourceType?: string | null;
+  /**
+     * Root domain of the listicle/directory page this lead was mined from
+     * @nullable
+     */
+  discoverySourceDomain?: string | null;
+  /**
+     * Full URL of the discovery source page this lead was extracted from
+     * @nullable
+     */
+  discoverySourceUrl?: string | null;
   /** @nullable */
   crawlStatus?: string | null;
   /** @nullable */
@@ -255,6 +272,9 @@ export interface LeadInput {
   sourceKeyword?: string;
   sourceCountry?: string;
   sourceQuery?: string;
+  sourceType?: string;
+  discoverySourceDomain?: string;
+  discoverySourceUrl?: string;
 }
 
 export type LeadPatchQualificationStatus = typeof LeadPatchQualificationStatus[keyof typeof LeadPatchQualificationStatus];

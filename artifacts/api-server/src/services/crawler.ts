@@ -202,7 +202,31 @@ function isMarketingText(text: string): boolean {
 }
 
 function extractCompanyName($: ReturnType<typeof cheerio.load>): string | null {
-  // 1. og:site_name — most reliable
+  // 0. JSON-LD Organization schema — highest fidelity
+  const ldScripts = $('script[type="application/ld+json"]').map((_, el) => $(el).html()).get();
+  for (const jsonStr of ldScripts) {
+    if (!jsonStr) continue;
+    try {
+      const data = JSON.parse(jsonStr) as unknown;
+      const schemas = Array.isArray(data) ? data : [data];
+      for (const s of schemas as Record<string, unknown>[]) {
+        const type = s?.["@type"];
+        const isOrg =
+          type === "Organization" ||
+          (Array.isArray(type) && (type as string[]).includes("Organization"));
+        if (isOrg) {
+          const name = typeof s?.name === "string" ? (s.name as string).trim() : null;
+          if (name && name.length > 1 && name.length < 80 && !isMarketingText(name)) {
+            return name;
+          }
+        }
+      }
+    } catch {
+      // invalid JSON-LD
+    }
+  }
+
+  // 1. og:site_name — very reliable
   const ogSite = $("meta[property='og:site_name']").attr("content");
   if (ogSite && ogSite.trim() && !isMarketingText(ogSite)) {
     return ogSite.trim();
@@ -223,6 +247,29 @@ function extractCompanyName($: ReturnType<typeof cheerio.load>): string | null {
     const cleaned = cleanTitle(ogTitle);
     if (cleaned && cleaned.length > 1 && !isMarketingText(cleaned)) {
       return cleaned;
+    }
+  }
+
+  // 4. Logo image alt text — brand logos often carry the company name
+  let logoName: string | null = null;
+  $("img[class*='logo'], img[id*='logo'], a.logo img, header img").each((_, el) => {
+    if (logoName) return;
+    const alt = $(el).attr("alt")?.trim() ?? "";
+    if (alt && alt.length > 1 && alt.length < 60 && !isMarketingText(alt)) {
+      logoName = alt;
+    }
+  });
+  if (logoName) return logoName;
+
+  // 5. Footer copyright — e.g. "© 2024 Simform Solutions"
+  const footerText = $("footer").text();
+  const copyrightMatch = footerText.match(
+    /©\s*(?:\d{4}[-–]\d{2,4}\s*)?(?:\d{4}\s+)?(.{2,60}?)(?:\.|,|All rights|Inc\b|LLC|Ltd)/i,
+  );
+  if (copyrightMatch?.[1]) {
+    const name = copyrightMatch[1].trim().replace(/^by\s+/i, "");
+    if (name && name.length > 1 && name.length < 60 && !isMarketingText(name)) {
+      return name;
     }
   }
 
@@ -346,6 +393,54 @@ function mergeField<T>(
   incoming: T | null,
 ): T | null {
   return existing ?? incoming;
+}
+
+/**
+ * Fetches a discovery-source page (listicle, directory) and extracts outbound
+ * company website links — used by the pipeline to mine real company leads.
+ */
+export async function extractCompanyLinksFromPage(
+  pageUrl: string,
+  sourceRootDomain: string,
+): Promise<{ href: string; rootDomain: string; anchorText: string }[]> {
+  const html = await fetchPage(pageUrl);
+  if (!html) return [];
+
+  const $ = cheerio.load(html);
+  const results: { href: string; rootDomain: string; anchorText: string }[] = [];
+  const seen = new Set<string>();
+
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href") ?? "";
+    if (!href.startsWith("http")) return;
+
+    try {
+      const parsed = new URL(href);
+      const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+      if (!host || host === sourceRootDomain || seen.has(host)) return;
+
+      // Skip static file extensions
+      const path = parsed.pathname.toLowerCase();
+      if (/\.(css|js|png|jpg|jpeg|gif|svg|pdf|ico|woff|xml|json|zip|mp4|mp3)$/.test(path)) return;
+
+      // Skip social / utility platforms (quick check)
+      const socialish = ["facebook.com", "twitter.com", "x.com", "linkedin.com",
+        "instagram.com", "youtube.com", "pinterest.com", "tiktok.com",
+        "reddit.com", "github.com", "apple.com", "google.com", "microsoft.com"];
+      if (socialish.some((s) => host === s || host.endsWith(`.${s}`))) return;
+
+      seen.add(host);
+      results.push({
+        href: `https://${parsed.hostname}${parsed.pathname === "/" ? "" : parsed.pathname}`,
+        rootDomain: host,
+        anchorText: $(el).text().replace(/\s+/g, " ").trim().slice(0, 100),
+      });
+    } catch {
+      // invalid URL
+    }
+  });
+
+  return results;
 }
 
 export async function crawlWebsite(websiteUrl: string): Promise<CrawlData> {
