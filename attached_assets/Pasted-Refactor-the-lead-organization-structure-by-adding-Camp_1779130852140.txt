@@ -1,0 +1,269 @@
+Refactor the lead organization structure by adding Campaign Runs and Lists.
+
+Current issue:
+All discovered leads are appearing together in the main Leads tab. This is confusing.
+
+Required structure:
+
+1. Campaigns define the search strategy.
+2. Every time a campaign runs, create a Campaign Run entry.
+3. Leads discovered during that run must be linked to that specific Campaign Run.
+4. Lists are curated groups of selected leads.
+5. Outreach/email should later happen only from Lists, not directly from raw leads.
+
+Do not build email sending yet.
+Do not remove existing leads.
+Migrate existing data safely where possible.
+
+==================================================
+PART 1 — CAMPAIGN RUNS
+======================
+
+Add a campaign_runs table.
+
+Fields:
+
+* id
+* campaign_id
+* run_name nullable
+* run_type
+* status
+* started_at
+* completed_at
+* total_searches
+* total_results
+* total_new_leads
+* total_duplicates
+* total_blocked
+* total_rejected
+* error_message
+* metadata_json
+* created_at
+
+Run status values:
+
+* running
+* completed
+* failed
+* partial
+
+Run type values:
+
+* manual
+* scheduled
+
+Whenever a campaign discovery run starts:
+
+* create a campaign_runs record
+* attach all discovered leads to that run
+* update run summary when completed
+
+Add campaign_run_id to leads table.
+
+==================================================
+PART 2 — CAMPAIGN DETAIL PAGE
+=============================
+
+Inside each Campaign Detail page, add tabs/sections:
+
+1. Overview
+2. Runs
+3. Leads
+4. Settings
+
+Runs tab:
+Show list of every time this campaign ran.
+
+Each run row should show:
+
+* run date/time
+* status
+* searches performed
+* results found
+* new leads
+* duplicates
+* blocked
+* rejected
+* action: View Run
+
+Run detail page/drawer:
+Show leads found in that specific run.
+
+==================================================
+PART 3 — LEADS PAGE BEHAVIOR
+============================
+
+Main Leads page should still exist, but it should be clearly filterable.
+
+Add filters:
+
+* campaign
+* campaign run
+* qualification status
+* outreach status
+* has email
+* country
+* relevance score
+
+Do not show unfiltered chaos by default.
+
+Default Leads page view:
+
+* latest leads
+* grouped or filtered by campaign
+  OR
+* require campaign filter before showing large data
+
+==================================================
+PART 4 — LISTS MODULE
+=====================
+
+Add a new main menu item:
+Lists
+
+Add tables:
+
+1. lead_lists
+   Fields:
+
+* id
+* name
+* description nullable
+* campaign_id nullable
+* list_status
+* created_at
+* updated_at
+
+list_status values:
+
+* active
+* archived
+
+2. lead_list_items
+   Fields:
+
+* id
+* list_id
+* lead_id
+* added_at
+
+Add unique constraint:
+list_id + lead_id
+
+==================================================
+PART 5 — LIST UI
+================
+
+Lists page:
+Show:
+
+* list name
+* campaign
+* number of leads
+* created date
+* status
+* actions: view/edit/archive
+
+Create List form:
+
+* list name
+* optional campaign
+* description
+
+List Detail page:
+Show all leads inside that list.
+
+Actions:
+
+* remove lead from list
+* export list
+* later: send email to list
+
+Do not build email sending yet.
+
+==================================================
+PART 6 — ADD LEADS TO LIST
+==========================
+
+From Leads page:
+
+* allow selecting one or multiple leads
+* action: Add to List
+* choose existing list or create new list
+* prevent duplicate lead inside same list
+* show success message
+
+From Campaign Run detail:
+
+* allow selecting leads from that run
+* add selected leads to list
+* create list from run
+
+From Campaign Detail > Leads tab:
+
+* allow selecting campaign leads
+* add to list
+
+==================================================
+PART 7 — OUTREACH RULE CHANGE
+=============================
+
+Prepare the architecture so outreach later works only from Lists.
+
+Do not send emails directly from:
+
+* raw Leads page
+* Campaign page
+* Campaign Run page
+
+Later, outreach queue should be created from a List.
+
+For now:
+
+* update UI labels/placeholders to reflect this
+* disable or remove any direct “send email” action from raw leads
+
+==================================================
+PART 8 — DATA MIGRATION
+=======================
+
+For existing leads:
+
+* if campaign_run_id is missing, keep it nullable
+* optionally create one migration run called “Imported / Existing Leads” per campaign and attach old leads to it
+* do not delete existing lead data
+
+==================================================
+PART 9 — TESTING
+================
+
+Test:
+
+* campaign run creation
+* campaign run listing
+* run detail view
+* leads linked to run
+* main leads filtering
+* create list
+* add lead to list
+* bulk add leads to list
+* duplicate prevention inside list
+* remove lead from list
+* archive list
+* export list placeholder/action if export already exists
+
+Fix all issues found.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* database changes
+* migration behavior
+* UI changes
+* new pages added
+* changed lead flow
+* tests run
+* remaining limitations

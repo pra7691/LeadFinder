@@ -30,6 +30,8 @@ export const leadsTable = pgTable(
     contactQuality: text("contact_quality"),
     leadStatus: text("lead_status").notNull().default("new"),
     reviewStatus: text("review_status").notNull().default("pending"),
+    qualificationStatus: text("qualification_status").notNull().default("unqualified"),
+    outreachStatus: text("outreach_status").notNull().default("not_queued"),
     emailStatus: text("email_status"),
     notes: text("notes"),
     sourceKeyword: text("source_keyword"),

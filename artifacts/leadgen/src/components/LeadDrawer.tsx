@@ -10,6 +10,7 @@ import {
   getListLeadNotesQueryKey,
   getGetLeadStatusHistoryQueryKey,
 } from "@workspace/api-client-react";
+import type { LeadPatch } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Sheet,
@@ -41,6 +42,8 @@ import {
   AlertTriangle,
   Clock,
   BadgeCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -76,6 +79,20 @@ const REVIEW_STATUS_META: Record<string, { label: string; color: string }> = {
   approved:      { label: "Approved",         color: "bg-emerald-500/10 text-emerald-400" },
   rejected:      { label: "Rejected",         color: "bg-red-500/10 text-red-400" },
   low_relevance: { label: "Low Relevance",    color: "bg-orange-500/10 text-orange-400" },
+};
+
+const QUALIFICATION_STATUS_META: Record<string, { label: string; color: string }> = {
+  unqualified: { label: "Unqualified", color: "bg-amber-500/10 text-amber-500" },
+  qualified:   { label: "Qualified",   color: "bg-emerald-500/10 text-emerald-500" },
+  rejected:    { label: "Rejected",    color: "bg-red-500/10 text-red-400" },
+};
+
+const OUTREACH_STATUS_META: Record<string, { label: string; color: string }> = {
+  not_queued:     { label: "Not Queued",     color: "bg-muted text-muted-foreground" },
+  queued:         { label: "Queued",         color: "bg-primary/10 text-primary" },
+  contacted:      { label: "Contacted",      color: "bg-blue-500/10 text-blue-400" },
+  followup_sent:  { label: "Follow-up Sent", color: "bg-indigo-500/10 text-indigo-400" },
+  closed:         { label: "Closed",         color: "bg-muted text-muted-foreground" },
 };
 
 function StatusChip({ status, meta }: { status: string; meta: Record<string, { label: string; color: string }> }) {
@@ -169,7 +186,7 @@ export function LeadDrawer({ leadId, onClose }: Props) {
   };
 
   // Quick status action
-  const applyAction = (patch: { leadStatus?: string; reviewStatus?: string }) => {
+  const applyAction = (patch: LeadPatch) => {
     if (!leadId) return;
     updateLead.mutate({ id: leadId, data: patch }, { onSuccess: invalidate });
   };
@@ -218,6 +235,8 @@ export function LeadDrawer({ leadId, onClose }: Props) {
       address: lead.address ?? "",
       linkedinUrl: lead.linkedinUrl ?? "",
       notes: lead.notes ?? "",
+      qualificationStatus: lead.qualificationStatus ?? "unqualified",
+      outreachStatus: lead.outreachStatus ?? "not_queued",
     });
     setTab("edit");
   };
@@ -289,8 +308,13 @@ export function LeadDrawer({ leadId, onClose }: Props) {
 
               {/* Status row */}
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Qualification status — primary */}
+                <StatusChip status={lead.qualificationStatus ?? "unqualified"} meta={QUALIFICATION_STATUS_META} />
+                {/* Outreach status — secondary (only show when meaningful) */}
+                {lead.outreachStatus && lead.outreachStatus !== "not_queued" && (
+                  <StatusChip status={lead.outreachStatus} meta={OUTREACH_STATUS_META} />
+                )}
                 <StatusChip status={lead.leadStatus} meta={LEAD_STATUS_META} />
-                <StatusChip status={lead.reviewStatus} meta={REVIEW_STATUS_META} />
                 {lead.relevanceScore != null && (
                   <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} />
                 )}
@@ -304,48 +328,46 @@ export function LeadDrawer({ leadId, onClose }: Props) {
 
               {/* Quick actions */}
               <div className="flex gap-2 flex-wrap">
-                {lead.reviewStatus !== "approved" && (
+                {/* Qualification actions */}
+                {lead.qualificationStatus !== "qualified" && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-3 text-xs rounded-lg gap-1.5 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10"
-                    onClick={() =>
-                      applyAction({ leadStatus: "approved", reviewStatus: "approved" })
-                    }
+                    onClick={() => applyAction({ qualificationStatus: "qualified" })}
                   >
-                    <Check className="w-3 h-3" /> Approve
+                    <ThumbsUp className="w-3 h-3" /> Qualify
                   </Button>
                 )}
-                {lead.reviewStatus !== "rejected" && (
+                {lead.qualificationStatus !== "rejected" && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-3 text-xs rounded-lg gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
-                    onClick={() =>
-                      applyAction({ leadStatus: "rejected", reviewStatus: "rejected" })
-                    }
+                    onClick={() => applyAction({ qualificationStatus: "rejected" })}
                   >
-                    <X className="w-3 h-3" /> Reject
+                    <ThumbsDown className="w-3 h-3" /> Reject
                   </Button>
                 )}
-                {lead.leadStatus !== "contacted" && (
+                {/* Outreach actions */}
+                {lead.outreachStatus === "not_queued" && lead.qualificationStatus === "qualified" && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-3 text-xs rounded-lg gap-1.5"
-                    onClick={() => applyAction({ leadStatus: "contacted" })}
+                    className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
+                    onClick={() => applyAction({ outreachStatus: "queued" })}
                   >
-                    <SendHorizonal className="w-3 h-3" /> Mark Contacted
+                    <SendHorizonal className="w-3 h-3" /> Queue
                   </Button>
                 )}
-                {lead.leadStatus !== "invalid" && (
+                {lead.outreachStatus === "queued" && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-3 text-xs rounded-lg gap-1.5 text-orange-400 border-orange-400/30 hover:bg-orange-400/10"
-                    onClick={() => applyAction({ leadStatus: "invalid" })}
+                    className="h-7 px-3 text-xs rounded-lg gap-1.5 text-blue-400 border-blue-400/30 hover:bg-blue-400/10"
+                    onClick={() => applyAction({ outreachStatus: "contacted" })}
                   >
-                    <AlertTriangle className="w-3 h-3" /> Invalid
+                    <Check className="w-3 h-3" /> Mark Contacted
                   </Button>
                 )}
                 {lead.leadStatus !== "archived" && (
@@ -626,6 +648,30 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                       className="bg-background/50 border-border/50 text-sm resize-none min-h-[90px]"
                       placeholder="Private notes visible only in this tool…"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Qualification status</label>
+                    <select
+                      value={editForm["qualificationStatus"] ?? (lead.qualificationStatus ?? "unqualified")}
+                      onChange={(e) => setEditForm((f) => ({ ...f, qualificationStatus: e.target.value }))}
+                      className="w-full h-9 rounded-md border border-border/50 bg-background/50 px-3 text-sm text-foreground"
+                    >
+                      {Object.entries(QUALIFICATION_STATUS_META).map(([v, m]) => (
+                        <option key={v} value={v}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Outreach status</label>
+                    <select
+                      value={editForm["outreachStatus"] ?? (lead.outreachStatus ?? "not_queued")}
+                      onChange={(e) => setEditForm((f) => ({ ...f, outreachStatus: e.target.value }))}
+                      className="w-full h-9 rounded-md border border-border/50 bg-background/50 px-3 text-sm text-foreground"
+                    >
+                      {Object.entries(OUTREACH_STATUS_META).map(([v, m]) => (
+                        <option key={v} value={v}>{m.label}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Lead status</label>

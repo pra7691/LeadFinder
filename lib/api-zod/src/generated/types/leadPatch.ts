@@ -5,6 +5,8 @@
  * Lead Intelligence Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { LeadPatchOutreachStatus } from './leadPatchOutreachStatus';
+import type { LeadPatchQualificationStatus } from './leadPatchQualificationStatus';
 
 export interface LeadPatch {
   companyName?: string;
@@ -25,6 +27,8 @@ export interface LeadPatch {
   contactQuality?: string | null;
   leadStatus?: string;
   reviewStatus?: string;
+  qualificationStatus?: LeadPatchQualificationStatus;
+  outreachStatus?: LeadPatchOutreachStatus;
   /** @nullable */
   emailStatus?: string | null;
   /** @nullable */

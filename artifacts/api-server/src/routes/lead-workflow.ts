@@ -92,14 +92,23 @@ router.get("/leads/:id/status-history", async (req, res) => {
 
 const ACTION_MAP: Record<
   string,
-  { leadStatus?: string; reviewStatus?: string }
+  { leadStatus?: string; reviewStatus?: string; qualificationStatus?: string; outreachStatus?: string }
 > = {
+  // Legacy workflow actions
   approve:    { leadStatus: "approved",     reviewStatus: "approved" },
   reject:     { leadStatus: "rejected",     reviewStatus: "rejected" },
   archive:    { leadStatus: "archived" },
   invalid:    { leadStatus: "invalid" },
   contacted:  { leadStatus: "contacted" },
   pending:    { reviewStatus: "pending" },
+  // Qualification actions
+  qualify:    { qualificationStatus: "qualified" },
+  disqualify: { qualificationStatus: "rejected" },
+  unqualify:  { qualificationStatus: "unqualified" },
+  // Outreach status actions
+  mark_queued:    { outreachStatus: "queued" },
+  mark_contacted: { outreachStatus: "contacted" },
+  mark_closed:    { outreachStatus: "closed" },
 };
 
 router.post("/leads/bulk-action", async (req, res) => {

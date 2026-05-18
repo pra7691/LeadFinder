@@ -35,6 +35,100 @@ export interface PipelineResult {
   errors: string[];
 }
 
+// ── Hard qualification filter lists ────────────────────────────────────────
+
+/**
+ * Known non-company / discovery-platform domains that should never become leads.
+ * Extend this list freely — it is checked before any DB insert.
+ */
+const JUNK_DOMAINS = new Set([
+  "linkedin.com", "crunchbase.com", "techcrunch.com", "ycombinator.com",
+  "yc.com", "reddit.com", "medium.com", "github.com", "producthunt.com",
+  "wellfound.com", "angel.co", "arxiv.org", "huggingface.co", "kaggle.com",
+  "paperswithcode.com", "twitter.com", "x.com", "facebook.com",
+  "instagram.com", "youtube.com", "wikipedia.org", "stackoverflow.com",
+  "quora.com", "pitchbook.com", "cbinsights.com", "glassdoor.com",
+  "indeed.com", "Monster.com", "notion.so", "substack.com",
+  "hashnode.com", "dev.to", "hackernoon.com", "venturebeat.com",
+  "wired.com", "forbes.com", "businessinsider.com", "bloomberg.com",
+  "reuters.com", "theverge.com", "arstechnica.com",
+]);
+
+/** URL path segments that indicate an article/blog/doc, not a company homepage. */
+const JUNK_PATH_PATTERNS = [
+  /\/blog\b/i, /\/blogs\b/i, /\/article\b/i, /\/articles\b/i,
+  /\/news\b/i, /\/docs\b/i, /\/documentation\b/i, /\/paper\b/i,
+  /\/research-paper/i, /\/dataset\b/i, /\/datasets\b/i,
+  /\/marketplace\b/i, /\/forum\b/i, /\/community\b/i,
+  /\/tutorial\b/i, /\/tutorials\b/i, /\/post\//i, /\/tag\//i,
+  /\/category\//i, /\/topics\//i, /\/explore\b/i,
+];
+
+/** TLD patterns for government / education / research institutions. */
+const JUNK_TLD_PATTERN = /\.(gov|edu|ac\.uk|ac\.jp|edu\.au|gov\.uk|gov\.au|ac\.nz|edu\.nz|gc\.ca)$/i;
+
+/** Title/snippet words that strongly suggest non-company content. */
+const JUNK_TITLE_WORDS = [
+  "tutorial", "documentation", "blog post", "research paper",
+  "dataset", "publication", "conference paper", "preprint", "arxiv",
+  "open source", "github repo", "community forum",
+];
+
+/**
+ * Returns true if this search result should be skipped (not inserted as a lead).
+ * Checks domain blocklist, URL path patterns, TLD patterns, and title signals.
+ */
+function isJunkResult(
+  rootDomain: string,
+  url: string,
+  title: string,
+  blockedDomains: Set<string>,
+): boolean {
+  const domainLower = rootDomain.toLowerCase();
+
+  // User-configured blocked domains
+  if (blockedDomains.has(domainLower)) return true;
+
+  // Hard-coded junk domains
+  if (JUNK_DOMAINS.has(domainLower)) return true;
+  // Also match subdomains of junk domains
+  for (const junk of JUNK_DOMAINS) {
+    if (domainLower.endsWith(`.${junk}`)) return true;
+  }
+
+  // Government / education TLDs
+  if (JUNK_TLD_PATTERN.test(domainLower)) return true;
+
+  // URL path patterns (blog, article, docs…)
+  try {
+    const { pathname } = new URL(url);
+    for (const pat of JUNK_PATH_PATTERNS) {
+      if (pat.test(pathname)) return true;
+    }
+  } catch {
+    // invalid URL — skip
+  }
+
+  // Title/snippet signals
+  const titleLower = title.toLowerCase();
+  for (const word of JUNK_TITLE_WORDS) {
+    if (titleLower.includes(word)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Determine the automatic qualification status for a freshly discovered lead.
+ * Currently always returns "unqualified" — placeholder for future ML/heuristic upgrades.
+ */
+function autoQualificationStatus(
+  _rootDomain: string,
+  _url: string,
+): "unqualified" | "qualified" | "rejected" {
+  return "unqualified";
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function isSameDay(a: Date, b: Date) {
@@ -129,17 +223,33 @@ async function runDiscovery(
       for (const result of results) {
         const rootDomain = extractRootDomain(result.link);
         if (!rootDomain) continue;
-        if (blockedDomains.has(rootDomain)) continue;
         if (existingDomains.has(rootDomain)) continue;
+
+        // Apply hard qualification filters before inserting
+        if (isJunkResult(rootDomain, result.link, result.title, blockedDomains)) {
+          await schedulerLog(campaign.id, `Filtered (junk): ${rootDomain}`, { url: result.link });
+          continue;
+        }
+
+        const qualificationStatus = autoQualificationStatus(rootDomain, result.link);
+
+        // Clean company name: strip pipe/dash suffixes and common noise
+        const cleanName = result.title
+          .split(/[-|–|:]/, 1)[0]
+          .trim()
+          .replace(/\s+(Inc\.?|LLC\.?|Ltd\.?|Corp\.?|GmbH|S\.A\.|SAS|BV)$/i, (m) => m)
+          .trim() || rootDomain;
 
         try {
           await db.insert(leadsTable).values({
             campaignId: campaign.id,
-            companyName: result.title.split(/[-|–]/, 1)[0].trim() || rootDomain,
+            companyName: cleanName,
             rootDomain,
             websiteUrl: result.link,
             leadStatus: "discovered",
             reviewStatus: "pending",
+            qualificationStatus,
+            outreachStatus: "not_queued",
             emailStatus: "not_sent",
             relevanceScore: 0,
             relevanceReason: "",

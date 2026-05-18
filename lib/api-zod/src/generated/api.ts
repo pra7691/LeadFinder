@@ -324,11 +324,16 @@ export const ListLeadsQueryParams = zod.object({
   "campaignId": zod.coerce.number().optional(),
   "reviewStatus": zod.coerce.string().optional(),
   "leadStatus": zod.coerce.string().optional(),
+  "qualificationStatus": zod.coerce.string().optional(),
+  "outreachStatus": zod.coerce.string().optional(),
   "hasEmail": zod.coerce.boolean().optional(),
   "minScore": zod.coerce.number().optional(),
   "limit": zod.coerce.number().default(listLeadsQueryLimitDefault),
   "offset": zod.coerce.number().default(listLeadsQueryOffsetDefault)
 })
+
+export const listLeadsResponseQualificationStatusDefault = `unqualified`;
+export const listLeadsResponseOutreachStatusDefault = `not_queued`;
 
 export const ListLeadsResponseItem = zod.object({
   "id": zod.number(),
@@ -346,6 +351,8 @@ export const ListLeadsResponseItem = zod.object({
   "contactQuality": zod.string().nullish(),
   "leadStatus": zod.string(),
   "reviewStatus": zod.string(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).default(listLeadsResponseQualificationStatusDefault),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).default(listLeadsResponseOutreachStatusDefault),
   "emailStatus": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "sourceKeyword": zod.string().nullish(),
@@ -394,6 +401,9 @@ export const GetLeadParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getLeadResponseQualificationStatusDefault = `unqualified`;
+export const getLeadResponseOutreachStatusDefault = `not_queued`;
+
 export const GetLeadResponse = zod.object({
   "id": zod.number(),
   "campaignId": zod.number(),
@@ -410,6 +420,8 @@ export const GetLeadResponse = zod.object({
   "contactQuality": zod.string().nullish(),
   "leadStatus": zod.string(),
   "reviewStatus": zod.string(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).default(getLeadResponseQualificationStatusDefault),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).default(getLeadResponseOutreachStatusDefault),
   "emailStatus": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "sourceKeyword": zod.string().nullish(),
@@ -441,9 +453,14 @@ export const UpdateLeadBody = zod.object({
   "contactQuality": zod.string().nullish(),
   "leadStatus": zod.string().optional(),
   "reviewStatus": zod.string().optional(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).optional(),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).optional(),
   "emailStatus": zod.string().nullish(),
   "notes": zod.string().nullish()
 })
+
+export const updateLeadResponseQualificationStatusDefault = `unqualified`;
+export const updateLeadResponseOutreachStatusDefault = `not_queued`;
 
 export const UpdateLeadResponse = zod.object({
   "id": zod.number(),
@@ -461,6 +478,8 @@ export const UpdateLeadResponse = zod.object({
   "contactQuality": zod.string().nullish(),
   "leadStatus": zod.string(),
   "reviewStatus": zod.string(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).default(updateLeadResponseQualificationStatusDefault),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).default(updateLeadResponseOutreachStatusDefault),
   "emailStatus": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "sourceKeyword": zod.string().nullish(),

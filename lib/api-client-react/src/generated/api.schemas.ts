@@ -160,6 +160,26 @@ export interface PipelineResult {
   errors?: string[];
 }
 
+export type LeadQualificationStatus = typeof LeadQualificationStatus[keyof typeof LeadQualificationStatus];
+
+
+export const LeadQualificationStatus = {
+  unqualified: 'unqualified',
+  qualified: 'qualified',
+  rejected: 'rejected',
+} as const;
+
+export type LeadOutreachStatus = typeof LeadOutreachStatus[keyof typeof LeadOutreachStatus];
+
+
+export const LeadOutreachStatus = {
+  not_queued: 'not_queued',
+  queued: 'queued',
+  contacted: 'contacted',
+  followup_sent: 'followup_sent',
+  closed: 'closed',
+} as const;
+
 export interface Lead {
   id: number;
   campaignId: number;
@@ -184,6 +204,8 @@ export interface Lead {
   contactQuality?: string | null;
   leadStatus: string;
   reviewStatus: string;
+  qualificationStatus: LeadQualificationStatus;
+  outreachStatus: LeadOutreachStatus;
   /** @nullable */
   emailStatus?: string | null;
   /** @nullable */
@@ -223,6 +245,26 @@ export interface LeadInput {
   sourceQuery?: string;
 }
 
+export type LeadPatchQualificationStatus = typeof LeadPatchQualificationStatus[keyof typeof LeadPatchQualificationStatus];
+
+
+export const LeadPatchQualificationStatus = {
+  unqualified: 'unqualified',
+  qualified: 'qualified',
+  rejected: 'rejected',
+} as const;
+
+export type LeadPatchOutreachStatus = typeof LeadPatchOutreachStatus[keyof typeof LeadPatchOutreachStatus];
+
+
+export const LeadPatchOutreachStatus = {
+  not_queued: 'not_queued',
+  queued: 'queued',
+  contacted: 'contacted',
+  followup_sent: 'followup_sent',
+  closed: 'closed',
+} as const;
+
 export interface LeadPatch {
   companyName?: string;
   country?: string;
@@ -242,6 +284,8 @@ export interface LeadPatch {
   contactQuality?: string | null;
   leadStatus?: string;
   reviewStatus?: string;
+  qualificationStatus?: LeadPatchQualificationStatus;
+  outreachStatus?: LeadPatchOutreachStatus;
   /** @nullable */
   emailStatus?: string | null;
   /** @nullable */
@@ -542,6 +586,8 @@ export type ListLeadsParams = {
 campaignId?: number;
 reviewStatus?: string;
 leadStatus?: string;
+qualificationStatus?: string;
+outreachStatus?: string;
 hasEmail?: boolean;
 minScore?: number;
 limit?: number;

@@ -18,6 +18,8 @@ router.get("/leads", async (req, res) => {
     : undefined;
   const reviewStatus = req.query.reviewStatus as string | undefined;
   const leadStatus = req.query.leadStatus as string | undefined;
+  const qualificationStatus = req.query.qualificationStatus as string | undefined;
+  const outreachStatus = req.query.outreachStatus as string | undefined;
   const hasEmailRaw = req.query.hasEmail;
   const hasEmail =
     hasEmailRaw !== undefined
@@ -36,6 +38,12 @@ router.get("/leads", async (req, res) => {
   }
   if (leadStatus !== undefined) {
     conditions.push(eq(leadsTable.leadStatus, leadStatus));
+  }
+  if (qualificationStatus !== undefined) {
+    conditions.push(eq(leadsTable.qualificationStatus, qualificationStatus));
+  }
+  if (outreachStatus !== undefined) {
+    conditions.push(eq(leadsTable.outreachStatus, outreachStatus));
   }
   if (hasEmail === true) {
     conditions.push(isNotNull(leadsTable.emails));

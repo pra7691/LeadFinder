@@ -13,8 +13,27 @@ export interface CrawlData {
   pagesSucceeded: number;
 }
 
-const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us"];
+/**
+ * Pages to crawl in priority order.
+ * Homepage first (highest contact info density), then contact/about pages.
+ * Explicitly avoids blog/doc/dataset paths.
+ */
+const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us", "/team", "/company"];
 const FETCH_TIMEOUT_MS = 10_000;
+
+/** Path patterns that indicate non-company content — skip these during crawl. */
+const SKIP_CRAWL_PATHS = [
+  /\/blog\b/i, /\/blogs\b/i, /\/article/i, /\/news\b/i, /\/docs\b/i,
+  /\/documentation/i, /\/paper/i, /\/dataset/i, /\/forum/i, /\/community/i,
+  /\/tutorial/i, /\/post\//i, /\/tag\//i, /\/category\//i,
+];
+
+function shouldSkipPath(path: string): boolean {
+  for (const pat of SKIP_CRAWL_PATHS) {
+    if (pat.test(path)) return true;
+  }
+  return false;
+}
 
 // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -344,6 +363,12 @@ export async function crawlWebsite(websiteUrl: string): Promise<CrawlData> {
   const rawTextParts: string[] = [];
 
   for (const url of urls) {
+    // Skip paths that look like blog/docs/dataset pages
+    try {
+      const { pathname } = new URL(url);
+      if (shouldSkipPath(pathname)) continue;
+    } catch { /* keep going */ }
+
     pagesAttempted++;
     const html = await fetchPage(url);
     if (!html) continue;

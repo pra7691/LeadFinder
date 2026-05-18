@@ -252,6 +252,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: qualificationStatus
+          in: query
+          schema:
+            type: string
+        - name: outreachStatus
+          in: query
+          schema:
+            type: string
         - name: hasEmail
           in: query
           schema:
@@ -1212,6 +1220,8 @@ components:
         - websiteUrl
         - leadStatus
         - reviewStatus
+        - qualificationStatus
+        - outreachStatus
         - createdAt
         - updatedAt
       properties:
@@ -1245,6 +1255,14 @@ components:
           type: string
         reviewStatus:
           type: string
+        qualificationStatus:
+          type: string
+          enum: [unqualified, qualified, rejected]
+          default: unqualified
+        outreachStatus:
+          type: string
+          enum: [not_queued, queued, contacted, followup_sent, closed]
+          default: not_queued
         emailStatus:
           type: ["string", "null"]
         notes:
@@ -1332,6 +1350,12 @@ components:
           type: string
         reviewStatus:
           type: string
+        qualificationStatus:
+          type: string
+          enum: [unqualified, qualified, rejected]
+        outreachStatus:
+          type: string
+          enum: [not_queued, queued, contacted, followup_sent, closed]
         emailStatus:
           type: ["string", "null"]
         notes:

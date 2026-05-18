@@ -1,0 +1,242 @@
+Build the Lead Qualification and Filtering module.
+
+Current issue:
+The discovery system is collecting many irrelevant results such as:
+- blogs
+- datasets
+- research papers
+- marketplaces
+- articles
+- startup directories
+
+The system now needs a first-level qualification layer before outreach.
+
+Goal:
+Improve lead quality and create a usable operational workflow.
+
+==================================================
+PART 1 — HARD FILTERING RULES
+==================================================
+
+Add first-level automatic filtering rules before or during lead creation.
+
+Automatically reject or skip leads if:
+
+1. Domain is a known non-company/discovery platform:
+- linkedin.com
+- crunchbase.com
+- techcrunch.com
+- ycombinator.com
+- yc.com
+- reddit.com
+- medium.com
+- github.com
+- producthunt.com
+- wellfound.com
+- angel.co
+- arxiv.org
+- huggingface.co
+- kaggle.com
+- paperswithcode.com
+
+2. URL path contains:
+- /blog
+- /blogs
+- /article
+- /articles
+- /news
+- /docs
+- /documentation
+- /paper
+- /research-paper
+- /dataset
+- /datasets
+- /marketplace
+- /forum
+- /community
+
+3. Domain is:
+- government
+- educational
+- public dataset repository
+- research publication site
+
+Examples:
+.gov
+.edu
+.ac.uk
+
+4. Search result title/snippet strongly indicates:
+- article
+- tutorial
+- documentation
+- blog
+- dataset
+- paper
+- publication
+
+==================================================
+PART 2 — QUALIFICATION STATUS SYSTEM
+==================================================
+
+Replace confusing workflow statuses.
+
+Add:
+qualification_status
+
+Values:
+- unqualified
+- qualified
+- rejected
+
+Default:
+unqualified
+
+This is separate from outreach workflow.
+
+==================================================
+PART 3 — OUTREACH STATUS SYSTEM
+==================================================
+
+Add:
+outreach_status
+
+Values:
+- not_queued
+- queued
+- contacted
+- followup_sent
+- closed
+
+Default:
+not_queued
+
+==================================================
+PART 4 — QUALIFICATION ACTIONS
+==================================================
+
+Add UI actions:
+- Mark Qualified
+- Mark Rejected
+- Queue For Outreach
+
+Rules:
+- only qualified leads can be queued
+- rejected leads cannot be queued
+- queued leads must update outreach_status
+
+==================================================
+PART 5 — LEADS PAGE IMPROVEMENTS
+==================================================
+
+Add filters:
+- qualified
+- unqualified
+- rejected
+- queued
+- contacted
+- has_email
+- no_email
+- high_relevance
+- low_relevance
+
+Add bulk actions:
+- bulk qualify
+- bulk reject
+- bulk queue
+
+==================================================
+PART 6 — IMPROVE CRAWLING QUALITY
+==================================================
+
+Current crawling quality issue:
+crawler sometimes extracts bad/irrelevant pages.
+
+Improve crawler logic:
+- prioritize homepage/about/contact pages
+- avoid crawling obvious blog/dataset/research pages
+- avoid excessive crawling depth
+- improve company-name cleanup
+
+==================================================
+PART 7 — LEAD DETAIL PAGE
+==================================================
+
+Improve lead detail page:
+Show:
+- qualification status
+- outreach status
+- extracted company text
+- extracted emails
+- extracted phones
+- relevance score
+- crawl status
+- notes
+- source query
+- source keyword
+- source country
+
+Add:
+manual notes textarea.
+
+==================================================
+PART 8 — QUEUE FOR OUTREACH FIX
+==================================================
+
+Current issue:
+Leads cannot properly be queued for outreach from UI.
+
+Fix this.
+
+Requirements:
+- queue button works
+- queued lead appears in outreach queue
+- outreach_status updates correctly
+- duplicate queueing prevented
+
+==================================================
+PART 9 — AUTOMATIC QUALIFICATION HELPERS
+==================================================
+
+Add lightweight qualification helpers.
+
+Automatically mark:
+qualification_status = rejected
+
+if:
+- no valid company domain
+- blocked domain
+- blog/article page
+- research/dataset page
+- government/education domain
+
+Do NOT implement heavy AI qualification yet.
+
+==================================================
+PART 10 — TESTING
+==================================================
+
+Run UI dry-run testing for:
+- qualification actions
+- outreach queueing
+- filters
+- bulk actions
+- crawl improvements
+- status updates
+- duplicate prevention
+
+Fix all discovered issues.
+
+==================================================
+REPORT
+==================================================
+
+Provide:
+- files changed
+- database changes
+- new statuses added
+- filters added
+- qualification logic added
+- crawler improvements
+- issues fixed
+- remaining limitations

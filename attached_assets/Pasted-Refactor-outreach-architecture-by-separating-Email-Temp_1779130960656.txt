@@ -1,0 +1,202 @@
+Refactor outreach architecture by separating Email Templates from Campaigns and adding OpenAI settings.
+
+Do not build automated email sending yet unless already partially built.
+Do not remove existing leads or campaigns.
+Preserve current data where possible.
+
+Current issue:
+Email subject/body is stored inside Campaigns, but campaigns should only manage lead discovery. Email templates should be reusable and selectable when launching outreach to a List.
+
+New structure:
+- Campaign = discovery strategy
+- Lead = company/person record
+- List = curated group of full lead records
+- Email Template = reusable subject/body/prompt
+- Outreach = selected List + selected Email Template + selected sender account
+
+==================================================
+PART 1 — REMOVE EMAIL TEMPLATE FROM CAMPAIGN UI
+==================================================
+
+Remove or hide these fields from Campaign create/edit UI:
+- email subject
+- email body/template
+
+If database fields already exist, do not break migration. Keep old fields nullable or deprecated if needed, but do not use them for new outreach.
+
+Campaign should only contain:
+- name
+- objective
+- keywords
+- countries
+- min relevance score
+- max searches/day
+- max leads/day
+- active/inactive status
+- discovery-related settings
+
+==================================================
+PART 2 — ADD EMAIL TEMPLATES MODULE
+==================================================
+
+Add a new main menu item:
+Email Templates
+
+Create table:
+email_templates
+
+Fields:
+- id
+- name
+- subject
+- body
+- personalization_prompt nullable
+- is_active
+- created_at
+- updated_at
+
+Template variables supported:
+{{company_name}}
+{{website_url}}
+{{country}}
+{{emails}}
+{{relevance_reason}}
+{{campaign_name}}
+{{list_name}}
+
+Email Templates UI:
+- list templates
+- create template
+- edit template
+- archive/deactivate template
+- preview template with sample lead
+- validate required fields
+
+Required fields:
+- name
+- subject
+- body
+
+==================================================
+PART 3 — ADD OPENAI SETTINGS
+==================================================
+
+In Settings, add AI Settings section.
+
+Fields:
+- AI Provider: OpenAI
+- OpenAI API Key
+- OpenAI Model
+- AI Enabled toggle
+
+Default model:
+gpt-4o-mini or latest available lightweight OpenAI chat model supported by the current SDK.
+
+Store API key securely if practical.
+Do not expose full key in frontend after saving.
+Show masked value only.
+
+Add:
+- Test OpenAI Connection button
+
+Test should verify:
+- API key exists
+- simple test generation works
+- clear error is shown if invalid
+
+==================================================
+PART 4 — PREPARE PERSONALIZED EMAIL GENERATION
+==================================================
+
+Do not auto-send emails.
+
+Add backend service:
+generatePersonalizedEmail(lead, template)
+
+If AI is disabled or API key missing:
+- use normal template variable replacement only
+
+If AI is enabled:
+- use OpenAI to personalize email using:
+  - lead company name
+  - website
+  - country
+  - relevance reason
+  - campaign objective
+  - template subject
+  - template body
+  - personalization_prompt
+
+Output:
+- generated subject
+- generated body
+
+Rules:
+- keep email concise
+- professional B2B tone
+- no fake claims
+- do not invent facts
+- use only available lead data
+- preserve unsubscribe footer later when sending
+
+==================================================
+PART 5 — UPDATE OUTREACH FLOW PREPARATION
+==================================================
+
+Outreach should later be launched using:
+- selected List
+- selected Email Template
+- selected Sender Account
+
+Do not use Campaign email body anymore.
+
+If Outreach Queue already exists:
+Update it so queued emails are linked to:
+- list_id
+- email_template_id
+- lead_id
+- email_account_id
+
+If not practical immediately, add these fields now for future compatibility.
+
+==================================================
+PART 6 — LIST INTEGRATION
+==================================================
+
+When viewing a List, add placeholder/action:
+“Create Outreach From This List”
+
+For now, it should open a setup screen or modal where user selects:
+- email template
+- sender account
+
+Do not send yet unless email sending is already intentionally implemented.
+
+==================================================
+PART 7 — TESTING
+==================================================
+
+Test:
+- campaign form no longer requires email body
+- email template create/edit works
+- template preview works
+- required validation works
+- AI settings save
+- OpenAI connection test works or shows clear error
+- generated email fallback works without AI
+- generated email works with AI if key is available
+- outreach setup can select list + template
+
+==================================================
+COMPLETION REPORT
+==================================================
+
+Report:
+- database changes
+- UI changes
+- campaign changes
+- template module added
+- OpenAI settings added
+- personalization service added
+- tests run
+- known limitations

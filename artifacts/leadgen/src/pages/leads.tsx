@@ -47,6 +47,8 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -75,12 +77,14 @@ type ScoreRowState = "idle" | "scoring" | "done" | "error";
 
 type QuickFilter =
   | "all"
-  | "pending"
-  | "approved"
-  | "contacted"
+  | "unqualified"
+  | "qualified"
+  | "rejected_qual"
+  | "queued"
   | "high_relevance"
   | "no_email"
-  | "invalid"
+  | "has_email"
+  | "contacted"
   | "low_relevance";
 
 // ── Status meta ────────────────────────────────────────────────────────────
@@ -412,13 +416,15 @@ function CrawlStatusBadge({
 
 const FILTERS: { value: QuickFilter; label: string; color?: string }[] = [
   { value: "all",           label: "All" },
-  { value: "pending",       label: "Pending",        color: "text-amber-500" },
-  { value: "approved",      label: "Approved",       color: "text-emerald-500" },
+  { value: "unqualified",   label: "Unqualified",    color: "text-amber-500" },
+  { value: "qualified",     label: "Qualified",      color: "text-emerald-500" },
+  { value: "rejected_qual", label: "Rejected",       color: "text-red-400" },
+  { value: "queued",        label: "Queued",         color: "text-primary" },
   { value: "contacted",     label: "Contacted",      color: "text-blue-400" },
   { value: "high_relevance",label: "Score ≥80",      color: "text-emerald-400" },
   { value: "low_relevance", label: "Low Relevance",  color: "text-orange-400" },
+  { value: "has_email",     label: "Has Email",      color: "text-sky-400" },
   { value: "no_email",      label: "No Email",       color: "text-muted-foreground" },
-  { value: "invalid",       label: "Invalid",        color: "text-orange-400" },
 ];
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -612,13 +618,15 @@ export function Leads() {
 
   const filteredLeads = searchFiltered?.filter((l) => {
     switch (activeFilter) {
-      case "pending":        return l.reviewStatus === "pending";
-      case "approved":       return l.reviewStatus === "approved" || l.leadStatus === "approved";
-      case "contacted":      return l.leadStatus === "contacted" || l.leadStatus === "followup_sent";
+      case "unqualified":    return l.qualificationStatus === "unqualified";
+      case "qualified":      return l.qualificationStatus === "qualified";
+      case "rejected_qual":  return l.qualificationStatus === "rejected";
+      case "queued":         return l.outreachStatus === "queued" || l.outreachStatus === "contacted" || l.outreachStatus === "followup_sent";
+      case "contacted":      return l.outreachStatus === "contacted" || l.leadStatus === "contacted" || l.leadStatus === "followup_sent";
       case "high_relevance": return (l.relevanceScore ?? -1) >= 80;
       case "low_relevance":  return l.reviewStatus === "low_relevance";
+      case "has_email":      return !!l.emails;
       case "no_email":       return !l.emails;
-      case "invalid":        return l.leadStatus === "invalid";
       default:               return true;
     }
   });
@@ -637,13 +645,15 @@ export function Leads() {
     if (!searchFiltered) return 0;
     switch (f) {
       case "all":            return searchFiltered.length;
-      case "pending":        return searchFiltered.filter((l) => l.reviewStatus === "pending").length;
-      case "approved":       return searchFiltered.filter((l) => l.reviewStatus === "approved" || l.leadStatus === "approved").length;
-      case "contacted":      return searchFiltered.filter((l) => l.leadStatus === "contacted" || l.leadStatus === "followup_sent").length;
+      case "unqualified":    return searchFiltered.filter((l) => l.qualificationStatus === "unqualified").length;
+      case "qualified":      return searchFiltered.filter((l) => l.qualificationStatus === "qualified").length;
+      case "rejected_qual":  return searchFiltered.filter((l) => l.qualificationStatus === "rejected").length;
+      case "queued":         return searchFiltered.filter((l) => l.outreachStatus === "queued" || l.outreachStatus === "contacted" || l.outreachStatus === "followup_sent").length;
+      case "contacted":      return searchFiltered.filter((l) => l.outreachStatus === "contacted" || l.leadStatus === "contacted" || l.leadStatus === "followup_sent").length;
       case "high_relevance": return searchFiltered.filter((l) => (l.relevanceScore ?? -1) >= 80).length;
       case "low_relevance":  return searchFiltered.filter((l) => l.reviewStatus === "low_relevance").length;
+      case "has_email":      return searchFiltered.filter((l) => !!l.emails).length;
       case "no_email":       return searchFiltered.filter((l) => !l.emails).length;
-      case "invalid":        return searchFiltered.filter((l) => l.leadStatus === "invalid").length;
     }
   };
 
@@ -719,28 +729,23 @@ export function Leads() {
           </span>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/10"
-            disabled={isBulkBusy} onClick={() => handleBulkActionOp("approve")}>
-            <Check className="w-3 h-3" /> Approve
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("qualify")}>
+            <ThumbsUp className="w-3 h-3" /> Qualify
           </Button>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
-            disabled={isBulkBusy} onClick={() => handleBulkActionOp("reject")}>
-            <X className="w-3 h-3" /> Reject
-          </Button>
-          <Button size="sm" variant="outline"
-            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-orange-400 border-orange-400/30 hover:bg-orange-400/10"
-            disabled={isBulkBusy} onClick={() => handleBulkActionOp("invalid")}>
-            <AlertTriangle className="w-3 h-3" /> Invalid
-          </Button>
-          <Button size="sm" variant="outline"
-            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-muted-foreground"
-            disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
-            <Archive className="w-3 h-3" /> Archive
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("disqualify")}>
+            <ThumbsDown className="w-3 h-3" /> Reject
           </Button>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
             disabled={isBulkBusy || !campaigns?.length} onClick={openBulkQueueDialog}>
             <Send className="w-3 h-3" /> Queue for Outreach
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-muted-foreground"
+            disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
+            <Archive className="w-3 h-3" /> Archive
           </Button>
           {/* Bulk export */}
           <Button size="sm" variant="outline"
@@ -903,23 +908,77 @@ export function Leads() {
                     {/* Status */}
                     <TableCell>
                       <div className="flex flex-col gap-1">
+                        {/* Qualification status — primary signal */}
+                        {lead.qualificationStatus === "qualified" && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium w-fit bg-emerald-500/10 text-emerald-500">
+                            ✓ Qualified
+                          </span>
+                        )}
+                        {lead.qualificationStatus === "rejected" && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium w-fit bg-red-500/10 text-red-400">
+                            ✗ Rejected
+                          </span>
+                        )}
+                        {lead.qualificationStatus === "unqualified" && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium w-fit bg-amber-500/10 text-amber-500">
+                            Unqualified
+                          </span>
+                        )}
+                        {/* Outreach status */}
+                        {lead.outreachStatus && lead.outreachStatus !== "not_queued" && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium w-fit bg-primary/10 text-primary capitalize">
+                            {lead.outreachStatus.replace(/_/g, " ")}
+                          </span>
+                        )}
+                        {/* Lead crawl status */}
                         <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium w-fit ${lsMeta.color}`}>
                           {lsMeta.label}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium w-fit ${rvMeta.color}`}>
-                          {rvMeta.label}
                         </span>
                       </div>
                     </TableCell>
 
                     {/* Row actions */}
                     <TableCell className="text-right pr-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1">
-                        {campaigns?.length ? (
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {lead.qualificationStatus !== "qualified" && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 rounded-lg text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="h-7 w-7 rounded-lg text-emerald-500 hover:bg-emerald-500/10"
+                            title="Mark Qualified"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              bulkAction.mutate(
+                                { data: { action: "qualify", leadIds: [lead.id] } },
+                                { onSuccess: invalidateLeads },
+                              );
+                            }}
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {lead.qualificationStatus !== "rejected" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10"
+                            title="Mark Rejected"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              bulkAction.mutate(
+                                { data: { action: "disqualify", leadIds: [lead.id] } },
+                                { onSuccess: invalidateLeads },
+                              );
+                            }}
+                          >
+                            <ThumbsDown className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {campaigns?.length && lead.qualificationStatus === "qualified" ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-lg text-primary hover:bg-primary/10"
                             title="Queue for outreach"
                             onClick={(e) => openQueueDialog(e, lead.id)}
                           >
@@ -927,7 +986,7 @@ export function Leads() {
                           </Button>
                         ) : null}
                         <ChevronRight
-                          className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors"
+                          className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors opacity-100"
                           onClick={() => setOpenLeadId(lead.id)}
                         />
                       </div>
