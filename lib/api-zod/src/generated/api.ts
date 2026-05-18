@@ -37,6 +37,7 @@ export const GetDashboardStatsResponse = zod.object({
 /**
  * @summary List all campaigns
  */
+export const listCampaignsResponseResultsPerSearchDefault = 10;
 export const listCampaignsResponseScheduleTypeDefault = `manual`;
 
 export const ListCampaignsResponseItem = zod.object({
@@ -48,6 +49,7 @@ export const ListCampaignsResponseItem = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "resultsPerSearch": zod.number().default(listCampaignsResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -75,6 +77,10 @@ export const createCampaignBodyMinRelevanceScoreDefault = 50;
 export const createCampaignBodyMaxSearchesPerDayDefault = 100;
 export const createCampaignBodyMaxLeadsPerDayDefault = 50;
 export const createCampaignBodyMaxEmailsPerDayDefault = 20;
+export const createCampaignBodyResultsPerSearchDefault = 10;
+export const createCampaignBodyResultsPerSearchMax = 50;
+
+
 
 export const CreateCampaignBody = zod.object({
   "name": zod.string().min(1),
@@ -84,6 +90,7 @@ export const CreateCampaignBody = zod.object({
   "maxSearchesPerDay": zod.number().default(createCampaignBodyMaxSearchesPerDayDefault),
   "maxLeadsPerDay": zod.number().default(createCampaignBodyMaxLeadsPerDayDefault),
   "maxEmailsPerDay": zod.number().default(createCampaignBodyMaxEmailsPerDayDefault),
+  "resultsPerSearch": zod.number().min(1).max(createCampaignBodyResultsPerSearchMax).default(createCampaignBodyResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().optional(),
   "emailTemplate": zod.string().optional(),
   "unsubscribeFooter": zod.string().optional(),
@@ -103,6 +110,7 @@ export const GetCampaignParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getCampaignResponseResultsPerSearchDefault = 10;
 export const getCampaignResponseScheduleTypeDefault = `manual`;
 
 export const GetCampaignResponse = zod.object({
@@ -114,6 +122,7 @@ export const GetCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "resultsPerSearch": zod.number().default(getCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -138,6 +147,10 @@ export const UpdateCampaignParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateCampaignBodyResultsPerSearchMax = 50;
+
+
+
 export const UpdateCampaignBody = zod.object({
   "name": zod.string().optional(),
   "objective": zod.string().optional(),
@@ -146,6 +159,7 @@ export const UpdateCampaignBody = zod.object({
   "maxSearchesPerDay": zod.number().optional(),
   "maxLeadsPerDay": zod.number().optional(),
   "maxEmailsPerDay": zod.number().optional(),
+  "resultsPerSearch": zod.number().min(1).max(updateCampaignBodyResultsPerSearchMax).optional().describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -157,6 +171,7 @@ export const UpdateCampaignBody = zod.object({
   "isPaused": zod.boolean().optional()
 })
 
+export const updateCampaignResponseResultsPerSearchDefault = 10;
 export const updateCampaignResponseScheduleTypeDefault = `manual`;
 
 export const UpdateCampaignResponse = zod.object({
@@ -168,6 +183,7 @@ export const UpdateCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "resultsPerSearch": zod.number().default(updateCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -226,6 +242,7 @@ export const PauseCampaignParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const pauseCampaignResponseResultsPerSearchDefault = 10;
 export const pauseCampaignResponseScheduleTypeDefault = `manual`;
 
 export const PauseCampaignResponse = zod.object({
@@ -237,6 +254,7 @@ export const PauseCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "resultsPerSearch": zod.number().default(pauseCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -261,6 +279,7 @@ export const ResumeCampaignParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const resumeCampaignResponseResultsPerSearchDefault = 10;
 export const resumeCampaignResponseScheduleTypeDefault = `manual`;
 
 export const ResumeCampaignResponse = zod.object({
@@ -272,6 +291,7 @@ export const ResumeCampaignResponse = zod.object({
   "maxSearchesPerDay": zod.number(),
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
+  "resultsPerSearch": zod.number().default(resumeCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),

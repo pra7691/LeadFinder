@@ -12,6 +12,7 @@ export interface SerperResponse {
 export async function searchSerper(
   query: string,
   apiKey: string,
+  num: number = 10,
 ): Promise<SerperOrganicResult[]> {
   const response = await fetch("https://google.serper.dev/search", {
     method: "POST",
@@ -19,7 +20,7 @@ export async function searchSerper(
       "X-API-KEY": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ q: query, num: 10 }),
+    body: JSON.stringify({ q: query, num }),
   });
 
   if (!response.ok) {

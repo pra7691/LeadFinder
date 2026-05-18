@@ -1517,6 +1517,7 @@ components:
         - maxSearchesPerDay
         - maxLeadsPerDay
         - maxEmailsPerDay
+        - resultsPerSearch
         - createdAt
         - updatedAt
       properties:
@@ -1536,6 +1537,10 @@ components:
           type: integer
         maxEmailsPerDay:
           type: integer
+        resultsPerSearch:
+          type: integer
+          default: 10
+          description: Number of Serper search results requested per keyword-country query (10/20/30/50)
         subjectTemplate:
           type: ["string", "null"]
         emailTemplate:
@@ -1596,6 +1601,12 @@ components:
         maxEmailsPerDay:
           type: integer
           default: 20
+        resultsPerSearch:
+          type: integer
+          default: 10
+          minimum: 1
+          maximum: 50
+          description: Number of Serper search results requested per keyword-country query (10/20/30/50)
         subjectTemplate:
           type: string
         emailTemplate:
@@ -1637,6 +1648,11 @@ components:
           type: integer
         maxEmailsPerDay:
           type: integer
+        resultsPerSearch:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Number of Serper search results requested per keyword-country query (10/20/30/50)
         subjectTemplate:
           type: ["string", "null"]
         emailTemplate:

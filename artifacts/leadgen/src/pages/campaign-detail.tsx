@@ -58,6 +58,7 @@ type FormData = {
   maxSearchesPerDay: number;
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
+  resultsPerSearch: number;
   keywords: string;
   countries: string;
   scheduleType: string;
@@ -266,6 +267,7 @@ export function CampaignDetail() {
     maxSearchesPerDay: 10,
     maxLeadsPerDay: 50,
     maxEmailsPerDay: 20,
+    resultsPerSearch: 10,
     keywords: "",
     countries: "",
     scheduleType: "manual",
@@ -286,6 +288,7 @@ export function CampaignDetail() {
         maxSearchesPerDay: campaign.maxSearchesPerDay ?? 10,
         maxLeadsPerDay: campaign.maxLeadsPerDay ?? 50,
         maxEmailsPerDay: campaign.maxEmailsPerDay ?? 20,
+        resultsPerSearch: campaign.resultsPerSearch ?? 10,
         keywords: Array.isArray(campaign.keywords) ? campaign.keywords.join(", ") : (campaign.keywords ?? ""),
         countries: Array.isArray(campaign.countries) ? campaign.countries.join(", ") : (campaign.countries ?? ""),
         scheduleType: campaign.scheduleType ?? "manual",
@@ -457,6 +460,25 @@ export function CampaignDetail() {
                   />
                 </div>
               ))}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Results Per Search</Label>
+                <Select
+                  value={String(formData.resultsPerSearch)}
+                  onValueChange={(v) => setFormData({ ...formData, resultsPerSearch: Number(v) })}
+                >
+                  <SelectTrigger className="rounded-xl bg-background/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 20, 30, 50].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70">
+                  Serper results per keyword-country query
+                </p>
+              </div>
             </div>
             <div className="pt-1 border-t border-border/30">
               <p className="text-xs text-muted-foreground">

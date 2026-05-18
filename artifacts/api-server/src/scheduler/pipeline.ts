@@ -352,7 +352,7 @@ async function runDiscovery(
       const query = `${kw.keyword} ${co.country}`;
       let results;
       try {
-        results = await searchSerper(query, apiKey);
+        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10);
         searchCount++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

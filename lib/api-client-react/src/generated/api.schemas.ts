@@ -51,6 +51,8 @@ export interface Campaign {
   maxSearchesPerDay: number;
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
+  /** Number of Serper search results requested per keyword-country query (10/20/30/50) */
+  resultsPerSearch: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */
@@ -92,6 +94,12 @@ export interface CampaignInput {
   maxSearchesPerDay?: number;
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
+  /**
+     * Number of Serper search results requested per keyword-country query (10/20/30/50)
+     * @minimum 1
+     * @maximum 50
+     */
+  resultsPerSearch?: number;
   subjectTemplate?: string;
   emailTemplate?: string;
   unsubscribeFooter?: string;
@@ -120,6 +128,12 @@ export interface CampaignPatch {
   maxSearchesPerDay?: number;
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
+  /**
+     * Number of Serper search results requested per keyword-country query (10/20/30/50)
+     * @minimum 1
+     * @maximum 50
+     */
+  resultsPerSearch?: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */

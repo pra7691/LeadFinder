@@ -18,6 +18,7 @@ export const campaignsTable = pgTable("campaigns", {
   maxSearchesPerDay: integer("max_searches_per_day").notNull().default(100),
   maxLeadsPerDay: integer("max_leads_per_day").notNull().default(50),
   maxEmailsPerDay: integer("max_emails_per_day").notNull().default(20),
+  resultsPerSearch: integer("results_per_search").notNull().default(10),
   subjectTemplate: text("subject_template"),
   emailTemplate: text("email_template"),
   unsubscribeFooter: text("unsubscribe_footer"),

@@ -17,6 +17,8 @@ export interface Campaign {
   maxSearchesPerDay: number;
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
+  /** Number of Serper search results requested per keyword-country query (10/20/30/50) */
+  resultsPerSearch: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */
