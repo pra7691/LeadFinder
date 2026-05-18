@@ -1905,6 +1905,12 @@ components:
           type: ["string", "null"]
         crawlError:
           type: ["string", "null"]
+        leadType:
+          type: ["string", "null"]
+          description: '"company" | "directory" | "media" | "event" | "dataset" | "research" | "stats_platform"'
+        emailDomainStatus:
+          type: ["string", "null"]
+          description: '"matching_domain" | "external_domain" | "mixed" | "none"'
         createdAt:
           type: string
         updatedAt:
@@ -1960,6 +1966,10 @@ components:
           type: string
         discoverySourceUrl:
           type: string
+        leadType:
+          type: string
+        emailDomainStatus:
+          type: string
 
     LeadPatch:
       type: object
@@ -1997,6 +2007,10 @@ components:
         emailStatus:
           type: ["string", "null"]
         notes:
+          type: ["string", "null"]
+        leadType:
+          type: ["string", "null"]
+        emailDomainStatus:
           type: ["string", "null"]
 
     EmailAccount:

@@ -40,7 +40,7 @@ router.post("/leads/:id/run-crawl", async (req, res) => {
   });
 
   try {
-    const data = await crawlWebsite(lead.websiteUrl);
+    const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
 
     if (data.pagesSucceeded === 0) {
       await db
@@ -73,6 +73,7 @@ router.post("/leads/:id/run-crawl", async (req, res) => {
     };
     if (data.companyName) updates.companyName = data.companyName;
     if (data.emails) updates.emails = data.emails;
+    if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
     if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
     if (data.address) updates.address = data.address;
     if (data.country) updates.country = data.country;
@@ -186,7 +187,7 @@ router.post("/leads/bulk-crawl", async (req, res) => {
     });
 
     try {
-      const data = await crawlWebsite(lead.websiteUrl);
+      const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
       const ok = data.pagesSucceeded > 0;
 
       const updates: Record<string, unknown> = {
@@ -197,6 +198,7 @@ router.post("/leads/bulk-crawl", async (req, res) => {
       if (ok) {
         if (data.companyName) updates.companyName = data.companyName;
         if (data.emails) updates.emails = data.emails;
+        if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
         if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
         if (data.address) updates.address = data.address;
         if (data.country) updates.country = data.country;

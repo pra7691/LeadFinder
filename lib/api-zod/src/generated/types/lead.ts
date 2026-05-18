@@ -70,6 +70,16 @@ export interface Lead {
   crawlStatus?: string | null;
   /** @nullable */
   crawlError?: string | null;
+  /**
+     * "company" | "directory" | "media" | "event" | "dataset" | "research" | "stats_platform"
+     * @nullable
+     */
+  leadType?: string | null;
+  /**
+     * "matching_domain" | "external_domain" | "mixed" | "none"
+     * @nullable
+     */
+  emailDomainStatus?: string | null;
   createdAt: string;
   updatedAt: string;
 }

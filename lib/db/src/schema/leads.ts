@@ -39,6 +39,8 @@ export const leadsTable = pgTable(
     qualificationStatus: text("qualification_status").notNull().default("unqualified"),
     outreachStatus: text("outreach_status").notNull().default("not_queued"),
     emailStatus: text("email_status"),
+    leadType: text("lead_type"),
+    emailDomainStatus: text("email_domain_status"),
     notes: text("notes"),
     sourceKeyword: text("source_keyword"),
     sourceCountry: text("source_country"),

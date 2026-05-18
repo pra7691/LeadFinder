@@ -29,4 +29,6 @@ export interface LeadInput {
   sourceType?: string;
   discoverySourceDomain?: string;
   discoverySourceUrl?: string;
+  leadType?: string;
+  emailDomainStatus?: string;
 }

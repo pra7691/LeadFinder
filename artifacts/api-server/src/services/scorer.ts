@@ -13,6 +13,7 @@
 import { db } from "@workspace/db";
 import { appSettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { classifyLeadType, maxRelevanceScore } from "./lead-classifier";
 
 export interface ScoreInput {
   leadId?: number;
@@ -148,27 +149,41 @@ export async function scoreLead(input: ScoreInput): Promise<ScoreOutput> {
   const apiKey = find("openai_api_key");
   const model = find("openai_model") ?? "gpt-4o-mini";
 
+  let result: ScoreOutput;
+
   if (!scoringEnabled || !apiKey) {
     logger.debug(
       { leadId: input.leadId, scoringEnabled, hasKey: !!apiKey },
       "AI scoring skipped (ai_scoring_enabled=false or no key) — using keyword fallback",
     );
-    return scoreWithKeywords(input);
+    result = scoreWithKeywords(input);
+  } else {
+    try {
+      result = await scoreWithAI(input, apiKey, model);
+      logger.debug(
+        { leadId: input.leadId, model, score: result.score },
+        "AI scoring succeeded",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        { leadId: input.leadId, model, err: msg },
+        "AI scoring failed — using keyword fallback",
+      );
+      result = scoreWithKeywords(input);
+    }
   }
 
-  try {
-    const result = await scoreWithAI(input, apiKey, model);
-    logger.debug(
-      { leadId: input.leadId, model, score: result.score },
-      "AI scoring succeeded",
-    );
-    return result;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(
-      { leadId: input.leadId, model, err: msg },
-      "AI scoring failed — using keyword fallback",
-    );
-    return scoreWithKeywords(input);
+  // Apply relevance score cap for non-company lead types (directories, events, media, etc.)
+  const leadType = classifyLeadType(input.rootDomain);
+  const cap = maxRelevanceScore(leadType);
+  if (leadType !== "company" && result.score > cap) {
+    return {
+      score: cap,
+      reason: `[${leadType}] ${result.reason}`,
+      scoringMethod: result.scoringMethod,
+    };
   }
+
+  return result;
 }

@@ -526,9 +526,16 @@ export function CampaignRunDetail() {
                         <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
                           {lead.companyName}
                         </p>
-                        {lead.country && (
-                          <p className="text-xs text-muted-foreground truncate">{lead.country}</p>
-                        )}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {lead.sourceCountry && (
+                            <p className="text-xs text-muted-foreground truncate">{lead.sourceCountry}</p>
+                          )}
+                          {lead.leadType && lead.leadType !== "company" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium capitalize">
+                              {lead.leadType.replace("_", " ")}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <span className="w-36 text-xs text-muted-foreground truncate hidden md:block">
                         {lead.rootDomain}

@@ -292,6 +292,16 @@ export interface Lead {
   crawlStatus?: string | null;
   /** @nullable */
   crawlError?: string | null;
+  /**
+     * "company" | "directory" | "media" | "event" | "dataset" | "research" | "stats_platform"
+     * @nullable
+     */
+  leadType?: string | null;
+  /**
+     * "matching_domain" | "external_domain" | "mixed" | "none"
+     * @nullable
+     */
+  emailDomainStatus?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -319,6 +329,8 @@ export interface LeadInput {
   sourceType?: string;
   discoverySourceDomain?: string;
   discoverySourceUrl?: string;
+  leadType?: string;
+  emailDomainStatus?: string;
 }
 
 export type LeadPatchQualificationStatus = typeof LeadPatchQualificationStatus[keyof typeof LeadPatchQualificationStatus];
@@ -368,6 +380,10 @@ export interface LeadPatch {
   emailStatus?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  leadType?: string | null;
+  /** @nullable */
+  emailDomainStatus?: string | null;
 }
 
 export interface EmailAccount {

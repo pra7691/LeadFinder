@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertTriangle,
   Globe,
   Mail,
   Phone,
@@ -234,7 +235,17 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     {lead.country && (
                       <div className="flex items-start gap-2.5 text-sm">
                         <Globe className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                        <span>{lead.country}</span>
+                        <span className="text-muted-foreground">Company Country: <span className="text-foreground">{lead.country}</span></span>
+                      </div>
+                    )}
+                    {(lead.emailDomainStatus === "external_domain" || lead.emailDomainStatus === "mixed") && (
+                      <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-500/10 rounded-xl px-3 py-2 mt-1">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>
+                          {lead.emailDomainStatus === "external_domain"
+                            ? "Emails are from a different domain — verify before outreach."
+                            : "Some emails are from external domains — matching-domain ones are shown."}
+                        </span>
                       </div>
                     )}
                     {lead.linkedinUrl && (
@@ -285,7 +296,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     {lead.sourceCountry && (
                       <div className="flex items-start gap-2.5 text-sm">
                         <Globe className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                        <span className="text-muted-foreground">Country: <span className="text-foreground">{lead.sourceCountry}</span></span>
+                        <span className="text-muted-foreground">Target Country: <span className="text-foreground">{lead.sourceCountry}</span></span>
                       </div>
                     )}
                   </div>
@@ -296,6 +307,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</h4>
                   <div className="grid grid-cols-2 gap-3">
                     {[
+                      { label: "Lead Type", value: (lead.leadType ?? "company").replace("_", " ") },
                       { label: "Crawl", value: lead.crawlStatus ?? "pending" },
                       { label: "Lead", value: lead.leadStatus },
                       { label: "Qualification", value: lead.qualificationStatus },

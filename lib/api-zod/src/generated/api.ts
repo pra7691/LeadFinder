@@ -477,6 +477,8 @@ export const GetCampaignRunLeadsResponseItem = zod.object({
   "discoverySourceUrl": zod.string().nullish().describe('Full URL of the discovery source page this lead was extracted from'),
   "crawlStatus": zod.string().nullish(),
   "crawlError": zod.string().nullish(),
+  "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
+  "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -723,6 +725,8 @@ export const GetListLeadsResponseItem = zod.object({
   "discoverySourceUrl": zod.string().nullish().describe('Full URL of the discovery source page this lead was extracted from'),
   "crawlStatus": zod.string().nullish(),
   "crawlError": zod.string().nullish(),
+  "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
+  "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -848,6 +852,8 @@ export const ListLeadsResponseItem = zod.object({
   "discoverySourceUrl": zod.string().nullish().describe('Full URL of the discovery source page this lead was extracted from'),
   "crawlStatus": zod.string().nullish(),
   "crawlError": zod.string().nullish(),
+  "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
+  "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -882,7 +888,9 @@ export const CreateLeadBody = zod.object({
   "sourceQuery": zod.string().optional(),
   "sourceType": zod.string().optional(),
   "discoverySourceDomain": zod.string().optional(),
-  "discoverySourceUrl": zod.string().optional()
+  "discoverySourceUrl": zod.string().optional(),
+  "leadType": zod.string().optional(),
+  "emailDomainStatus": zod.string().optional()
 })
 
 
@@ -926,6 +934,8 @@ export const GetLeadResponse = zod.object({
   "discoverySourceUrl": zod.string().nullish().describe('Full URL of the discovery source page this lead was extracted from'),
   "crawlStatus": zod.string().nullish(),
   "crawlError": zod.string().nullish(),
+  "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
+  "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -954,7 +964,9 @@ export const UpdateLeadBody = zod.object({
   "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).optional(),
   "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).optional(),
   "emailStatus": zod.string().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "leadType": zod.string().nullish(),
+  "emailDomainStatus": zod.string().nullish()
 })
 
 export const updateLeadResponseQualificationStatusDefault = `unqualified`;
@@ -990,6 +1002,8 @@ export const UpdateLeadResponse = zod.object({
   "discoverySourceUrl": zod.string().nullish().describe('Full URL of the discovery source page this lead was extracted from'),
   "crawlStatus": zod.string().nullish(),
   "crawlError": zod.string().nullish(),
+  "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
+  "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })

@@ -35,4 +35,8 @@ export interface LeadPatch {
   emailStatus?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  leadType?: string | null;
+  /** @nullable */
+  emailDomainStatus?: string | null;
 }

@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
+import { classifyLeadType } from "../services/lead-classifier";
 
 const router = Router();
 
@@ -354,6 +355,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
             sourceKeyword: kw.keyword,
             sourceCountry: co.country,
             sourceQuery: query,
+            leadType: classifyLeadType(rootDomain, result.title),
           });
 
           existingDomains.add(rootDomain);

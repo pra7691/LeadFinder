@@ -22,6 +22,7 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
+import { classifyLeadType } from "../services/lead-classifier";
 import { scoreLead } from "../services/scorer";
 import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
@@ -268,6 +269,7 @@ async function mineDiscoverySource({
         sourceType: "mined",
         discoverySourceDomain: sourceRootDomain,
         discoverySourceUrl: discoveryUrl,
+        leadType: classifyLeadType(rootDomain),
       });
       existingDomains.add(rootDomain);
       mined++;
@@ -715,6 +717,7 @@ async function runDiscovery(
             sourceCountry: co.country,
             sourceQuery: query,
             sourceType: "direct",
+            leadType: classifyLeadType(rootDomain, result.title),
           });
           existingDomains.add(rootDomain);
           stats.newLeadsCreated++;
@@ -800,7 +803,7 @@ async function runCrawl(
 
   for (const lead of uncrawled) {
     try {
-      const data = await crawlWebsite(lead.websiteUrl);
+      const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
       const ok = data.pagesSucceeded > 0;
       const updates: Record<string, unknown> = {
         crawlStatus: ok ? "crawled" : "failed",
@@ -810,6 +813,7 @@ async function runCrawl(
       if (ok) {
         if (data.companyName) updates.companyName = data.companyName;
         if (data.emails) updates.emails = data.emails;
+        if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
         if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
         if (data.address) updates.address = data.address;
         if (data.country) updates.country = data.country;
