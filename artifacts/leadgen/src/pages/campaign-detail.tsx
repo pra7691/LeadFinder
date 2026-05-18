@@ -5,9 +5,13 @@ import {
   useListCampaignRuns,
   getListCampaignRunsQueryKey,
   getGetCampaignQueryKey,
+  getListCampaignsQueryKey,
+  useDeleteCampaign,
+  useResetCampaignData,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
 import type { Campaign } from "@workspace/api-client-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,8 +39,10 @@ import {
   History,
   ArrowRight,
   Users,
+  Trash2,
+  RotateCcw,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -266,8 +272,11 @@ export function CampaignDetail() {
   });
   const updateCampaign = useUpdateCampaign();
   const triggerPipeline = useTriggerCampaignPipeline();
+  const deleteCampaign = useDeleteCampaign();
+  const resetData = useResetCampaignData();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const [formData, setFormData] = useState<FormData>({
     name: "",
@@ -287,6 +296,8 @@ export function CampaignDetail() {
   });
   const initialized = useRef(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
+  const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
+  const [resetDataOpen, setResetDataOpen] = useState(false);
 
   useEffect(() => {
     if (campaign && !initialized.current) {
@@ -351,6 +362,35 @@ export function CampaignDetail() {
     );
   };
 
+  const handleDeleteCampaign = () => {
+    deleteCampaign.mutate(
+      { id: campaignId },
+      {
+        onSuccess: () => {
+          toast({ title: "Campaign deleted." });
+          setDeleteCampaignOpen(false);
+          queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
+          navigate("/campaigns");
+        },
+        onError: () => toast({ title: "Failed to delete campaign.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleResetData = () => {
+    resetData.mutate(
+      { id: campaignId },
+      {
+        onSuccess: (result) => {
+          toast({ title: `Reset complete: ${result.deletedRuns} run(s) and ${result.deletedLeads} lead(s) removed.` });
+          setResetDataOpen(false);
+          invalidate();
+        },
+        onError: () => toast({ title: "Failed to reset campaign data.", variant: "destructive" }),
+      },
+    );
+  };
+
   const toggleDay = (day: string) => {
     setSelectedDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
@@ -388,8 +428,46 @@ export function CampaignDetail() {
           <Button onClick={handleSave} disabled={updateCampaign.isPending} className="rounded-xl shadow-sm" data-testid="button-save-campaign">
             {updateCampaign.isPending ? "Saving…" : "Save Changes"}
           </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl shadow-sm gap-2 text-muted-foreground hover:text-foreground"
+            onClick={() => setResetDataOpen(true)}
+            data-testid="button-reset-campaign-data"
+          >
+            <RotateCcw className="w-4 h-4" /> Reset Data
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl shadow-sm gap-2 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
+            onClick={() => setDeleteCampaignOpen(true)}
+            data-testid="button-delete-campaign"
+          >
+            <Trash2 className="w-4 h-4" /> Delete
+          </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteCampaignOpen}
+        onOpenChange={setDeleteCampaignOpen}
+        title="Delete Campaign"
+        description={`This will permanently delete the campaign "${campaign?.name ?? ""}" along with all its runs, leads, and outreach data. This cannot be undone.`}
+        confirmText={campaign?.name ?? ""}
+        confirmLabel="Delete Campaign"
+        onConfirm={handleDeleteCampaign}
+        loading={deleteCampaign.isPending}
+      />
+
+      <ConfirmDialog
+        open={resetDataOpen}
+        onOpenChange={setResetDataOpen}
+        title="Reset Campaign Data"
+        description={`This will delete all runs and leads for "${campaign?.name ?? ""}" while keeping the campaign settings. This cannot be undone.`}
+        confirmText="RESET DATA"
+        confirmLabel="Reset Data"
+        onConfirm={handleResetData}
+        loading={resetData.isPending}
+      />
 
       {/* Current Run live card (only shows when running) */}
       <CurrentRunCard campaignId={campaignId} />

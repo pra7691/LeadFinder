@@ -3,9 +3,11 @@ import {
   useCreateCampaign,
   usePauseCampaign,
   useResumeCampaign,
+  useDeleteCampaign,
   getListCampaignsQueryKey,
   getGetSchedulerStatusQueryKey,
 } from "@workspace/api-client-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ import {
   Clock,
   RefreshCw,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import {
   Dialog,
@@ -66,11 +69,13 @@ export function Campaigns() {
   const createCampaign = useCreateCampaign();
   const pauseCampaign = usePauseCampaign();
   const resumeCampaign = useResumeCampaign();
+  const deleteCampaign = useDeleteCampaign();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [objective, setObjective] = useState("");
   const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
@@ -100,6 +105,24 @@ export function Campaigns() {
     e.preventDefault();
     resumeCampaign.mutate({ id }, { onSuccess: invalidate });
   };
+
+  const handleDelete = () => {
+    if (deletingId === null) return;
+    deleteCampaign.mutate(
+      { id: deletingId },
+      {
+        onSuccess: () => {
+          setDeletingId(null);
+          invalidate();
+        },
+        onError: () => {
+          setDeletingId(null);
+        },
+      },
+    );
+  };
+
+  const deletingCampaign = campaigns?.find((c: Campaign) => c.id === deletingId) ?? null;
 
   const filteredCampaigns = (campaigns as Campaign[] | undefined)?.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()),
@@ -295,11 +318,34 @@ export function Campaigns() {
                         )}
                       </div>
                     )}
+
+                    <div className="mt-3 pt-3 border-t border-border/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs rounded-lg gap-1.5 w-full text-destructive/70 hover:text-destructive hover:bg-destructive/5"
+                        onClick={(e) => { e.preventDefault(); setDeletingId(campaign.id); }}
+                        data-testid={`button-delete-campaign-${campaign.id}`}
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete Campaign
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </Link>
             );
           })}
+
+          <ConfirmDialog
+            open={deletingId !== null}
+            onOpenChange={(v) => { if (!v) setDeletingId(null); }}
+            title="Delete Campaign"
+            description={`Permanently delete "${deletingCampaign?.name ?? ""}" and all its runs, leads, and outreach data? This cannot be undone.`}
+            confirmText={deletingCampaign?.name ?? ""}
+            confirmLabel="Delete Campaign"
+            onConfirm={handleDelete}
+            loading={deleteCampaign.isPending}
+          />
 
           {!filteredCampaigns?.length && (
             <div className="col-span-full flex flex-col items-center justify-center p-12 text-center bg-muted/20 border border-border/50 rounded-2xl border-dashed">

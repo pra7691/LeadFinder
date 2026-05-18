@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { leadsTable } from "@workspace/db";
-import { eq, and, isNotNull, isNull, gte, type SQL } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, gte, inArray, type SQL } from "drizzle-orm";
 import {
   CreateLeadBody,
   UpdateLeadBody,
@@ -117,6 +117,24 @@ router.delete("/leads/:id", async (req, res) => {
   const { id } = DeleteLeadParams.parse({ id: Number(req.params.id) });
   await db.delete(leadsTable).where(eq(leadsTable.id, id));
   res.status(204).send();
+});
+
+// Bulk delete leads by ID array — cascade handles outreach_queue, lead_list_items, lead_notes
+router.post("/leads/bulk-delete", async (req, res) => {
+  const { ids } = (req.body ?? {}) as { ids?: unknown };
+  if (!Array.isArray(ids) || !ids.every((x) => typeof x === "number")) {
+    res.status(400).json({ error: "ids must be an array of lead ID numbers" });
+    return;
+  }
+  if (ids.length === 0) {
+    res.json({ deleted: 0 });
+    return;
+  }
+  const deleted = await db
+    .delete(leadsTable)
+    .where(inArray(leadsTable.id, ids as number[]))
+    .returning({ id: leadsTable.id });
+  res.json({ deleted: deleted.length });
 });
 
 export default router;

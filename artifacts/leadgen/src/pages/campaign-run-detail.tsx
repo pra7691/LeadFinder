@@ -4,14 +4,24 @@ import {
   useListLeadLists,
   useAddLeadsToList,
   useUpdateLead,
+  useDeleteCampaignRun,
+  useDeleteLead,
+  useBulkDeleteLeads,
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
+  getListCampaignRunsQueryKey,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ChevronLeft,
   Clock,
@@ -29,14 +39,10 @@ import {
   Download,
   Mail,
   Phone,
+  Trash2,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
@@ -78,6 +84,7 @@ export function CampaignRunDetail() {
   const runIdNum = Number(runId);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
 
   const { data: run, isLoading: runLoading } = useGetCampaignRun(runIdNum, {
     query: {
@@ -101,12 +108,22 @@ export function CampaignRunDetail() {
   const { data: lists } = useListLeadLists();
   const addLeadsToList = useAddLeadsToList();
   const updateLead = useUpdateLead();
+  const deleteRun = useDeleteCampaignRun();
+  const deleteLead = useDeleteLead();
+  const bulkDeleteLeads = useBulkDeleteLeads();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [addToListOpen, setAddToListOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [qualFilter, setQualFilter] = useState("all");
+
+  // Delete state
+  const [deleteRunOpen, setDeleteRunOpen] = useState(false);
+  const [deleteRunKeepLeads, setDeleteRunKeepLeads] = useState(false);
+  const [deleteRunTyped, setDeleteRunTyped] = useState("");
+  const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const filteredLeads = useMemo(() => {
     if (!leads) return [];
@@ -172,6 +189,65 @@ export function CampaignRunDetail() {
     if (!filteredLeads.length) return;
     const ids = filteredLeads.map((l) => l.id).join(",");
     window.open(`/api/leads/export?format=${format}&leadIds=${ids}`, "_blank");
+  };
+
+  const handleDeleteRun = () => {
+    const doDeleteRun = () =>
+      deleteRun.mutate(
+        { id: runIdNum },
+        {
+          onSuccess: () => {
+            toast({ title: deleteRunKeepLeads ? "Run deleted. Leads were kept." : "Run and all leads deleted." });
+            setDeleteRunOpen(false);
+            queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+            navigate(`/campaigns/${campaignId}`);
+          },
+          onError: () => toast({ title: "Failed to delete run.", variant: "destructive" }),
+        },
+      );
+
+    if (!deleteRunKeepLeads && leads && leads.length > 0) {
+      bulkDeleteLeads.mutate(
+        { data: { ids: leads.map((l) => l.id) } },
+        {
+          onSuccess: doDeleteRun,
+          onError: () => toast({ title: "Failed to delete leads.", variant: "destructive" }),
+        },
+      );
+    } else {
+      doDeleteRun();
+    }
+  };
+
+  const handleDeleteLead = (leadId: number) => {
+    deleteLead.mutate(
+      { id: leadId },
+      {
+        onSuccess: () => {
+          toast({ title: "Lead deleted." });
+          setDeletingLeadId(null);
+          setSelectedIds((prev) => { const next = new Set(prev); next.delete(leadId); return next; });
+          queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+        },
+        onError: () => toast({ title: "Failed to delete lead.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleBulkDeleteLeads = () => {
+    const ids = Array.from(selectedIds);
+    bulkDeleteLeads.mutate(
+      { data: { ids } },
+      {
+        onSuccess: (result) => {
+          toast({ title: `${result.deleted} lead${result.deleted !== 1 ? "s" : ""} deleted.` });
+          setBulkDeleteOpen(false);
+          setSelectedIds(new Set());
+          queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+        },
+        onError: () => toast({ title: "Failed to delete leads.", variant: "destructive" }),
+      },
+    );
   };
 
   if (runLoading) {
@@ -243,6 +319,18 @@ export function CampaignRunDetail() {
             )}
           </div>
           <RunStatusBadge status={run.status} />
+          {run.status !== "running" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/50"
+              onClick={() => { setDeleteRunTyped(""); setDeleteRunOpen(true); }}
+              data-testid="button-delete-run"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Run
+            </Button>
+          )}
         </div>
 
         {/* Stats */}
@@ -297,15 +385,27 @@ export function CampaignRunDetail() {
               </CardTitle>
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedIds.size > 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl gap-2 text-xs h-8"
-                    onClick={() => setAddToListOpen(true)}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add {selectedIds.size} to List
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl gap-2 text-xs h-8"
+                      onClick={() => setAddToListOpen(true)}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add {selectedIds.size} to List
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl gap-2 text-xs h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                      onClick={() => setBulkDeleteOpen(true)}
+                      data-testid="button-bulk-delete-leads"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete {selectedIds.size}
+                    </Button>
+                  </>
                 )}
                 {filteredLeads.length > 0 && (
                   <>
@@ -400,7 +500,7 @@ export function CampaignRunDetail() {
                   <span className="w-12 hidden sm:block text-center">Score</span>
                   <span className="w-14 hidden sm:block text-center">Email</span>
                   <span className="w-24">Status</span>
-                  <span className="w-24 text-right">Actions</span>
+                  <span className="w-28 text-right">Actions</span>
                 </div>
                 <div className="divide-y divide-border/30">
                   {filteredLeads.map((lead) => (
@@ -411,7 +511,6 @@ export function CampaignRunDetail() {
                         selectedIds.has(lead.id) && "bg-primary/5",
                       )}
                       onClick={(e) => {
-                        // Don't open drawer if clicking checkbox or action buttons
                         if ((e.target as HTMLElement).closest('input,button')) return;
                         setSelectedLeadId(lead.id);
                       }}
@@ -449,7 +548,7 @@ export function CampaignRunDetail() {
                       <span className="w-24 shrink-0">
                         <QualBadge status={lead.qualificationStatus} />
                       </span>
-                      <span className="w-24 shrink-0 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="w-28 shrink-0 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           title="Qualify"
                           onClick={(e) => { e.stopPropagation(); handleQualify(lead.id, "qualified"); }}
@@ -465,6 +564,14 @@ export function CampaignRunDetail() {
                           className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30"
                         >
                           <ThumbsDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          title="Delete lead"
+                          onClick={(e) => { e.stopPropagation(); setDeletingLeadId(lead.id); }}
+                          className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                          data-testid={`button-delete-lead-${lead.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </span>
                     </div>
@@ -512,6 +619,102 @@ export function CampaignRunDetail() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Delete Run dialog (custom — has option A/B + typed confirmation) */}
+      <Dialog open={deleteRunOpen} onOpenChange={(v) => { if (!v) { setDeleteRunTyped(""); } setDeleteRunOpen(v); }}>
+        <DialogContent className="sm:max-w-md rounded-2xl border-border/50 bg-background/90 backdrop-blur-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              Delete Campaign Run
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This run record will be permanently deleted. Choose what to do with the leads discovered in this run:
+          </p>
+          <div className="space-y-3">
+            <label className={cn(
+              "flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors",
+              !deleteRunKeepLeads ? "border-destructive/40 bg-destructive/5" : "border-border/50 hover:border-border",
+            )}>
+              <input
+                type="radio"
+                checked={!deleteRunKeepLeads}
+                onChange={() => setDeleteRunKeepLeads(false)}
+                className="mt-0.5 accent-destructive"
+              />
+              <div>
+                <p className="text-sm font-medium">Delete run and leads</p>
+                <p className="text-xs text-muted-foreground">Removes the run and all leads created in it, including outreach history.</p>
+              </div>
+            </label>
+            <label className={cn(
+              "flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors",
+              deleteRunKeepLeads ? "border-primary/40 bg-primary/5" : "border-border/50 hover:border-border",
+            )}>
+              <input
+                type="radio"
+                checked={deleteRunKeepLeads}
+                onChange={() => setDeleteRunKeepLeads(true)}
+                className="mt-0.5 accent-primary"
+              />
+              <div>
+                <p className="text-sm font-medium">Delete run only, keep leads</p>
+                <p className="text-xs text-muted-foreground">The leads remain in your database, unlinked from this run.</p>
+              </div>
+            </label>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Type <span className="font-mono font-semibold text-foreground">DELETE RUN</span> to confirm
+            </p>
+            <Input
+              value={deleteRunTyped}
+              onChange={(e) => setDeleteRunTyped(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && deleteRunTyped === "DELETE RUN" && handleDeleteRun()}
+              placeholder="DELETE RUN"
+              className="rounded-xl font-mono"
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" className="rounded-xl" onClick={() => setDeleteRunOpen(false)} disabled={deleteRun.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-xl"
+              onClick={handleDeleteRun}
+              disabled={deleteRunTyped !== "DELETE RUN" || deleteRun.isPending || bulkDeleteLeads.isPending}
+              data-testid="button-confirm-delete-run"
+            >
+              {deleteRun.isPending ? "Deleting…" : "Delete Run"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete single lead confirm */}
+      <ConfirmDialog
+        open={deletingLeadId !== null}
+        onOpenChange={(open) => { if (!open) setDeletingLeadId(null); }}
+        title="Delete Lead"
+        description="This lead and its associated outreach data will be permanently deleted. This action cannot be undone."
+        confirmLabel="Delete Lead"
+        loading={deleteLead.isPending}
+        onConfirm={() => deletingLeadId !== null && handleDeleteLead(deletingLeadId)}
+      />
+
+      {/* Bulk delete confirm */}
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        title={`Delete ${selectedIds.size} Leads`}
+        description={`${selectedIds.size} lead${selectedIds.size !== 1 ? "s" : ""} and their associated outreach data will be permanently deleted. This action cannot be undone.`}
+        confirmLabel={`Delete ${selectedIds.size} Leads`}
+        loading={bulkDeleteLeads.isPending}
+        onConfirm={handleBulkDeleteLeads}
+      />
 
       {/* Lead Detail Drawer */}
       <LeadDetailDrawer

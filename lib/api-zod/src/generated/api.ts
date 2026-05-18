@@ -224,10 +224,23 @@ export const UpdateCampaignResponse = zod.object({
 
 
 /**
- * @summary Delete a campaign
+ * @summary Delete a campaign and all its associated data
  */
 export const DeleteCampaignParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Delete all runs and leads for a campaign, keeping the campaign settings
+ */
+export const ResetCampaignDataParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResetCampaignDataResponse = zod.object({
+  "deletedRuns": zod.number(),
+  "deletedLeads": zod.number()
 })
 
 
@@ -401,6 +414,14 @@ export const GetCampaignRunResponse = zod.object({
   "errorMessage": zod.string().nullish(),
   "metadataJson": zod.string().nullish(),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a campaign run (leads are kept with campaign_run_id nulled)
+ */
+export const DeleteCampaignRunParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 
@@ -967,6 +988,18 @@ export const UpdateLeadResponse = zod.object({
  */
 export const DeleteLeadParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Delete multiple leads by ID
+ */
+export const BulkDeleteLeadsBody = zod.object({
+  "ids": zod.array(zod.number()).describe('Lead IDs to delete')
+})
+
+export const BulkDeleteLeadsResponse = zod.object({
+  "deleted": zod.number().describe('Number of leads deleted')
 })
 
 

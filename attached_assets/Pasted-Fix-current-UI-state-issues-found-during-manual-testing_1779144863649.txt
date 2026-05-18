@@ -1,0 +1,146 @@
+Fix current UI/state issues found during manual testing.
+
+Do not rebuild the app.
+Do not change core architecture.
+Only fix the listed issues.
+
+==================================================
+ISSUE 1 — DUPLICATE ACTIVE STATUS ON CAMPAIGN CARD
+==================================================
+
+Current issue:
+Campaign cards show Active twice:
+
+1. Top-right green “Active” badge
+2. Lower schedule/status row also showing “Active”
+
+Fix:
+Keep only the top-right campaign status badge.
+
+Remove the lower duplicate “Active” indicator from the schedule row.
+
+The lower row should only show schedule info, for example:
+
+* Manual
+* Daily
+* Weekly
+* Last run about X minutes ago
+
+Do not repeat Active there.
+
+==================================================
+ISSUE 2 — SIDEBAR ACTIVE STATE BUG
+==================================
+
+Current issue:
+When clicking “Review Queue”, both “Outreach” and “Review Queue” appear selected/active in the sidebar.
+
+Expected behavior:
+Only the current route should be active.
+
+Rules:
+
+* /outreach should highlight only Outreach
+* /outreach-review should highlight only Review Queue
+* Review Queue must not cause Outreach to be highlighted
+* Do not use broad path matching like startsWith('/outreach') if it also catches /outreach-review
+
+Fix sidebar active route logic using exact route matching or a safer route map.
+
+Test:
+
+* Click Outreach → only Outreach active
+* Click Review Queue → only Review Queue active
+* Click Email Templates → only Email Templates active
+* Click Lists → only Lists active
+
+==================================================
+ISSUE 3 — CURRENT RUN STATS ALWAYS ZERO
+=======================================
+
+Current issue:
+Current Run stats remain zero while campaign is running.
+Stats seem to update only after completion.
+
+Expected behavior:
+Current Run stats should update in real time while campaign is running.
+
+The live card should update:
+
+* new leads
+* searches
+* blocked
+* duplicates
+* skipped
+* sources mined if available
+* results found if available
+
+Fix backend and frontend if needed.
+
+Backend:
+During campaign execution, update campaign_runs counters continuously after each query/result batch, not only at the end.
+
+Frontend:
+Poll active run every 3 seconds and reflect updated counters immediately.
+
+==================================================
+ISSUE 4 — CAMPAIGN DETAIL TOP STATS SHOULD UPDATE LIVE
+======================================================
+
+Current issue:
+Campaign detail top stats do not update in real time during an active run.
+
+Expected behavior:
+If leads are appearing live in the run leads table, then campaign detail stats should also update live.
+
+Update:
+
+* current run card
+* campaign run counters
+* campaign detail top stats/cards
+
+While a run is active, refresh/poll all affected stats every 3 seconds.
+
+==================================================
+ISSUE 5 — KEEP LIVE LEADS TABLE SYNCED
+======================================
+
+If the run detail page already shows leads in real time, keep that behavior.
+
+Also make sure:
+
+* new leads appear without manual refresh
+* counters match visible leads
+* duplicate/blocked/skipped counts match backend totals
+
+==================================================
+TESTING REQUIREMENTS
+====================
+
+Run UI dry-run tests for:
+
+1. Campaign card shows Active only once.
+2. Schedule row does not duplicate campaign status.
+3. Sidebar active state works correctly for Outreach and Review Queue.
+4. Current Run stats update while campaign is running.
+5. Campaign detail top stats update while campaign is running.
+6. Run detail leads and counters remain synced.
+7. No console errors.
+8. No broken routes.
+
+Fix all issues found.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* files changed
+* sidebar active route fix
+* campaign card status fix
+* live stats update fix
+* backend counter update behavior
+* frontend polling behavior
+* tests run
+* remaining limitations

@@ -30,6 +30,8 @@ import type {
   BulkApproveResult,
   BulkCrawlInput,
   BulkCrawlSummary,
+  BulkDeleteLeadsInput,
+  BulkDeleteLeadsResult,
   BulkQueueInput,
   BulkQueueResult,
   BulkRejectOutreach200,
@@ -75,6 +77,7 @@ import type {
   QueueLeadInput,
   RegenerateOutreachInput,
   RejectOutreachInput,
+  ResetCampaignDataResult,
   SchedulerStatus,
   ScoreResult,
   SendBatchResult,
@@ -559,7 +562,7 @@ export const getDeleteCampaignUrl = (id: number,) => {
 }
 
 /**
- * @summary Delete a campaign
+ * @summary Delete a campaign and all its associated data
  */
 export const deleteCampaign = async (id: number, options?: RequestInit): Promise<void> => {
 
@@ -607,7 +610,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteCampaignMutationError = ErrorType<unknown>
 
     /**
- * @summary Delete a campaign
+ * @summary Delete a campaign and all its associated data
  */
 export const useDeleteCampaign = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCampaign>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -618,6 +621,76 @@ export const useDeleteCampaign = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteCampaignMutationOptions(options));
+    }
+
+export const getResetCampaignDataUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaigns/${id}/reset-data`
+}
+
+/**
+ * @summary Delete all runs and leads for a campaign, keeping the campaign settings
+ */
+export const resetCampaignData = async (id: number, options?: RequestInit): Promise<ResetCampaignDataResult> => {
+
+  return customFetch<ResetCampaignDataResult>(getResetCampaignDataUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResetCampaignDataMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetCampaignData>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetCampaignData>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resetCampaignData'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetCampaignData>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resetCampaignData(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetCampaignDataMutationResult = NonNullable<Awaited<ReturnType<typeof resetCampaignData>>>
+
+    export type ResetCampaignDataMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete all runs and leads for a campaign, keeping the campaign settings
+ */
+export const useResetCampaignData = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetCampaignData>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resetCampaignData>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResetCampaignDataMutationOptions(options));
     }
 
 export const getRunDiscoveryUrl = (id: number,) => {
@@ -1060,6 +1133,76 @@ export function useGetCampaignRun<TData = Awaited<ReturnType<typeof getCampaignR
 
 
 
+
+export const getDeleteCampaignRunUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaign-runs/${id}`
+}
+
+/**
+ * @summary Delete a campaign run (leads are kept with campaign_run_id nulled)
+ */
+export const deleteCampaignRun = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCampaignRunUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCampaignRunMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCampaignRun>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCampaignRun>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteCampaignRun'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCampaignRun>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteCampaignRun(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCampaignRunMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCampaignRun>>>
+
+    export type DeleteCampaignRunMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a campaign run (leads are kept with campaign_run_id nulled)
+ */
+export const useDeleteCampaignRun = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCampaignRun>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCampaignRun>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCampaignRunMutationOptions(options));
+    }
 
 export const getGetCampaignRunLeadsUrl = (id: number,) => {
 
@@ -2705,6 +2848,77 @@ export const useDeleteLead = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteLeadMutationOptions(options));
+    }
+
+export const getBulkDeleteLeadsUrl = () => {
+
+
+
+
+  return `/api/leads/bulk-delete`
+}
+
+/**
+ * @summary Delete multiple leads by ID
+ */
+export const bulkDeleteLeads = async (bulkDeleteLeadsInput: BulkDeleteLeadsInput, options?: RequestInit): Promise<BulkDeleteLeadsResult> => {
+
+  return customFetch<BulkDeleteLeadsResult>(getBulkDeleteLeadsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkDeleteLeadsInput,)
+  }
+);}
+
+
+
+
+export const getBulkDeleteLeadsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkDeleteLeads>>, TError,{data: BodyType<BulkDeleteLeadsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkDeleteLeads>>, TError,{data: BodyType<BulkDeleteLeadsInput>}, TContext> => {
+
+const mutationKey = ['bulkDeleteLeads'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkDeleteLeads>>, {data: BodyType<BulkDeleteLeadsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkDeleteLeads(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkDeleteLeadsMutationResult = NonNullable<Awaited<ReturnType<typeof bulkDeleteLeads>>>
+    export type BulkDeleteLeadsMutationBody = BodyType<BulkDeleteLeadsInput>
+    export type BulkDeleteLeadsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete multiple leads by ID
+ */
+export const useBulkDeleteLeads = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkDeleteLeads>>, TError,{data: BodyType<BulkDeleteLeadsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkDeleteLeads>>,
+        TError,
+        {data: BodyType<BulkDeleteLeadsInput>},
+        TContext
+      > => {
+      return useMutation(getBulkDeleteLeadsMutationOptions(options));
     }
 
 export const getBulkLeadActionUrl = () => {

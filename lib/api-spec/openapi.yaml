@@ -126,7 +126,7 @@ paths:
     delete:
       operationId: deleteCampaign
       tags: [campaigns]
-      summary: Delete a campaign
+      summary: Delete a campaign and all its associated data
       parameters:
         - name: id
           in: path
@@ -136,6 +136,27 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /campaigns/{id}/reset-data:
+    post:
+      operationId: resetCampaignData
+      tags: [campaigns]
+      summary: Delete all runs and leads for a campaign, keeping the campaign settings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reset result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetCampaignDataResult"
+        "404":
+          description: Campaign not found
 
   # ── Discovery ────────────────────────────────────────────────
   /campaigns/{id}/run-discovery:
@@ -261,6 +282,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CampaignRun"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCampaignRun
+      tags: [campaign-runs]
+      summary: Delete a campaign run (leads are kept with campaign_run_id nulled)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Cannot delete a running campaign run
         "404":
           description: Not found
 
@@ -743,6 +781,25 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /leads/bulk-delete:
+    post:
+      operationId: bulkDeleteLeads
+      tags: [leads]
+      summary: Delete multiple leads by ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDeleteLeadsInput"
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkDeleteLeadsResult"
 
   /leads/bulk-action:
     post:
@@ -2596,6 +2653,33 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+
+    BulkDeleteLeadsInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+          description: Lead IDs to delete
+
+    BulkDeleteLeadsResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          description: Number of leads deleted
+
+    ResetCampaignDataResult:
+      type: object
+      required: [deletedRuns, deletedLeads]
+      properties:
+        deletedRuns:
+          type: integer
+        deletedLeads:
+          type: integer
 
     BulkActionInput:
       type: object

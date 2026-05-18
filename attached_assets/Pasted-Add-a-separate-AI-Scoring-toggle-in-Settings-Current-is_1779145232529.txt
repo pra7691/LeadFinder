@@ -1,0 +1,84 @@
+Add a separate AI Scoring toggle in Settings.
+
+Current issue:
+AI settings currently control AI usage generally, but we need separate control for lead relevance scoring.
+
+Requirement:
+In the AI Settings section, add a separate toggle:
+
+AI Scoring Enabled
+
+Purpose:
+Controls whether lead relevance scoring uses OpenAI.
+
+Behavior:
+
+1. If AI Scoring Enabled = false:
+
+   * lead scoring must use keyword/rule-based fallback only
+   * scoring_method should be keyword_fallback
+   * no OpenAI call should be made for scoring
+
+2. If AI Scoring Enabled = true:
+
+   * lead scoring may use OpenAI if:
+
+     * AI API key exists
+     * selected model exists
+     * AI provider is enabled/valid
+
+3. Email personalization should remain controlled by the existing AI Enabled toggle.
+
+Important separation:
+
+* AI Enabled = email personalization/regeneration
+* AI Scoring Enabled = lead relevance scoring
+
+Do not let disabling AI scoring disable email personalization.
+
+Do not let enabling AI scoring automatically enable email personalization.
+
+Settings fields:
+
+* ai_enabled
+* ai_scoring_enabled
+* openai_api_key
+* openai_model
+
+UI:
+In Settings → AI Settings:
+Add toggle:
+AI Scoring Enabled
+
+Help text:
+“When enabled, lead relevance scoring uses OpenAI. When disabled, scoring uses rule-based keyword fallback.”
+
+Backend:
+Update scorer service:
+
+* read ai_scoring_enabled from app_settings
+* if false, skip OpenAI scoring entirely
+* use keyword fallback directly
+* log scoring_method = keyword_fallback
+
+Update AI connection/testing if needed:
+
+* Test AI Connection should still only test the key/model
+* It should not force AI scoring on
+
+Testing:
+
+1. AI Scoring Enabled off → scoring does not call OpenAI.
+2. scoring_method saved as keyword_fallback.
+3. AI Scoring Enabled on + valid key → scoring can call OpenAI.
+4. Email personalization still works when AI scoring is off.
+5. Email personalization remains off if AI Enabled is off, even if AI scoring is on.
+6. UI saves and reloads toggle correctly.
+
+Completion report:
+
+* settings changes
+* backend scoring changes
+* UI changes
+* tests run
+* behavior confirmation

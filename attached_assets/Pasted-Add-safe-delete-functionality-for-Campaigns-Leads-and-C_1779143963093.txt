@@ -1,0 +1,221 @@
+Add safe delete functionality for Campaigns, Leads, and Campaign Runs.
+
+Do not rebuild the app.
+Do not remove existing working functionality.
+Implement deletion carefully with confirmation dialogs and proper cleanup of linked records.
+
+Goal:
+Allow me to delete test/demo data from the system during QA.
+
+==================================================
+PART 1 — DELETE CAMPAIGN
+========================
+
+Add Delete Campaign action on Campaign Detail page and Campaign list page.
+
+Behavior:
+When deleting a campaign, show a confirmation modal.
+
+Confirmation message:
+“Deleting this campaign will also delete its campaign runs and leads. This action cannot be undone.”
+
+Require the user to type:
+DELETE
+
+Before allowing deletion.
+
+When campaign is deleted:
+
+* delete campaign record
+* delete campaign_keywords
+* delete campaign_countries
+* delete campaign_runs
+* delete leads belonging to the campaign
+* delete lead_list_items linked to those deleted leads
+* delete outreach_queue items linked to those deleted leads
+* delete logs linked to the campaign, or keep them only if the schema supports orphan logs safely
+
+Do not delete:
+
+* email templates
+* email accounts
+* app settings
+* other campaigns
+* lists themselves, unless they become empty; do not auto-delete lists
+
+After deletion:
+
+* redirect to Campaigns page
+* show success toast
+* refresh dashboard counts
+
+==================================================
+PART 2 — DELETE LEADS
+=====================
+
+Add delete action for leads.
+
+Locations:
+
+* Run Detail lead table
+* Lead Detail drawer
+* List Detail lead table if applicable
+
+Actions:
+
+* delete single lead
+* bulk delete selected leads
+
+When lead is deleted:
+
+* delete lead record
+* remove it from lead_list_items
+* remove related outreach_queue items
+* keep campaign_run record intact
+* update visible counts
+
+Confirmation:
+For single delete:
+“Delete this lead?”
+
+For bulk delete:
+“Delete selected leads?”
+
+If any selected lead has outreach already sent, show warning:
+“This lead has outreach history. Deleting it may remove tracking data.”
+
+==================================================
+PART 3 — DELETE CAMPAIGN RUNS
+=============================
+
+Add Delete Run action on Campaign Runs list and Run Detail page.
+
+Behavior:
+Deleting a campaign run should ask what to do with the leads created in that run.
+
+Provide two options:
+
+Option A:
+Delete run only, keep leads.
+
+* campaign_run_id on those leads becomes null or “unassigned/imported” if supported.
+
+Option B:
+Delete run and leads created in this run.
+
+* delete campaign_run
+* delete leads where campaign_run_id = this run id
+* remove deleted leads from lists
+* remove outreach queue items for deleted leads
+
+Default selected option:
+Delete run and leads created in this run.
+
+Confirmation:
+Require typing:
+DELETE RUN
+
+Do not allow deleting a run while status = running.
+Show:
+“Cannot delete a running campaign run. Wait until it finishes or mark it failed first.”
+
+==================================================
+PART 4 — RESET CAMPAIGN TEST DATA
+=================================
+
+Add optional button on Campaign Detail:
+Reset Campaign Data
+
+This should delete:
+
+* all campaign runs
+* all leads under that campaign
+* related list items for those leads
+* related outreach queue items for those leads
+
+But keep:
+
+* campaign
+* keywords
+* countries
+* campaign settings
+
+Confirmation:
+Require typing:
+RESET
+
+This is useful for repeated testing.
+
+==================================================
+PART 5 — API ENDPOINTS
+======================
+
+Add backend endpoints as needed:
+
+DELETE /api/campaigns/:id
+
+DELETE /api/leads/:id
+
+POST /api/leads/bulk-delete
+
+DELETE /api/campaign-runs/:id
+
+POST /api/campaigns/:id/reset-data
+
+Ensure:
+
+* proper transaction handling
+* no orphan records
+* clean error messages
+* permission/auth not required since this is single-user internal tool
+
+==================================================
+PART 6 — UI SAFETY
+==================
+
+All destructive actions must:
+
+* use confirmation modal
+* show clear warning
+* show loading state
+* disable button while deleting
+* show success/error toast
+* refresh affected pages
+
+Use red/destructive styling for delete buttons.
+
+Do not place delete buttons too prominently near normal actions.
+
+==================================================
+PART 7 — TESTING
+================
+
+Test:
+
+1. Delete single lead from Run Detail.
+2. Bulk delete leads.
+3. Delete campaign run while keeping leads.
+4. Delete campaign run with leads.
+5. Delete campaign with all runs/leads.
+6. Reset campaign data.
+7. Verify lists do not show deleted leads.
+8. Verify outreach queue does not show deleted leads.
+9. Verify dashboard counts update.
+10. Verify no broken routes after deletion.
+11. Verify delete is blocked for running campaign run.
+12. Verify confirmation text is required.
+
+Fix all issues found.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* endpoints added
+* UI delete actions added
+* cascade behavior implemented
+* transaction handling
+* tests run
+* remaining risks or limitations

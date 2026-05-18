@@ -791,6 +791,21 @@ export interface StatusHistoryEntry {
   createdAt: string;
 }
 
+export interface BulkDeleteLeadsInput {
+  /** Lead IDs to delete */
+  ids: number[];
+}
+
+export interface BulkDeleteLeadsResult {
+  /** Number of leads deleted */
+  deleted: number;
+}
+
+export interface ResetCampaignDataResult {
+  deletedRuns: number;
+  deletedLeads: number;
+}
+
 export interface BulkActionInput {
   action: string;
   leadIds?: number[];

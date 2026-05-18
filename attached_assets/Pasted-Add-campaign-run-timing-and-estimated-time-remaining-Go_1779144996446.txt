@@ -1,0 +1,173 @@
+Add campaign run timing and estimated time remaining.
+
+Goal:
+Every campaign run should record start time, end time, total duration, and show live estimated remaining time while running based on previous completed runs.
+
+Do not rebuild the app.
+Do not change unrelated modules.
+
+==================================================
+PART 1 — STORE RUN TIMING
+==================================================
+
+Ensure campaign_runs table stores:
+
+- started_at
+- completed_at
+- duration_seconds
+- estimated_remaining_seconds
+- estimated_completion_at
+- progress_percent
+- total_work_units
+- completed_work_units
+
+If fields already exist, reuse them.
+
+When Run Campaign is clicked:
+- set started_at immediately
+- status = running
+- completed_at = null
+- duration_seconds = null
+
+When run finishes:
+- set completed_at
+- calculate duration_seconds = completed_at - started_at
+- set estimated_remaining_seconds = 0
+- set progress_percent = 100
+
+==================================================
+PART 2 — DEFINE WORK UNITS
+==================================================
+
+At the start of the run, calculate total_work_units.
+
+Use:
+- number of keyword-country search queries that will run
+- plus expected discovery/crawl steps if already known
+
+Minimum:
+total_work_units = number of active keyword-country queries selected for this run
+
+As each query completes:
+- increment completed_work_units
+- update progress_percent
+
+If discovery-source mining or crawling creates more work:
+- update total_work_units dynamically if needed
+
+==================================================
+PART 3 — ESTIMATE TIME REMAINING
+==================================================
+
+For active campaign runs, calculate estimated remaining time.
+
+Preferred logic:
+
+1. Use historical average duration from previous completed runs of the same campaign.
+2. If enough history exists, estimate based on:
+   average seconds per work unit × remaining work units
+
+3. If no campaign history exists, use current run speed:
+   elapsed time / completed_work_units × remaining_work_units
+
+4. If not enough data yet:
+   show “Calculating…”
+
+Formula:
+elapsed_seconds = now - started_at
+avg_seconds_per_unit = elapsed_seconds / completed_work_units
+remaining_units = total_work_units - completed_work_units
+estimated_remaining_seconds = avg_seconds_per_unit × remaining_units
+
+Use previous completed runs only where:
+- status = completed
+- duration_seconds is not null
+- total_work_units > 0
+
+==================================================
+PART 4 — UPDATE LIVE DURING RUN
+==================================================
+
+While campaign is running, update every few seconds:
+
+- completed_work_units
+- total_work_units
+- progress_percent
+- estimated_remaining_seconds
+- estimated_completion_at
+
+Frontend should poll every 3 seconds and show updated values.
+
+==================================================
+PART 5 — UI CHANGES
+==================================================
+
+In Current Run card, show:
+
+- Started at
+- Running for
+- Progress percentage
+- Estimated time remaining
+- Estimated completion time
+- Completed work units / total work units
+
+Example:
+Started: 03:42 PM
+Running for: 4m 12s
+Progress: 42%
+Estimated remaining: 6m
+Estimated completion: 03:52 PM
+Queries processed: 5 / 12
+
+In Campaign Runs history, show:
+
+- Start time
+- End time
+- Duration
+- Total searches
+- New leads
+- Status
+
+In Campaign list card, if campaign is running, show:
+- Running
+- Estimated remaining time
+
+==================================================
+PART 6 — FALLBACK DISPLAY
+==================================================
+
+If estimated time cannot be calculated yet, show:
+“Calculating…”
+
+Do not show zero unless the run is actually completed.
+
+==================================================
+PART 7 — TESTING
+==================================================
+
+Test:
+
+1. Campaign run stores started_at immediately.
+2. Campaign run stores completed_at when finished.
+3. duration_seconds is calculated correctly.
+4. Current Run card shows running duration.
+5. Current Run card shows estimated remaining time.
+6. Estimate updates live while running.
+7. Campaign list shows estimated remaining time while running.
+8. Completed run shows final duration.
+9. First run without history shows “Calculating…” until enough progress exists.
+10. Later runs use previous completed run timing as reference.
+
+Fix all issues found.
+
+==================================================
+COMPLETION REPORT
+==================================================
+
+Report:
+- database fields added or reused
+- timing calculation logic
+- estimation formula
+- UI changes
+- tests run
+- remaining limitations

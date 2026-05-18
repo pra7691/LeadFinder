@@ -4,8 +4,10 @@ import {
   campaignsTable,
   campaignKeywordsTable,
   campaignCountriesTable,
+  campaignRunsTable,
+  leadsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import {
   CreateCampaignBody,
   UpdateCampaignBody,
@@ -122,8 +124,59 @@ router.patch("/campaigns/:id", async (req, res) => {
 
 router.delete("/campaigns/:id", async (req, res) => {
   const { id } = DeleteCampaignParams.parse({ id: Number(req.params.id) });
+
+  const [existing] = await db
+    .select({ id: campaignsTable.id })
+    .from(campaignsTable)
+    .where(eq(campaignsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Campaign not found" });
+    return;
+  }
+
+  // Cascade FK rules handle: campaign_runs, campaign_keywords, campaign_countries,
+  // leads (and transitively: lead_list_items, lead_notes, outreach_queue via lead_id cascade),
+  // search_query_history, search_result_history, discovery_source_history.
+  // Logs get campaign_id = null (set null). Outreach queue campaign_id = null (set null).
   await db.delete(campaignsTable).where(eq(campaignsTable.id, id));
   res.status(204).send();
+});
+
+// Reset campaign data — delete all runs + leads but keep the campaign and its settings
+router.post("/campaigns/:id/reset-data", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid campaign ID" });
+    return;
+  }
+
+  const [campaign] = await db
+    .select({ id: campaignsTable.id })
+    .from(campaignsTable)
+    .where(eq(campaignsTable.id, id));
+
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found" });
+    return;
+  }
+
+  // Count before deletion so we can report back
+  const [{ leadsCount }] = await db
+    .select({ leadsCount: count() })
+    .from(leadsTable)
+    .where(eq(leadsTable.campaignId, id));
+
+  const [{ runsCount }] = await db
+    .select({ runsCount: count() })
+    .from(campaignRunsTable)
+    .where(eq(campaignRunsTable.campaignId, id));
+
+  // Delete leads first — cascade removes outreach_queue, lead_list_items, lead_notes, etc.
+  await db.delete(leadsTable).where(eq(leadsTable.campaignId, id));
+  // Delete runs (search history already cascade-deleted with campaign; runs are now orphaned)
+  await db.delete(campaignRunsTable).where(eq(campaignRunsTable.campaignId, id));
+
+  res.json({ deletedLeads: leadsCount, deletedRuns: runsCount });
 });
 
 export default router;
