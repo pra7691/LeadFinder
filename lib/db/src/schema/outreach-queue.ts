@@ -3,6 +3,7 @@ import {
   serial,
   integer,
   text,
+  boolean,
   timestamp,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -35,10 +36,12 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   recipientEmail: text("recipient_email").notNull(),
   subject: text("subject").notNull(),
   body: text("body").notNull(),
-  status: text("status").notNull().default("draft"),
+  status: text("status").notNull().default("pending_review"),
+  aiPersonalized: boolean("ai_personalized").notNull().default(false),
   failureReason: text("failure_reason"),
   retryCount: integer("retry_count").notNull().default(0),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   bouncedAt: timestamp("bounced_at", { withTimezone: true }),

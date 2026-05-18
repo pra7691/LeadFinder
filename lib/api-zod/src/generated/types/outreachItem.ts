@@ -5,6 +5,9 @@
  * Lead Intelligence Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { OutreachItemRecipientEmailType } from './outreachItemRecipientEmailType';
+import type { OutreachItemStatus } from './outreachItemStatus';
+import type { QualityWarning } from './qualityWarning';
 
 export interface OutreachItem {
   id: number;
@@ -20,12 +23,15 @@ export interface OutreachItem {
   recipientEmail: string;
   subject: string;
   body: string;
-  status: string;
+  status: OutreachItemStatus;
+  aiPersonalized: boolean;
   /** @nullable */
   failureReason?: string | null;
   retryCount: number;
   /** @nullable */
   approvedAt?: string | null;
+  /** @nullable */
+  rejectedAt?: string | null;
   /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
@@ -36,6 +42,18 @@ export interface OutreachItem {
   companyName?: string | null;
   /** @nullable */
   campaignName?: string | null;
+  /** @nullable */
+  listName?: string | null;
+  /** @nullable */
+  templateName?: string | null;
+  /** @nullable */
+  senderEmail?: string | null;
+  /** @nullable */
+  relevanceScore?: number | null;
+  /** @nullable */
+  qualificationStatus?: string | null;
+  qualityWarnings?: QualityWarning[];
+  recipientEmailType?: OutreachItemRecipientEmailType;
   createdAt: string;
   updatedAt: string;
 }

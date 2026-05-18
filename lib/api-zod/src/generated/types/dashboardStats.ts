@@ -13,4 +13,9 @@ export interface DashboardStats {
   leadsToReview: number;
   emailsQueued: number;
   emailsSentToday: number;
+  pendingReview: number;
+  approvedToSend: number;
+  rejectedDrafts: number;
+  riskyQueued: number;
+  listsReadyForOutreach: number;
 }

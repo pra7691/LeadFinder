@@ -25,7 +25,12 @@ export const GetDashboardStatsResponse = zod.object({
   "totalLeads": zod.number(),
   "leadsToReview": zod.number(),
   "emailsQueued": zod.number(),
-  "emailsSentToday": zod.number()
+  "emailsSentToday": zod.number(),
+  "pendingReview": zod.number(),
+  "approvedToSend": zod.number(),
+  "rejectedDrafts": zod.number(),
+  "riskyQueued": zod.number(),
+  "listsReadyForOutreach": zod.number()
 })
 
 
@@ -662,6 +667,28 @@ export const RemoveLeadFromListParams = zod.object({
 
 
 /**
+ * @summary Get health and quality summary for a list
+ */
+export const GetListHealthParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetListHealthResponse = zod.object({
+  "totalLeads": zod.number(),
+  "leadsWithEmail": zod.number(),
+  "leadsWithoutEmail": zod.number(),
+  "qualifiedLeads": zod.number(),
+  "rejectedLeads": zod.number(),
+  "aiPersonalizedDrafts": zod.number(),
+  "duplicateEmails": zod.number(),
+  "riskyEmails": zod.number(),
+  "genericEmails": zod.number(),
+  "pendingReviewDrafts": zod.number(),
+  "approvedDrafts": zod.number()
+})
+
+
+/**
  * @summary Get scheduler status for all campaigns
  */
 export const GetSchedulerStatusResponseItem = zod.object({
@@ -1200,15 +1227,28 @@ export const ListOutreachResponseItem = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1250,15 +1290,28 @@ export const OutreachFromListResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })).optional()
@@ -1289,15 +1342,28 @@ export const BulkQueueLeadsResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })).optional()
@@ -1313,6 +1379,18 @@ export const BulkApproveOutreachBody = zod.object({
 
 export const BulkApproveOutreachResponse = zod.object({
   "approved": zod.number()
+})
+
+
+/**
+ * @summary Reject multiple outreach items
+ */
+export const BulkRejectOutreachBody = zod.object({
+  "ids": zod.array(zod.number())
+})
+
+export const BulkRejectOutreachResponse = zod.object({
+  "rejected": zod.number().optional()
 })
 
 
@@ -1341,15 +1419,28 @@ export const UpdateOutreachResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1364,7 +1455,7 @@ export const DeleteOutreachParams = zod.object({
 
 
 /**
- * @summary Approve a single outreach item
+ * @summary Approve a single outreach item for sending
  */
 export const ApproveOutreachParams = zod.object({
   "id": zod.coerce.number()
@@ -1380,15 +1471,120 @@ export const ApproveOutreachResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Reject a single outreach item
+ */
+export const RejectOutreachParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RejectOutreachBody = zod.object({
+  "reason": zod.string().optional()
+})
+
+export const RejectOutreachResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number().nullish(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Regenerate email content for a draft outreach item using AI
+ */
+export const RegenerateOutreachParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RegenerateOutreachResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number().nullish(),
+  "leadId": zod.number(),
+  "emailAccountId": zod.number().nullish(),
+  "emailTemplateId": zod.number().nullish(),
+  "listId": zod.number().nullish(),
+  "recipientEmail": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
+  "failureReason": zod.string().nullish(),
+  "retryCount": zod.number(),
+  "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
+  "scheduledAt": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "bouncedAt": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1411,15 +1607,28 @@ export const SendOutreachItemResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1442,15 +1651,28 @@ export const RetryOutreachItemResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1473,15 +1695,28 @@ export const SendOutreachBatchResponse = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
+  "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
   "approvedAt": zod.string().nullish(),
+  "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
   "bouncedAt": zod.string().nullish(),
   "companyName": zod.string().nullish(),
   "campaignName": zod.string().nullish(),
+  "listName": zod.string().nullish(),
+  "templateName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "qualificationStatus": zod.string().nullish(),
+  "qualityWarnings": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'info']),
+  "message": zod.string()
+})).optional(),
+  "recipientEmailType": zod.enum(['generic', 'noreply', 'personal', 'unknown']).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })).optional()

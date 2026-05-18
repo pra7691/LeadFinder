@@ -570,6 +570,25 @@ paths:
         "204":
           description: Removed
 
+  /lists/{id}/health:
+    get:
+      operationId: getListHealth
+      tags: [lists]
+      summary: Get health and quality summary for a list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List health summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListHealthResponse"
+
   # ── Scheduler ─────────────────────────────────────────────────
   /scheduler/status:
     get:
@@ -1136,6 +1155,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/BulkApproveResult"
 
+  /outreach/bulk-reject:
+    post:
+      operationId: bulkRejectOutreach
+      tags: [outreach]
+      summary: Reject multiple outreach items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkApproveInput"
+      responses:
+        "200":
+          description: Bulk reject result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rejected:
+                    type: integer
+
   /outreach/{id}:
     patch:
       operationId: updateOutreach
@@ -1178,7 +1219,7 @@ paths:
     post:
       operationId: approveOutreach
       tags: [outreach]
-      summary: Approve a single outreach item
+      summary: Approve a single outreach item for sending
       parameters:
         - name: id
           in: path
@@ -1188,6 +1229,53 @@ paths:
       responses:
         "200":
           description: Approved item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+
+  /outreach/{id}/reject:
+    post:
+      operationId: rejectOutreach
+      tags: [outreach]
+      summary: Reject a single outreach item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Rejected item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachItem"
+
+  /outreach/{id}/regenerate:
+    post:
+      operationId: regenerateOutreach
+      tags: [outreach]
+      summary: Regenerate email content for a draft outreach item using AI
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Regenerated item
           content:
             application/json:
               schema:
@@ -1384,6 +1472,11 @@ components:
         - leadsToReview
         - emailsQueued
         - emailsSentToday
+        - pendingReview
+        - approvedToSend
+        - rejectedDrafts
+        - riskyQueued
+        - listsReadyForOutreach
       properties:
         totalCampaigns:
           type: integer
@@ -1396,6 +1489,16 @@ components:
         emailsQueued:
           type: integer
         emailsSentToday:
+          type: integer
+        pendingReview:
+          type: integer
+        approvedToSend:
+          type: integer
+        rejectedDrafts:
+          type: integer
+        riskyQueued:
+          type: integer
+        listsReadyForOutreach:
           type: integer
 
     Campaign:
@@ -1899,6 +2002,7 @@ components:
         - subject
         - body
         - status
+        - aiPersonalized
         - retryCount
         - createdAt
         - updatedAt
@@ -1923,11 +2027,16 @@ components:
           type: string
         status:
           type: string
+          enum: [pending_review, approved, rejected, sent, failed, bounced, draft, queued]
+        aiPersonalized:
+          type: boolean
         failureReason:
           type: ["string", "null"]
         retryCount:
           type: integer
         approvedAt:
+          type: ["string", "null"]
+        rejectedAt:
           type: ["string", "null"]
         scheduledAt:
           type: ["string", "null"]
@@ -1939,6 +2048,23 @@ components:
           type: ["string", "null"]
         campaignName:
           type: ["string", "null"]
+        listName:
+          type: ["string", "null"]
+        templateName:
+          type: ["string", "null"]
+        senderEmail:
+          type: ["string", "null"]
+        relevanceScore:
+          type: ["integer", "null"]
+        qualificationStatus:
+          type: ["string", "null"]
+        qualityWarnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityWarning"
+        recipientEmailType:
+          type: string
+          enum: [generic, noreply, personal, unknown]
         createdAt:
           type: string
         updatedAt:
@@ -1957,6 +2083,56 @@ components:
           type: ["integer", "null"]
         scheduledAt:
           type: ["string", "null"]
+
+    QualityWarning:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+        message:
+          type: string
+
+    ListHealthResponse:
+      type: object
+      required:
+        - totalLeads
+        - leadsWithEmail
+        - leadsWithoutEmail
+        - qualifiedLeads
+        - rejectedLeads
+        - aiPersonalizedDrafts
+        - duplicateEmails
+        - riskyEmails
+        - genericEmails
+        - pendingReviewDrafts
+        - approvedDrafts
+      properties:
+        totalLeads:
+          type: integer
+        leadsWithEmail:
+          type: integer
+        leadsWithoutEmail:
+          type: integer
+        qualifiedLeads:
+          type: integer
+        rejectedLeads:
+          type: integer
+        aiPersonalizedDrafts:
+          type: integer
+        duplicateEmails:
+          type: integer
+        riskyEmails:
+          type: integer
+        genericEmails:
+          type: integer
+        pendingReviewDrafts:
+          type: integer
+        approvedDrafts:
+          type: integer
 
     QueueLeadInput:
       type: object

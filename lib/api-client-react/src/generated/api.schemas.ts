@@ -16,6 +16,11 @@ export interface DashboardStats {
   leadsToReview: number;
   emailsQueued: number;
   emailsSentToday: number;
+  pendingReview: number;
+  approvedToSend: number;
+  rejectedDrafts: number;
+  riskyQueued: number;
+  listsReadyForOutreach: number;
 }
 
 export type CampaignScheduleType = typeof CampaignScheduleType[keyof typeof CampaignScheduleType];
@@ -359,6 +364,45 @@ export interface SmtpTestResult {
   testedAt: string;
 }
 
+export type OutreachItemStatus = typeof OutreachItemStatus[keyof typeof OutreachItemStatus];
+
+
+export const OutreachItemStatus = {
+  pending_review: 'pending_review',
+  approved: 'approved',
+  rejected: 'rejected',
+  sent: 'sent',
+  failed: 'failed',
+  bounced: 'bounced',
+  draft: 'draft',
+  queued: 'queued',
+} as const;
+
+export type OutreachItemRecipientEmailType = typeof OutreachItemRecipientEmailType[keyof typeof OutreachItemRecipientEmailType];
+
+
+export const OutreachItemRecipientEmailType = {
+  generic: 'generic',
+  noreply: 'noreply',
+  personal: 'personal',
+  unknown: 'unknown',
+} as const;
+
+export type QualityWarningSeverity = typeof QualityWarningSeverity[keyof typeof QualityWarningSeverity];
+
+
+export const QualityWarningSeverity = {
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
+} as const;
+
+export interface QualityWarning {
+  code: string;
+  severity: QualityWarningSeverity;
+  message: string;
+}
+
 export interface OutreachItem {
   id: number;
   /** @nullable */
@@ -373,12 +417,15 @@ export interface OutreachItem {
   recipientEmail: string;
   subject: string;
   body: string;
-  status: string;
+  status: OutreachItemStatus;
+  aiPersonalized: boolean;
   /** @nullable */
   failureReason?: string | null;
   retryCount: number;
   /** @nullable */
   approvedAt?: string | null;
+  /** @nullable */
+  rejectedAt?: string | null;
   /** @nullable */
   scheduledAt?: string | null;
   /** @nullable */
@@ -389,6 +436,18 @@ export interface OutreachItem {
   companyName?: string | null;
   /** @nullable */
   campaignName?: string | null;
+  /** @nullable */
+  listName?: string | null;
+  /** @nullable */
+  templateName?: string | null;
+  /** @nullable */
+  senderEmail?: string | null;
+  /** @nullable */
+  relevanceScore?: number | null;
+  /** @nullable */
+  qualificationStatus?: string | null;
+  qualityWarnings?: QualityWarning[];
+  recipientEmailType?: OutreachItemRecipientEmailType;
   createdAt: string;
   updatedAt: string;
 }
@@ -401,6 +460,20 @@ export interface OutreachPatch {
   emailAccountId?: number | null;
   /** @nullable */
   scheduledAt?: string | null;
+}
+
+export interface ListHealthResponse {
+  totalLeads: number;
+  leadsWithEmail: number;
+  leadsWithoutEmail: number;
+  qualifiedLeads: number;
+  rejectedLeads: number;
+  aiPersonalizedDrafts: number;
+  duplicateEmails: number;
+  riskyEmails: number;
+  genericEmails: number;
+  pendingReviewDrafts: number;
+  approvedDrafts: number;
 }
 
 export interface QueueLeadInput {
@@ -778,6 +851,14 @@ offset?: number;
 export type ListOutreachParams = {
 campaignId?: number;
 status?: string;
+};
+
+export type BulkRejectOutreach200 = {
+  rejected?: number;
+};
+
+export type RejectOutreachBody = {
+  reason?: string;
 };
 
 export type SendTestEmail200 = {

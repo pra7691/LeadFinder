@@ -45,6 +45,7 @@ export const leadsTable = pgTable(
     crawlStatus: text("crawl_status").default("pending"),
     crawlError: text("crawl_error"),
     rawText: text("raw_text"),
+    lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
