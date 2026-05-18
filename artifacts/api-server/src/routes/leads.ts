@@ -13,9 +13,7 @@ import {
 const router = Router();
 
 router.get("/leads", async (req, res) => {
-  const campaignId = req.query.campaignId
-    ? Number(req.query.campaignId)
-    : undefined;
+  const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
   const reviewStatus = req.query.reviewStatus as string | undefined;
   const leadStatus = req.query.leadStatus as string | undefined;
   const qualificationStatus = req.query.qualificationStatus as string | undefined;
@@ -29,9 +27,17 @@ router.get("/leads", async (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 200;
   const offset = req.query.offset ? Number(req.query.offset) : 0;
 
+  const campaignRunId = req.query.campaignRunId
+    ? Number(req.query.campaignRunId)
+    : undefined;
+  const country = req.query.country as string | undefined;
+
   const conditions: SQL[] = [];
   if (campaignId !== undefined) {
     conditions.push(eq(leadsTable.campaignId, campaignId));
+  }
+  if (campaignRunId !== undefined) {
+    conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
   }
   if (reviewStatus !== undefined) {
     conditions.push(eq(leadsTable.reviewStatus, reviewStatus));
@@ -44,6 +50,9 @@ router.get("/leads", async (req, res) => {
   }
   if (outreachStatus !== undefined) {
     conditions.push(eq(leadsTable.outreachStatus, outreachStatus));
+  }
+  if (country !== undefined) {
+    conditions.push(eq(leadsTable.country, country));
   }
   if (hasEmail === true) {
     conditions.push(isNotNull(leadsTable.emails));

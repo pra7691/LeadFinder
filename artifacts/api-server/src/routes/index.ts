@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import campaignsRouter from "./campaigns";
+import campaignRunsRouter from "./campaign-runs";
+import listsRouter from "./lists";
 import leadsRouter from "./leads";
 import emailAccountsRouter from "./email-accounts";
 import outreachSendRouter from "./outreach-send";
@@ -22,6 +24,8 @@ router.use(dashboardRouter);
 router.use(schedulerRouter);
 router.use(exportRouter);
 router.use(campaignsRouter);
+router.use(campaignRunsRouter);
+router.use(listsRouter);
 router.use(discoveryRouter);
 router.use(leadWorkflowRouter);
 router.use(scoreRouter);

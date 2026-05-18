@@ -183,6 +183,8 @@ export const LeadOutreachStatus = {
 export interface Lead {
   id: number;
   campaignId: number;
+  /** @nullable */
+  campaignRunId?: number | null;
   companyName: string;
   rootDomain: string;
   websiteUrl: string;
@@ -475,6 +477,103 @@ export interface AppSetting {
   updatedAt: string;
 }
 
+export type CampaignRunRunType = typeof CampaignRunRunType[keyof typeof CampaignRunRunType];
+
+
+export const CampaignRunRunType = {
+  manual: 'manual',
+  scheduled: 'scheduled',
+} as const;
+
+export type CampaignRunStatus = typeof CampaignRunStatus[keyof typeof CampaignRunStatus];
+
+
+export const CampaignRunStatus = {
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  partial: 'partial',
+} as const;
+
+export interface CampaignRun {
+  id: number;
+  campaignId: number;
+  /** @nullable */
+  runName?: string | null;
+  runType: CampaignRunRunType;
+  status: CampaignRunStatus;
+  startedAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+  totalSearches: number;
+  totalResults: number;
+  totalNewLeads: number;
+  totalDuplicates: number;
+  totalBlocked: number;
+  totalRejected: number;
+  /** @nullable */
+  errorMessage?: string | null;
+  /** @nullable */
+  metadataJson?: string | null;
+  createdAt: string;
+}
+
+export type LeadListListStatus = typeof LeadListListStatus[keyof typeof LeadListListStatus];
+
+
+export const LeadListListStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface LeadList {
+  id: number;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  campaignId?: number | null;
+  /** @nullable */
+  campaignName?: string | null;
+  listStatus: LeadListListStatus;
+  leadCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadListInput {
+  /** @minLength 1 */
+  name: string;
+  description?: string;
+  campaignId?: number;
+}
+
+export type LeadListPatchListStatus = typeof LeadListPatchListStatus[keyof typeof LeadListPatchListStatus];
+
+
+export const LeadListPatchListStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface LeadListPatch {
+  name?: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  campaignId?: number | null;
+  listStatus?: LeadListPatchListStatus;
+}
+
+export interface AddLeadsToListInput {
+  leadIds: number[];
+}
+
+export interface AddLeadsToListResult {
+  added: number;
+  duplicates: number;
+}
+
 export interface DiscoverySummary {
   campaignId: number;
   searchesPerformed: number;
@@ -582,12 +681,23 @@ export interface AppSettingInput {
   value: string;
 }
 
+export type ListCampaignRunsParams = {
+campaignId?: number;
+};
+
+export type ListLeadListsParams = {
+campaignId?: number;
+includeArchived?: boolean;
+};
+
 export type ListLeadsParams = {
 campaignId?: number;
 reviewStatus?: string;
 leadStatus?: string;
+campaignRunId?: number;
 qualificationStatus?: string;
 outreachStatus?: string;
+country?: string;
 hasEmail?: boolean;
 minScore?: number;
 limit?: number;

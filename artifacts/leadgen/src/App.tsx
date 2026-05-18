@@ -12,6 +12,8 @@ import { Dashboard } from "@/pages/dashboard";
 import { Campaigns } from "@/pages/campaigns";
 import { CampaignDetail } from "@/pages/campaign-detail";
 import { Leads } from "@/pages/leads";
+import { Lists } from "@/pages/lists";
+import { ListDetail } from "@/pages/list-detail";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { Outreach } from "@/pages/outreach";
 import { Logs } from "@/pages/logs";
@@ -35,6 +37,8 @@ function Router() {
           <Route path="/campaigns" component={Campaigns} />
           <Route path="/campaigns/:id" component={CampaignDetail} />
           <Route path="/leads" component={Leads} />
+          <Route path="/lists/:id" component={ListDetail} />
+          <Route path="/lists" component={Lists} />
           <Route path="/email-accounts" component={EmailAccounts} />
           <Route path="/outreach" component={Outreach} />
           <Route path="/logs" component={Logs} />

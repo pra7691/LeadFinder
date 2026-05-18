@@ -297,6 +297,261 @@ export const ResumeCampaignResponse = zod.object({
 
 
 /**
+ * @summary List campaign runs (optionally filtered by campaign)
+ */
+export const ListCampaignRunsQueryParams = zod.object({
+  "campaignId": zod.coerce.number().optional()
+})
+
+export const ListCampaignRunsResponseItem = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "runName": zod.string().nullish(),
+  "runType": zod.enum(['manual', 'scheduled']),
+  "status": zod.enum(['running', 'completed', 'failed', 'partial']),
+  "startedAt": zod.string(),
+  "completedAt": zod.string().nullish(),
+  "totalSearches": zod.number(),
+  "totalResults": zod.number(),
+  "totalNewLeads": zod.number(),
+  "totalDuplicates": zod.number(),
+  "totalBlocked": zod.number(),
+  "totalRejected": zod.number(),
+  "errorMessage": zod.string().nullish(),
+  "metadataJson": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListCampaignRunsResponse = zod.array(ListCampaignRunsResponseItem)
+
+
+/**
+ * @summary Get a campaign run by ID
+ */
+export const GetCampaignRunParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCampaignRunResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "runName": zod.string().nullish(),
+  "runType": zod.enum(['manual', 'scheduled']),
+  "status": zod.enum(['running', 'completed', 'failed', 'partial']),
+  "startedAt": zod.string(),
+  "completedAt": zod.string().nullish(),
+  "totalSearches": zod.number(),
+  "totalResults": zod.number(),
+  "totalNewLeads": zod.number(),
+  "totalDuplicates": zod.number(),
+  "totalBlocked": zod.number(),
+  "totalRejected": zod.number(),
+  "errorMessage": zod.string().nullish(),
+  "metadataJson": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Get all leads discovered in a specific campaign run
+ */
+export const GetCampaignRunLeadsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getCampaignRunLeadsResponseQualificationStatusDefault = `unqualified`;
+export const getCampaignRunLeadsResponseOutreachStatusDefault = `not_queued`;
+
+export const GetCampaignRunLeadsResponseItem = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "campaignRunId": zod.number().nullish(),
+  "companyName": zod.string(),
+  "rootDomain": zod.string(),
+  "websiteUrl": zod.string(),
+  "country": zod.string().nullish(),
+  "emails": zod.string().nullish(),
+  "phoneNumbers": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "linkedinUrl": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "relevanceReason": zod.string().nullish(),
+  "contactQuality": zod.string().nullish(),
+  "leadStatus": zod.string(),
+  "reviewStatus": zod.string(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).default(getCampaignRunLeadsResponseQualificationStatusDefault),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).default(getCampaignRunLeadsResponseOutreachStatusDefault),
+  "emailStatus": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "sourceKeyword": zod.string().nullish(),
+  "sourceCountry": zod.string().nullish(),
+  "sourceQuery": zod.string().nullish(),
+  "crawlStatus": zod.string().nullish(),
+  "crawlError": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const GetCampaignRunLeadsResponse = zod.array(GetCampaignRunLeadsResponseItem)
+
+
+/**
+ * @summary List all lead lists
+ */
+export const ListLeadListsQueryParams = zod.object({
+  "campaignId": zod.coerce.number().optional(),
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
+export const ListLeadListsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "campaignId": zod.number().nullish(),
+  "campaignName": zod.string().nullish(),
+  "listStatus": zod.enum(['active', 'archived']),
+  "leadCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListLeadListsResponse = zod.array(ListLeadListsResponseItem)
+
+
+/**
+ * @summary Create a lead list
+ */
+
+
+
+export const CreateLeadListBody = zod.object({
+  "name": zod.string().min(1),
+  "description": zod.string().optional(),
+  "campaignId": zod.number().optional()
+})
+
+
+/**
+ * @summary Get a lead list by ID
+ */
+export const GetLeadListParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetLeadListResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "campaignId": zod.number().nullish(),
+  "campaignName": zod.string().nullish(),
+  "listStatus": zod.enum(['active', 'archived']),
+  "leadCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update a lead list
+ */
+export const UpdateLeadListParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateLeadListBody = zod.object({
+  "name": zod.string().optional(),
+  "description": zod.string().nullish(),
+  "campaignId": zod.number().nullish(),
+  "listStatus": zod.enum(['active', 'archived']).optional()
+})
+
+export const UpdateLeadListResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "campaignId": zod.number().nullish(),
+  "campaignName": zod.string().nullish(),
+  "listStatus": zod.enum(['active', 'archived']),
+  "leadCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a lead list
+ */
+export const DeleteLeadListParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Get leads in a list
+ */
+export const GetListLeadsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getListLeadsResponseQualificationStatusDefault = `unqualified`;
+export const getListLeadsResponseOutreachStatusDefault = `not_queued`;
+
+export const GetListLeadsResponseItem = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "campaignRunId": zod.number().nullish(),
+  "companyName": zod.string(),
+  "rootDomain": zod.string(),
+  "websiteUrl": zod.string(),
+  "country": zod.string().nullish(),
+  "emails": zod.string().nullish(),
+  "phoneNumbers": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "linkedinUrl": zod.string().nullish(),
+  "relevanceScore": zod.number().nullish(),
+  "relevanceReason": zod.string().nullish(),
+  "contactQuality": zod.string().nullish(),
+  "leadStatus": zod.string(),
+  "reviewStatus": zod.string(),
+  "qualificationStatus": zod.enum(['unqualified', 'qualified', 'rejected']).default(getListLeadsResponseQualificationStatusDefault),
+  "outreachStatus": zod.enum(['not_queued', 'queued', 'contacted', 'followup_sent', 'closed']).default(getListLeadsResponseOutreachStatusDefault),
+  "emailStatus": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "sourceKeyword": zod.string().nullish(),
+  "sourceCountry": zod.string().nullish(),
+  "sourceQuery": zod.string().nullish(),
+  "crawlStatus": zod.string().nullish(),
+  "crawlError": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const GetListLeadsResponse = zod.array(GetListLeadsResponseItem)
+
+
+/**
+ * @summary Add leads to a list
+ */
+export const AddLeadsToListParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AddLeadsToListBody = zod.object({
+  "leadIds": zod.array(zod.number())
+})
+
+export const AddLeadsToListResponse = zod.object({
+  "added": zod.number(),
+  "duplicates": zod.number()
+})
+
+
+/**
+ * @summary Remove a lead from a list
+ */
+export const RemoveLeadFromListParams = zod.object({
+  "id": zod.coerce.number(),
+  "leadId": zod.coerce.number()
+})
+
+
+/**
  * @summary Get scheduler status for all campaigns
  */
 export const GetSchedulerStatusResponseItem = zod.object({
@@ -324,8 +579,10 @@ export const ListLeadsQueryParams = zod.object({
   "campaignId": zod.coerce.number().optional(),
   "reviewStatus": zod.coerce.string().optional(),
   "leadStatus": zod.coerce.string().optional(),
+  "campaignRunId": zod.coerce.number().optional(),
   "qualificationStatus": zod.coerce.string().optional(),
   "outreachStatus": zod.coerce.string().optional(),
+  "country": zod.coerce.string().optional(),
   "hasEmail": zod.coerce.boolean().optional(),
   "minScore": zod.coerce.number().optional(),
   "limit": zod.coerce.number().default(listLeadsQueryLimitDefault),
@@ -338,6 +595,7 @@ export const listLeadsResponseOutreachStatusDefault = `not_queued`;
 export const ListLeadsResponseItem = zod.object({
   "id": zod.number(),
   "campaignId": zod.number(),
+  "campaignRunId": zod.number().nullish(),
   "companyName": zod.string(),
   "rootDomain": zod.string(),
   "websiteUrl": zod.string(),
@@ -407,6 +665,7 @@ export const getLeadResponseOutreachStatusDefault = `not_queued`;
 export const GetLeadResponse = zod.object({
   "id": zod.number(),
   "campaignId": zod.number(),
+  "campaignRunId": zod.number().nullish(),
   "companyName": zod.string(),
   "rootDomain": zod.string(),
   "websiteUrl": zod.string(),
@@ -465,6 +724,7 @@ export const updateLeadResponseOutreachStatusDefault = `not_queued`;
 export const UpdateLeadResponse = zod.object({
   "id": zod.number(),
   "campaignId": zod.number(),
+  "campaignRunId": zod.number().nullish(),
   "companyName": zod.string(),
   "rootDomain": zod.string(),
   "websiteUrl": zod.string(),

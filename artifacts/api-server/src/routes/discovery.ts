@@ -4,6 +4,7 @@ import {
   campaignsTable,
   campaignKeywordsTable,
   campaignCountriesTable,
+  campaignRunsTable,
   leadsTable,
   appSettingsTable,
   logsTable,
@@ -74,16 +75,30 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
   const existingDomains = new Set(existingLeads.map((l) => l.rootDomain));
 
+  // ── Create a campaign_run record ──────────────────────────────
+  const [campaignRun] = await db
+    .insert(campaignRunsTable)
+    .values({
+      campaignId,
+      runName: `Discovery – ${new Date().toISOString().slice(0, 10)}`,
+      runType: (req.body as { runType?: string })?.runType === "scheduled"
+        ? "scheduled"
+        : "manual",
+      status: "running",
+    })
+    .returning();
+
   // Log start
   await db.insert(logsTable).values({
     campaignId,
     type: "discovery",
     message: `Discovery run started for campaign "${campaign.name}" (${keywords.length} keywords × ${countries.length} countries)`,
-    metadataJson: JSON.stringify({ keywords: keywords.length, countries: countries.length }),
+    metadataJson: JSON.stringify({ keywords: keywords.length, countries: countries.length, runId: campaignRun.id }),
   });
 
   const summary = {
     campaignId,
+    runId: campaignRun.id,
     searchesPerformed: 0,
     resultsFound: 0,
     blockedSkipped: 0,
@@ -153,10 +168,11 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
           continue;
         }
 
-        // Create lead
+        // Create lead — linked to this campaign run
         try {
           await db.insert(leadsTable).values({
             campaignId,
+            campaignRunId: campaignRun.id,
             companyName: result.title.split(/[-|–]/, 1)[0].trim() || rootDomain,
             rootDomain,
             websiteUrl: result.link,
@@ -177,7 +193,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
             campaignId,
             type: "lead",
             message: `New lead created: ${rootDomain} (from "${query}")`,
-            metadataJson: JSON.stringify({ domain: rootDomain, query }),
+            metadataJson: JSON.stringify({ domain: rootDomain, query, runId: campaignRun.id }),
           });
         } catch {
           // Unique constraint violation = race condition dupe; skip silently
@@ -189,6 +205,21 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
       await new Promise((r) => setTimeout(r, 500));
     }
   }
+
+  // ── Update campaign_run with final stats ──────────────────────
+  await db
+    .update(campaignRunsTable)
+    .set({
+      status: "completed",
+      completedAt: new Date(),
+      totalSearches: summary.searchesPerformed,
+      totalResults: summary.resultsFound,
+      totalNewLeads: summary.newLeadsCreated,
+      totalDuplicates: summary.duplicatesSkipped,
+      totalBlocked: summary.blockedSkipped,
+      metadataJson: JSON.stringify(summary),
+    })
+    .where(eq(campaignRunsTable.id, campaignRun.id));
 
   // Log completion
   await db.insert(logsTable).values({

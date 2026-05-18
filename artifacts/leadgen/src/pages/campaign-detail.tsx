@@ -5,9 +5,12 @@ import {
   useTriggerCampaignPipeline,
   usePauseCampaign,
   useResumeCampaign,
+  useListCampaignRuns,
+  getListCampaignRunsQueryKey,
   getGetCampaignQueryKey,
   getGetSchedulerStatusQueryKey,
 } from "@workspace/api-client-react";
+import type { CampaignRun } from "@workspace/api-client-react";
 import type {
   Campaign,
   PipelineResult,
@@ -42,6 +45,8 @@ import {
   Calendar,
   Activity,
   Loader2,
+  History,
+  ArrowRight,
 } from "lucide-react";
 import { Link } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
@@ -79,6 +84,99 @@ type FormData = {
   scheduleType: string;
   scheduleTime: string;
 };
+
+// ── Campaign Runs history sub-component ────────────────────────────────────
+
+function RunStatusBadge({ status }: { status: CampaignRun["status"] }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    running: { label: "Running", cls: "bg-blue-500/10 text-blue-500" },
+    completed: { label: "Completed", cls: "bg-emerald-500/10 text-emerald-500" },
+    failed: { label: "Failed", cls: "bg-red-500/10 text-red-400" },
+    cancelled: { label: "Cancelled", cls: "bg-amber-500/10 text-amber-500" },
+  };
+  const s = map[status] ?? { label: status, cls: "bg-muted/40 text-muted-foreground" };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${s.cls}`}>{s.label}</span>
+  );
+}
+
+function CampaignRunsSection({ campaignId }: { campaignId: number }) {
+  const params = { campaignId };
+  const { data: runs, isLoading } = useListCampaignRuns(params, {
+    query: { queryKey: getListCampaignRunsQueryKey(params), staleTime: 15_000 },
+  });
+
+  return (
+    <Card className="glass-card">
+      <CardHeader className="border-b border-border/30 pb-4">
+        <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
+          <History className="w-4 h-4 text-muted-foreground" />
+          Pipeline Runs
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="divide-y divide-border/30">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-3 animate-pulse">
+                <div className="h-4 w-24 rounded bg-muted/40" />
+                <div className="h-4 w-16 rounded bg-muted/40" />
+                <div className="h-4 w-32 rounded bg-muted/40 ml-auto" />
+              </div>
+            ))}
+          </div>
+        ) : !runs?.length ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No pipeline runs yet. Trigger the pipeline manually above to get started.
+          </div>
+        ) : (
+          <div className="divide-y divide-border/30">
+            {runs.map((run) => {
+              const startedAt = run.startedAt ? new Date(run.startedAt) : null;
+              const completedAt = run.completedAt ? new Date(run.completedAt) : null;
+              const durationMs = startedAt && completedAt
+                ? completedAt.getTime() - startedAt.getTime()
+                : null;
+              const durationStr = durationMs != null
+                ? durationMs < 60_000
+                  ? `${Math.round(durationMs / 1000)}s`
+                  : `${Math.round(durationMs / 60_000)}m`
+                : null;
+
+              return (
+                <div key={run.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/10 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{run.runName ?? `Run #${run.id}`}</p>
+                    {startedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        {format(startedAt, "MMM d, yyyy · HH:mm")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+                    {run.totalNewLeads != null && (
+                      <span>{run.totalNewLeads} new leads</span>
+                    )}
+                    {durationStr && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {durationStr}
+                      </span>
+                    )}
+                    <RunStatusBadge status={run.status} />
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
 
 export function CampaignDetail() {
   const { id } = useParams();
@@ -378,6 +476,9 @@ export function CampaignDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Campaign Runs history ─────────────────────────────────────────── */}
+      <CampaignRunsSection campaignId={campaignId} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* General settings */}

@@ -9,7 +9,9 @@ servers:
 tags:
   - name: health
   - name: campaigns
+  - name: campaign-runs
   - name: leads
+  - name: lists
   - name: email-accounts
   - name: outreach
   - name: logs
@@ -217,6 +219,232 @@ paths:
               schema:
                 $ref: "#/components/schemas/Campaign"
 
+  # ── Campaign Runs ─────────────────────────────────────────────
+  /campaign-runs:
+    get:
+      operationId: listCampaignRuns
+      tags: [campaign-runs]
+      summary: List campaign runs (optionally filtered by campaign)
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of campaign runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CampaignRun"
+
+  /campaign-runs/{id}:
+    get:
+      operationId: getCampaignRun
+      tags: [campaign-runs]
+      summary: Get a campaign run by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignRun"
+        "404":
+          description: Not found
+
+  /campaign-runs/{id}/leads:
+    get:
+      operationId: getCampaignRunLeads
+      tags: [campaign-runs]
+      summary: Get all leads discovered in a specific campaign run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Leads from this run
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lead"
+
+  # ── Lists ─────────────────────────────────────────────────────
+  /lists:
+    get:
+      operationId: listLeadLists
+      tags: [lists]
+      summary: List all lead lists
+      parameters:
+        - name: campaignId
+          in: query
+          schema:
+            type: integer
+        - name: includeArchived
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Lead lists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeadList"
+    post:
+      operationId: createLeadList
+      tags: [lists]
+      summary: Create a lead list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadListInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadList"
+
+  /lists/{id}:
+    get:
+      operationId: getLeadList
+      tags: [lists]
+      summary: Get a lead list by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Lead list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadList"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateLeadList
+      tags: [lists]
+      summary: Update a lead list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadListPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadList"
+    delete:
+      operationId: deleteLeadList
+      tags: [lists]
+      summary: Delete a lead list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /lists/{id}/leads:
+    get:
+      operationId: getListLeads
+      tags: [lists]
+      summary: Get leads in a list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Leads in list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lead"
+    post:
+      operationId: addLeadsToList
+      tags: [lists]
+      summary: Add leads to a list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddLeadsToListInput"
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddLeadsToListResult"
+
+  /lists/{id}/leads/{leadId}:
+    delete:
+      operationId: removeLeadFromList
+      tags: [lists]
+      summary: Remove a lead from a list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: leadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
   # ── Scheduler ─────────────────────────────────────────────────
   /scheduler/status:
     get:
@@ -252,11 +480,19 @@ paths:
           in: query
           schema:
             type: string
+        - name: campaignRunId
+          in: query
+          schema:
+            type: integer
         - name: qualificationStatus
           in: query
           schema:
             type: string
         - name: outreachStatus
+          in: query
+          schema:
+            type: string
+        - name: country
           in: query
           schema:
             type: string
@@ -1229,6 +1465,8 @@ components:
           type: integer
         campaignId:
           type: integer
+        campaignRunId:
+          type: ["integer", "null"]
         companyName:
           type: string
         rootDomain:
@@ -1713,6 +1951,112 @@ components:
           type: string
         updatedAt:
           type: string
+
+    CampaignRun:
+      type: object
+      required: [id, campaignId, runType, status, totalSearches, totalResults, totalNewLeads, totalDuplicates, totalBlocked, totalRejected, startedAt, createdAt]
+      properties:
+        id:
+          type: integer
+        campaignId:
+          type: integer
+        runName:
+          type: ["string", "null"]
+        runType:
+          type: string
+          enum: [manual, scheduled]
+        status:
+          type: string
+          enum: [running, completed, failed, partial]
+        startedAt:
+          type: string
+        completedAt:
+          type: ["string", "null"]
+        totalSearches:
+          type: integer
+        totalResults:
+          type: integer
+        totalNewLeads:
+          type: integer
+        totalDuplicates:
+          type: integer
+        totalBlocked:
+          type: integer
+        totalRejected:
+          type: integer
+        errorMessage:
+          type: ["string", "null"]
+        metadataJson:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    LeadList:
+      type: object
+      required: [id, name, listStatus, leadCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        campaignId:
+          type: ["integer", "null"]
+        campaignName:
+          type: ["string", "null"]
+        listStatus:
+          type: string
+          enum: [active, archived]
+        leadCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    LeadListInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        campaignId:
+          type: integer
+
+    LeadListPatch:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        campaignId:
+          type: ["integer", "null"]
+        listStatus:
+          type: string
+          enum: [active, archived]
+
+    AddLeadsToListInput:
+      type: object
+      required: [leadIds]
+      properties:
+        leadIds:
+          type: array
+          items:
+            type: integer
+
+    AddLeadsToListResult:
+      type: object
+      required: [added, duplicates]
+      properties:
+        added:
+          type: integer
+        duplicates:
+          type: integer
 
     DiscoverySummary:
       type: object

@@ -20,6 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddLeadsToListInput,
+  AddLeadsToListResult,
   AppSetting,
   AppSettingInput,
   BulkActionInput,
@@ -37,6 +39,7 @@ import type {
   CampaignEmailAccountInput,
   CampaignInput,
   CampaignPatch,
+  CampaignRun,
   CrawlResult,
   DashboardStats,
   DiscoverySummary,
@@ -46,9 +49,14 @@ import type {
   HealthStatus,
   Lead,
   LeadInput,
+  LeadList,
+  LeadListInput,
+  LeadListPatch,
   LeadNote,
   LeadNoteInput,
   LeadPatch,
+  ListCampaignRunsParams,
+  ListLeadListsParams,
   ListLeadsParams,
   ListLogsParams,
   ListOutreachParams,
@@ -878,6 +886,839 @@ export const useResumeCampaign = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getResumeCampaignMutationOptions(options));
+    }
+
+export const getListCampaignRunsUrl = (params?: ListCampaignRunsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/campaign-runs?${stringifiedParams}` : `/api/campaign-runs`
+}
+
+/**
+ * @summary List campaign runs (optionally filtered by campaign)
+ */
+export const listCampaignRuns = async (params?: ListCampaignRunsParams, options?: RequestInit): Promise<CampaignRun[]> => {
+
+  return customFetch<CampaignRun[]>(getListCampaignRunsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCampaignRunsQueryKey = (params?: ListCampaignRunsParams,) => {
+    return [
+    `/api/campaign-runs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListCampaignRunsQueryOptions = <TData = Awaited<ReturnType<typeof listCampaignRuns>>, TError = ErrorType<unknown>>(params?: ListCampaignRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCampaignRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCampaignRunsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCampaignRuns>>> = ({ signal }) => listCampaignRuns(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCampaignRuns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCampaignRunsQueryResult = NonNullable<Awaited<ReturnType<typeof listCampaignRuns>>>
+export type ListCampaignRunsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List campaign runs (optionally filtered by campaign)
+ */
+
+export function useListCampaignRuns<TData = Awaited<ReturnType<typeof listCampaignRuns>>, TError = ErrorType<unknown>>(
+ params?: ListCampaignRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCampaignRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCampaignRunsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetCampaignRunUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaign-runs/${id}`
+}
+
+/**
+ * @summary Get a campaign run by ID
+ */
+export const getCampaignRun = async (id: number, options?: RequestInit): Promise<CampaignRun> => {
+
+  return customFetch<CampaignRun>(getGetCampaignRunUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCampaignRunQueryKey = (id: number,) => {
+    return [
+    `/api/campaign-runs/${id}`
+    ] as const;
+    }
+
+
+export const getGetCampaignRunQueryOptions = <TData = Awaited<ReturnType<typeof getCampaignRun>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCampaignRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCampaignRunQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCampaignRun>>> = ({ signal }) => getCampaignRun(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCampaignRun>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCampaignRunQueryResult = NonNullable<Awaited<ReturnType<typeof getCampaignRun>>>
+export type GetCampaignRunQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a campaign run by ID
+ */
+
+export function useGetCampaignRun<TData = Awaited<ReturnType<typeof getCampaignRun>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCampaignRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCampaignRunQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetCampaignRunLeadsUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaign-runs/${id}/leads`
+}
+
+/**
+ * @summary Get all leads discovered in a specific campaign run
+ */
+export const getCampaignRunLeads = async (id: number, options?: RequestInit): Promise<Lead[]> => {
+
+  return customFetch<Lead[]>(getGetCampaignRunLeadsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCampaignRunLeadsQueryKey = (id: number,) => {
+    return [
+    `/api/campaign-runs/${id}/leads`
+    ] as const;
+    }
+
+
+export const getGetCampaignRunLeadsQueryOptions = <TData = Awaited<ReturnType<typeof getCampaignRunLeads>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunLeads>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCampaignRunLeadsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCampaignRunLeads>>> = ({ signal }) => getCampaignRunLeads(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunLeads>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCampaignRunLeadsQueryResult = NonNullable<Awaited<ReturnType<typeof getCampaignRunLeads>>>
+export type GetCampaignRunLeadsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get all leads discovered in a specific campaign run
+ */
+
+export function useGetCampaignRunLeads<TData = Awaited<ReturnType<typeof getCampaignRunLeads>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunLeads>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCampaignRunLeadsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListLeadListsUrl = (params?: ListLeadListsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/lists?${stringifiedParams}` : `/api/lists`
+}
+
+/**
+ * @summary List all lead lists
+ */
+export const listLeadLists = async (params?: ListLeadListsParams, options?: RequestInit): Promise<LeadList[]> => {
+
+  return customFetch<LeadList[]>(getListLeadListsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLeadListsQueryKey = (params?: ListLeadListsParams,) => {
+    return [
+    `/api/lists`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListLeadListsQueryOptions = <TData = Awaited<ReturnType<typeof listLeadLists>>, TError = ErrorType<unknown>>(params?: ListLeadListsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeadLists>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLeadListsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLeadLists>>> = ({ signal }) => listLeadLists(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLeadLists>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLeadListsQueryResult = NonNullable<Awaited<ReturnType<typeof listLeadLists>>>
+export type ListLeadListsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all lead lists
+ */
+
+export function useListLeadLists<TData = Awaited<ReturnType<typeof listLeadLists>>, TError = ErrorType<unknown>>(
+ params?: ListLeadListsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeadLists>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLeadListsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateLeadListUrl = () => {
+
+
+
+
+  return `/api/lists`
+}
+
+/**
+ * @summary Create a lead list
+ */
+export const createLeadList = async (leadListInput: LeadListInput, options?: RequestInit): Promise<LeadList> => {
+
+  return customFetch<LeadList>(getCreateLeadListUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      leadListInput,)
+  }
+);}
+
+
+
+
+export const getCreateLeadListMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLeadList>>, TError,{data: BodyType<LeadListInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLeadList>>, TError,{data: BodyType<LeadListInput>}, TContext> => {
+
+const mutationKey = ['createLeadList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLeadList>>, {data: BodyType<LeadListInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createLeadList(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLeadListMutationResult = NonNullable<Awaited<ReturnType<typeof createLeadList>>>
+    export type CreateLeadListMutationBody = BodyType<LeadListInput>
+    export type CreateLeadListMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a lead list
+ */
+export const useCreateLeadList = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLeadList>>, TError,{data: BodyType<LeadListInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createLeadList>>,
+        TError,
+        {data: BodyType<LeadListInput>},
+        TContext
+      > => {
+      return useMutation(getCreateLeadListMutationOptions(options));
+    }
+
+export const getGetLeadListUrl = (id: number,) => {
+
+
+
+
+  return `/api/lists/${id}`
+}
+
+/**
+ * @summary Get a lead list by ID
+ */
+export const getLeadList = async (id: number, options?: RequestInit): Promise<LeadList> => {
+
+  return customFetch<LeadList>(getGetLeadListUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLeadListQueryKey = (id: number,) => {
+    return [
+    `/api/lists/${id}`
+    ] as const;
+    }
+
+
+export const getGetLeadListQueryOptions = <TData = Awaited<ReturnType<typeof getLeadList>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeadList>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLeadListQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLeadList>>> = ({ signal }) => getLeadList(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLeadList>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLeadListQueryResult = NonNullable<Awaited<ReturnType<typeof getLeadList>>>
+export type GetLeadListQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a lead list by ID
+ */
+
+export function useGetLeadList<TData = Awaited<ReturnType<typeof getLeadList>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeadList>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLeadListQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateLeadListUrl = (id: number,) => {
+
+
+
+
+  return `/api/lists/${id}`
+}
+
+/**
+ * @summary Update a lead list
+ */
+export const updateLeadList = async (id: number,
+    leadListPatch: LeadListPatch, options?: RequestInit): Promise<LeadList> => {
+
+  return customFetch<LeadList>(getUpdateLeadListUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      leadListPatch,)
+  }
+);}
+
+
+
+
+export const getUpdateLeadListMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeadList>>, TError,{id: number;data: BodyType<LeadListPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLeadList>>, TError,{id: number;data: BodyType<LeadListPatch>}, TContext> => {
+
+const mutationKey = ['updateLeadList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLeadList>>, {id: number;data: BodyType<LeadListPatch>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateLeadList(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLeadListMutationResult = NonNullable<Awaited<ReturnType<typeof updateLeadList>>>
+    export type UpdateLeadListMutationBody = BodyType<LeadListPatch>
+    export type UpdateLeadListMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update a lead list
+ */
+export const useUpdateLeadList = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeadList>>, TError,{id: number;data: BodyType<LeadListPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLeadList>>,
+        TError,
+        {id: number;data: BodyType<LeadListPatch>},
+        TContext
+      > => {
+      return useMutation(getUpdateLeadListMutationOptions(options));
+    }
+
+export const getDeleteLeadListUrl = (id: number,) => {
+
+
+
+
+  return `/api/lists/${id}`
+}
+
+/**
+ * @summary Delete a lead list
+ */
+export const deleteLeadList = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteLeadListUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteLeadListMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLeadList>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteLeadList>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteLeadList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLeadList>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteLeadList(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteLeadListMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLeadList>>>
+
+    export type DeleteLeadListMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a lead list
+ */
+export const useDeleteLeadList = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLeadList>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteLeadList>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteLeadListMutationOptions(options));
+    }
+
+export const getGetListLeadsUrl = (id: number,) => {
+
+
+
+
+  return `/api/lists/${id}/leads`
+}
+
+/**
+ * @summary Get leads in a list
+ */
+export const getListLeads = async (id: number, options?: RequestInit): Promise<Lead[]> => {
+
+  return customFetch<Lead[]>(getGetListLeadsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetListLeadsQueryKey = (id: number,) => {
+    return [
+    `/api/lists/${id}/leads`
+    ] as const;
+    }
+
+
+export const getGetListLeadsQueryOptions = <TData = Awaited<ReturnType<typeof getListLeads>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getListLeads>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetListLeadsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getListLeads>>> = ({ signal }) => getListLeads(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getListLeads>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetListLeadsQueryResult = NonNullable<Awaited<ReturnType<typeof getListLeads>>>
+export type GetListLeadsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get leads in a list
+ */
+
+export function useGetListLeads<TData = Awaited<ReturnType<typeof getListLeads>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getListLeads>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetListLeadsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAddLeadsToListUrl = (id: number,) => {
+
+
+
+
+  return `/api/lists/${id}/leads`
+}
+
+/**
+ * @summary Add leads to a list
+ */
+export const addLeadsToList = async (id: number,
+    addLeadsToListInput: AddLeadsToListInput, options?: RequestInit): Promise<AddLeadsToListResult> => {
+
+  return customFetch<AddLeadsToListResult>(getAddLeadsToListUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      addLeadsToListInput,)
+  }
+);}
+
+
+
+
+export const getAddLeadsToListMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addLeadsToList>>, TError,{id: number;data: BodyType<AddLeadsToListInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addLeadsToList>>, TError,{id: number;data: BodyType<AddLeadsToListInput>}, TContext> => {
+
+const mutationKey = ['addLeadsToList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addLeadsToList>>, {id: number;data: BodyType<AddLeadsToListInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  addLeadsToList(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddLeadsToListMutationResult = NonNullable<Awaited<ReturnType<typeof addLeadsToList>>>
+    export type AddLeadsToListMutationBody = BodyType<AddLeadsToListInput>
+    export type AddLeadsToListMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add leads to a list
+ */
+export const useAddLeadsToList = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addLeadsToList>>, TError,{id: number;data: BodyType<AddLeadsToListInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addLeadsToList>>,
+        TError,
+        {id: number;data: BodyType<AddLeadsToListInput>},
+        TContext
+      > => {
+      return useMutation(getAddLeadsToListMutationOptions(options));
+    }
+
+export const getRemoveLeadFromListUrl = (id: number,
+    leadId: number,) => {
+
+
+
+
+  return `/api/lists/${id}/leads/${leadId}`
+}
+
+/**
+ * @summary Remove a lead from a list
+ */
+export const removeLeadFromList = async (id: number,
+    leadId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRemoveLeadFromListUrl(id,leadId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemoveLeadFromListMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLeadFromList>>, TError,{id: number;leadId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeLeadFromList>>, TError,{id: number;leadId: number}, TContext> => {
+
+const mutationKey = ['removeLeadFromList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeLeadFromList>>, {id: number;leadId: number}> = (props) => {
+          const {id,leadId} = props ?? {};
+
+          return  removeLeadFromList(id,leadId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveLeadFromListMutationResult = NonNullable<Awaited<ReturnType<typeof removeLeadFromList>>>
+
+    export type RemoveLeadFromListMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove a lead from a list
+ */
+export const useRemoveLeadFromList = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLeadFromList>>, TError,{id: number;leadId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeLeadFromList>>,
+        TError,
+        {id: number;leadId: number},
+        TContext
+      > => {
+      return useMutation(getRemoveLeadFromListMutationOptions(options));
     }
 
 export const getGetSchedulerStatusUrl = () => {

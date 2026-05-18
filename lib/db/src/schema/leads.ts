@@ -9,6 +9,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { campaignsTable } from "./campaigns";
+import { campaignRunsTable } from "./campaign-runs";
 
 export const leadsTable = pgTable(
   "leads",
@@ -17,6 +18,10 @@ export const leadsTable = pgTable(
     campaignId: integer("campaign_id")
       .notNull()
       .references(() => campaignsTable.id, { onDelete: "cascade" }),
+    campaignRunId: integer("campaign_run_id").references(
+      () => campaignRunsTable.id,
+      { onDelete: "set null" },
+    ),
     companyName: text("company_name").notNull(),
     rootDomain: text("root_domain").notNull(),
     websiteUrl: text("website_url").notNull(),

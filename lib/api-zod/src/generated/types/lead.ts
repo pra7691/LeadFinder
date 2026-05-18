@@ -11,6 +11,8 @@ import type { LeadQualificationStatus } from './leadQualificationStatus';
 export interface Lead {
   id: number;
   campaignId: number;
+  /** @nullable */
+  campaignRunId?: number | null;
   companyName: string;
   rootDomain: string;
   websiteUrl: string;

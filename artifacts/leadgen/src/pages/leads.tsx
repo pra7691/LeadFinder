@@ -9,6 +9,11 @@ import {
   useQueueLead,
   useBulkQueueLeads,
   useListCampaigns,
+  useListCampaignRuns,
+  getListCampaignRunsQueryKey,
+  useListLeadLists,
+  getListLeadListsQueryKey,
+  useAddLeadsToList,
   getListOutreachQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -49,6 +54,7 @@ import {
   FileSpreadsheet,
   ThumbsUp,
   ThumbsDown,
+  BookMarked,
 } from "lucide-react";
 import {
   Dialog,
@@ -430,7 +436,14 @@ const FILTERS: { value: QuickFilter; label: string; color?: string }[] = [
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function Leads() {
-  const { data: leads, isLoading } = useListLeads({ limit: 200 });
+  const [filterCampaignId, setFilterCampaignId] = useState<number | undefined>(undefined);
+  const [filterRunId, setFilterRunId] = useState<number | undefined>(undefined);
+
+  const { data: leads, isLoading } = useListLeads({
+    limit: 200,
+    campaignId: filterCampaignId,
+    campaignRunId: filterRunId,
+  });
   const runCrawl = useRunCrawl();
   const bulkCrawl = useBulkCrawl();
   const scoreLeadMut = useScoreLead();
@@ -462,8 +475,54 @@ export function Leads() {
     setExportOpen(true);
   };
 
-  // ── Queue dialog ──────────────────────────────────────────────────────────
+  // ── Add to List dialog ───────────────────────────────────────────────────
+  const { data: lists } = useListLeadLists(
+    {},
+    { query: { staleTime: 30_000, queryKey: getListLeadListsQueryKey({}) } },
+  );
+  const addToListMut = useAddLeadsToList();
+  const [addToListOpen, setAddToListOpen] = useState(false);
+  const [addToListId, setAddToListId] = useState<string>("");
+  const [addToListState, setAddToListState] = useState<"idle" | "running" | "done">("idle");
+  const [addToListResult, setAddToListResult] = useState<{ added: number; duplicates: number } | null>(null);
+
+  const openAddToList = () => {
+    setAddToListOpen(true);
+    setAddToListId(lists?.[0]?.id ? String(lists[0].id) : "");
+    setAddToListState("idle");
+    setAddToListResult(null);
+  };
+
+  const handleConfirmAddToList = () => {
+    if (!addToListId || !selectedIds.length) return;
+    setAddToListState("running");
+    addToListMut.mutate(
+      { id: Number(addToListId), data: { leadIds: selectedIds } },
+      {
+        onSuccess: (r) => {
+          setAddToListState("done");
+          setAddToListResult({ added: r.added, duplicates: r.duplicates });
+          setSelected(new Set());
+          setTimeout(() => { setAddToListOpen(false); setAddToListState("idle"); }, 1500);
+        },
+        onError: () => setAddToListState("idle"),
+      },
+    );
+  };
+
+  // ── Campaign/Run filters ─────────────────────────────────────────────────
   const { data: campaigns } = useListCampaigns();
+  const campaignRunsParams = filterCampaignId ? { campaignId: filterCampaignId } : {};
+  const { data: campaignRuns } = useListCampaignRuns(
+    campaignRunsParams,
+    {
+      query: {
+        enabled: !!filterCampaignId,
+        staleTime: 15_000,
+        queryKey: getListCampaignRunsQueryKey(campaignRunsParams),
+      },
+    },
+  );
   const queueLeadMut = useQueueLead();
   const bulkQueueMut = useBulkQueueLeads();
 
@@ -666,7 +725,47 @@ export function Leads() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-3xl font-semibold tracking-tight">Leads Queue</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative w-64">
+          {/* Campaign filter */}
+          <Select
+            value={filterCampaignId ? String(filterCampaignId) : "all"}
+            onValueChange={(v) => {
+              const id = v === "all" ? undefined : Number(v);
+              setFilterCampaignId(id);
+              setFilterRunId(undefined);
+            }}
+          >
+            <SelectTrigger className="rounded-xl h-9 w-44 text-sm">
+              <SelectValue placeholder="All campaigns" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All campaigns</SelectItem>
+              {campaigns?.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Run filter — only when a campaign is selected */}
+          {filterCampaignId && (
+            <Select
+              value={filterRunId ? String(filterRunId) : "all"}
+              onValueChange={(v) => setFilterRunId(v === "all" ? undefined : Number(v))}
+            >
+              <SelectTrigger className="rounded-xl h-9 w-44 text-sm">
+                <SelectValue placeholder="All runs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All runs</SelectItem>
+                {(campaignRuns ?? []).map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.runName ?? `Run #${r.id}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <div className="relative w-56">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search company or domain…"
@@ -746,6 +845,11 @@ export function Leads() {
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-muted-foreground"
             disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
             <Archive className="w-3 h-3" /> Archive
+          </Button>
+          <Button size="sm" variant="outline"
+            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-violet-500 border-violet-500/30 hover:bg-violet-500/10"
+            disabled={isBulkBusy || !(lists?.length)} onClick={openAddToList}>
+            <BookMarked className="w-3 h-3" /> Add to List
           </Button>
           {/* Bulk export */}
           <Button size="sm" variant="outline"
@@ -1066,6 +1170,64 @@ export function Leads() {
                 ) : (
                   "Confirm"
                 )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add to List dialog */}
+      <Dialog
+        open={addToListOpen}
+        onOpenChange={(v) => { if (!v && addToListState !== "running") setAddToListOpen(false); }}
+      >
+        <DialogContent className="sm:max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookMarked className="w-4 h-4 text-violet-500" />
+              Add {selectedIds.length} lead{selectedIds.length !== 1 ? "s" : ""} to list
+            </DialogTitle>
+            <DialogDescription>
+              Choose a list to add the selected leads to.
+            </DialogDescription>
+          </DialogHeader>
+          {addToListState === "done" && addToListResult ? (
+            <div className="py-6 flex flex-col items-center gap-3 text-center">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              <p className="font-medium">{addToListResult.added} lead{addToListResult.added !== 1 ? "s" : ""} added</p>
+              {addToListResult.duplicates > 0 && (
+                <p className="text-sm text-muted-foreground">{addToListResult.duplicates} already in list</p>
+              )}
+            </div>
+          ) : (
+            <div className="py-4">
+              <Select value={addToListId} onValueChange={setAddToListId}>
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue placeholder="Select a list" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(lists ?? []).filter((l) => l.listStatus === "active").map((l) => (
+                    <SelectItem key={l.id} value={String(l.id)}>
+                      {l.name} ({l.leadCount} leads)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAddToListOpen(false)} disabled={addToListState === "running"}>
+              Cancel
+            </Button>
+            {addToListState !== "done" && (
+              <Button
+                onClick={handleConfirmAddToList}
+                disabled={!addToListId || addToListState === "running"}
+                className="gap-2"
+              >
+                {addToListState === "running" ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Adding…</>
+                ) : "Add to list"}
               </Button>
             )}
           </DialogFooter>

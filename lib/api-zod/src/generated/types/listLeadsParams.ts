@@ -10,8 +10,10 @@ export type ListLeadsParams = {
 campaignId?: number;
 reviewStatus?: string;
 leadStatus?: string;
+campaignRunId?: number;
 qualificationStatus?: string;
 outreachStatus?: string;
+country?: string;
 hasEmail?: boolean;
 minScore?: number;
 limit?: number;
