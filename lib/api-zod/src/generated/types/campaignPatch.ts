@@ -21,6 +21,16 @@ export interface CampaignPatch {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  /**
+     * Days before the same keyword-country query is searched again
+     * @minimum 1
+     */
+  queryRefreshDays?: number;
+  /**
+     * Days before a previously mined discovery source URL is mined again
+     * @minimum 1
+     */
+  discoverySourceRefreshDays?: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */

@@ -53,6 +53,10 @@ export interface Campaign {
   maxEmailsPerDay: number;
   /** Number of Serper search results requested per keyword-country query (10/20/30/50) */
   resultsPerSearch: number;
+  /** Days before the same keyword-country query is searched again */
+  queryRefreshDays: number;
+  /** Days before a previously mined discovery source URL is mined again */
+  discoverySourceRefreshDays: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */
@@ -100,6 +104,16 @@ export interface CampaignInput {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  /**
+     * Days before the same keyword-country query is searched again
+     * @minimum 1
+     */
+  queryRefreshDays?: number;
+  /**
+     * Days before a previously mined discovery source URL is mined again
+     * @minimum 1
+     */
+  discoverySourceRefreshDays?: number;
   subjectTemplate?: string;
   emailTemplate?: string;
   unsubscribeFooter?: string;
@@ -134,6 +148,16 @@ export interface CampaignPatch {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  /**
+     * Days before the same keyword-country query is searched again
+     * @minimum 1
+     */
+  queryRefreshDays?: number;
+  /**
+     * Days before a previously mined discovery source URL is mined again
+     * @minimum 1
+     */
+  discoverySourceRefreshDays?: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */
@@ -648,12 +672,24 @@ export interface CampaignRun {
   startedAt: string;
   /** @nullable */
   completedAt?: string | null;
+  /** Serper queries actually performed */
   totalSearches: number;
+  /** Queries skipped because recently searched */
+  totalSearchesSkipped: number;
+  /** Raw result URLs returned by Serper */
   totalResults: number;
+  /** Result URLs already seen in a previous run */
+  totalResultsSeenBefore: number;
   totalNewLeads: number;
   totalDuplicates: number;
   totalBlocked: number;
   totalRejected: number;
+  /** Discovery source URLs identified (directories, listicles) */
+  totalDiscoverySourcesFound: number;
+  /** Discovery sources actually crawled for company links */
+  totalDiscoverySourcesMined: number;
+  /** Discovery sources skipped because recently mined */
+  totalDiscoverySourcesSkipped: number;
   /** @nullable */
   errorMessage?: string | null;
   /** @nullable */

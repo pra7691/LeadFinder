@@ -19,6 +19,10 @@ export interface Campaign {
   maxEmailsPerDay: number;
   /** Number of Serper search results requested per keyword-country query (10/20/30/50) */
   resultsPerSearch: number;
+  /** Days before the same keyword-country query is searched again */
+  queryRefreshDays: number;
+  /** Days before a previously mined discovery source URL is mined again */
+  discoverySourceRefreshDays: number;
   /** @nullable */
   subjectTemplate?: string | null;
   /** @nullable */

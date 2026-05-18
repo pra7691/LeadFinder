@@ -14,8 +14,11 @@ import {
   campaignEmailAccountsTable,
   appSettingsTable,
   logsTable,
+  searchQueryHistoryTable,
+  searchResultHistoryTable,
+  discoverySourceHistoryTable,
 } from "@workspace/db";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
 import { scoreLead } from "../services/scorer";
@@ -26,6 +29,15 @@ import { logger } from "../lib/logger";
 export interface PipelineResult {
   campaignId: number;
   discoveryLeadsCreated: number;
+  discoverySearchesPerformed: number;
+  discoverySearchesSkipped: number;
+  discoveryRawResults: number;
+  discoveryResultsSeenBefore: number;
+  discoverySourcesFound: number;
+  discoverySourcesMined: number;
+  discoverySourcesSkipped: number;
+  discoveryDuplicatesSkipped: number;
+  discoveryBlockedSkipped: number;
   crawledCount: number;
   scoredCount: number;
   emailsSent: number;
@@ -186,6 +198,13 @@ interface MineArgs {
   existingDomains: Set<string>;
 }
 
+interface MineResult {
+  mined: number;
+  duplicates: number;
+  blocked: number;
+  totalLinks: number;
+}
+
 /**
  * Fetches a discovery-source page (listicle/directory), extracts outbound company
  * links, and creates lead rows for each real company found on that page.
@@ -200,21 +219,30 @@ async function mineDiscoverySource({
   sourceQuery,
   blockedDomains,
   existingDomains,
-}: MineArgs): Promise<number> {
+}: MineArgs): Promise<MineResult> {
   let links: { href: string; rootDomain: string; anchorText: string }[];
   try {
     links = await extractCompanyLinksFromPage(discoveryUrl, sourceRootDomain);
   } catch {
-    return 0;
+    return { mined: 0, duplicates: 0, blocked: 0, totalLinks: 0 };
   }
 
   let mined = 0;
+  let duplicates = 0;
+  let blocked = 0;
+
   for (const { href, rootDomain, anchorText } of links) {
-    if (existingDomains.has(rootDomain)) continue;
+    if (existingDomains.has(rootDomain)) {
+      duplicates++;
+      continue;
+    }
 
     // Re-classify the extracted link — only save direct company links
     const cls = classifySearchResult(rootDomain, href, anchorText, blockedDomains);
-    if (cls !== "direct") continue;
+    if (cls !== "direct") {
+      blocked++;
+      continue;
+    }
 
     // Use domain-based placeholder name; crawl step will overwrite with real name
     const cleanName = formatDomainName(rootDomain);
@@ -244,6 +272,7 @@ async function mineDiscoverySource({
       mined++;
     } catch {
       // unique constraint violation = race dupe — skip
+      duplicates++;
     }
   }
 
@@ -255,7 +284,7 @@ async function mineDiscoverySource({
     );
   }
 
-  return mined;
+  return { mined, duplicates, blocked, totalLinks: links.length };
 }
 
 /**
@@ -294,15 +323,41 @@ async function schedulerLog(
 
 // ── Step 1: Discovery ───────────────────────────────────────────────────────
 
+interface DiscoveryStats {
+  newLeadsCreated: number;
+  searchesPerformed: number;
+  searchesSkipped: number;
+  rawResultsFound: number;
+  resultUrlsSeenBefore: number;
+  discoverySourcesFound: number;
+  discoverySourcesMined: number;
+  discoverySourcesSkipped: number;
+  duplicatesSkipped: number;
+  blockedSkipped: number;
+}
+
 async function runDiscovery(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
   campaignRunId?: number,
-): Promise<number> {
+): Promise<DiscoveryStats> {
+  const stats: DiscoveryStats = {
+    newLeadsCreated: 0,
+    searchesPerformed: 0,
+    searchesSkipped: 0,
+    rawResultsFound: 0,
+    resultUrlsSeenBefore: 0,
+    discoverySourcesFound: 0,
+    discoverySourcesMined: 0,
+    discoverySourcesSkipped: 0,
+    duplicatesSkipped: 0,
+    blockedSkipped: 0,
+  };
+
   const apiKey = process.env["SERPER_API_KEY"];
   if (!apiKey) {
     errors.push("SERPER_API_KEY not set — skipping discovery");
-    return 0;
+    return stats;
   }
 
   const keywords = await db
@@ -317,7 +372,7 @@ async function runDiscovery(
 
   if (keywords.length === 0 || countries.length === 0) {
     await schedulerLog(campaign.id, "Discovery skipped: no keywords or countries configured");
-    return 0;
+    return stats;
   }
 
   const [blockedSetting] = await db
@@ -339,9 +394,11 @@ async function runDiscovery(
 
   const existingDomains = new Set(existingLeads.map((l) => l.rootDomain));
 
-  let newLeadsCreated = 0;
   let searchCount = 0;
   const maxSearches = campaign.maxSearchesPerDay;
+  const now = new Date();
+  const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
+  const sourceRefreshMs = (campaign.discoverySourceRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
 
   await schedulerLog(campaign.id, `Discovery started: ${keywords.length} keywords × ${countries.length} countries`);
 
@@ -350,16 +407,100 @@ async function runDiscovery(
       if (searchCount >= maxSearches) break outer;
 
       const query = `${kw.keyword} ${co.country}`;
+
+      // ── Query history skip check ──────────────────────────────────────────
+      const [qhRecord] = await db
+        .select({ id: searchQueryHistoryTable.id, nextRefreshAt: searchQueryHistoryTable.nextRefreshAt })
+        .from(searchQueryHistoryTable)
+        .where(and(
+          eq(searchQueryHistoryTable.campaignId, campaign.id),
+          eq(searchQueryHistoryTable.query, query),
+        ))
+        .limit(1);
+
+      if (qhRecord?.nextRefreshAt && qhRecord.nextRefreshAt > now) {
+        stats.searchesSkipped++;
+        await schedulerLog(campaign.id, `Query skipped (recently searched): "${query}"`, {
+          nextRefreshAt: qhRecord.nextRefreshAt.toISOString(),
+        });
+        continue;
+      }
+
       let results;
       try {
         results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10);
         searchCount++;
+        stats.searchesPerformed++;
+        stats.rawResultsFound += results.length;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Search failed: "${query}": ${msg}`);
         await schedulerLog(campaign.id, `Search error: "${query}": ${msg}`);
+        // Record failed query so it is not retried immediately
+        try {
+          await db.insert(searchQueryHistoryTable).values({
+            campaignId: campaign.id,
+            campaignRunId: campaignRunId ?? null,
+            query,
+            keyword: kw.keyword,
+            country: co.country,
+            searchedAt: now,
+            resultCount: 0,
+            status: "failed",
+            errorMessage: msg.slice(0, 500),
+            nextRefreshAt: null,
+          }).onConflictDoUpdate({
+            target: [searchQueryHistoryTable.campaignId, searchQueryHistoryTable.query],
+            set: {
+              campaignRunId: campaignRunId ?? null,
+              searchedAt: now,
+              resultCount: 0,
+              status: "failed",
+              errorMessage: msg.slice(0, 500),
+              nextRefreshAt: null,
+              updatedAt: now,
+            },
+          });
+        } catch { /* non-fatal */ }
         continue;
       }
+
+      // ── Upsert query history (before processing results) ─────────────────
+      const nextQueryRefreshAt = new Date(now.getTime() + queryRefreshMs);
+      let queryHistoryId: number | null = null;
+      try {
+        const [qhRow] = await db
+          .insert(searchQueryHistoryTable)
+          .values({
+            campaignId: campaign.id,
+            campaignRunId: campaignRunId ?? null,
+            query,
+            keyword: kw.keyword,
+            country: co.country,
+            searchedAt: now,
+            resultCount: results.length,
+            status: "completed",
+            nextRefreshAt: nextQueryRefreshAt,
+          })
+          .onConflictDoUpdate({
+            target: [searchQueryHistoryTable.campaignId, searchQueryHistoryTable.query],
+            set: {
+              campaignRunId: campaignRunId ?? null,
+              searchedAt: now,
+              resultCount: results.length,
+              status: "completed",
+              nextRefreshAt: nextQueryRefreshAt,
+              updatedAt: now,
+            },
+          })
+          .returning({ id: searchQueryHistoryTable.id });
+        queryHistoryId = qhRow?.id ?? null;
+      } catch { /* non-fatal */ }
+
+      let qNewLeads = 0;
+      let qDups = 0;
+      let qBlocked = 0;
+      let qSources = 0;
 
       for (const result of results) {
         const rootDomain = extractRootDomain(result.link);
@@ -369,22 +510,84 @@ async function runDiscovery(
           rootDomain, result.link, result.title, blockedDomains,
         );
 
+        // ── Track result URL in history ───────────────────────────────────
+        const resultType =
+          classification === "blocked" ? "blocked"
+          : classification === "discovery_source" ? "discovery_source"
+          : existingDomains.has(rootDomain) ? "duplicate"
+          : "direct";
+        try {
+          const [srhRow] = await db
+            .insert(searchResultHistoryTable)
+            .values({
+              campaignId: campaign.id,
+              campaignRunId: campaignRunId ?? null,
+              searchQueryHistoryId: queryHistoryId,
+              query,
+              resultUrl: result.link,
+              rootDomain,
+              resultTitle: result.title,
+              resultSnippet: result.snippet,
+              resultPosition: result.position,
+              resultType,
+              firstSeenAt: now,
+              lastSeenAt: now,
+              timesSeen: 1,
+            })
+            .onConflictDoUpdate({
+              target: [searchResultHistoryTable.campaignId, searchResultHistoryTable.resultUrl],
+              set: {
+                resultType,
+                lastSeenAt: now,
+                timesSeen: sql`${searchResultHistoryTable.timesSeen} + 1`,
+                updatedAt: now,
+              },
+            })
+            .returning({ timesSeen: searchResultHistoryTable.timesSeen });
+          if (srhRow && srhRow.timesSeen > 1) stats.resultUrlsSeenBefore++;
+        } catch { /* non-fatal */ }
+
         if (classification === "blocked") {
           await schedulerLog(
             campaign.id,
             `Filtered (blocked): ${rootDomain}`,
             { url: result.link },
           );
+          qBlocked++;
+          stats.blockedSkipped++;
           continue;
         }
 
         if (classification === "discovery_source") {
+          stats.discoverySourcesFound++;
+          qSources++;
+
+          // ── Discovery source history skip check ──────────────────────────
+          const [dshRecord] = await db
+            .select({ nextRefreshAt: discoverySourceHistoryTable.nextRefreshAt })
+            .from(discoverySourceHistoryTable)
+            .where(and(
+              eq(discoverySourceHistoryTable.campaignId, campaign.id),
+              eq(discoverySourceHistoryTable.sourceUrl, result.link),
+            ))
+            .limit(1);
+
+          if (dshRecord?.nextRefreshAt && dshRecord.nextRefreshAt > now) {
+            stats.discoverySourcesSkipped++;
+            await schedulerLog(
+              campaign.id,
+              `Discovery source skipped (recently mined): ${rootDomain}`,
+              { url: result.link },
+            );
+            continue;
+          }
+
           await schedulerLog(
             campaign.id,
             `Mining discovery source: ${rootDomain}`,
             { url: result.link, title: result.title },
           );
-          const mined = await mineDiscoverySource({
+          const mineResult = await mineDiscoverySource({
             discoveryUrl: result.link,
             sourceRootDomain: rootDomain,
             campaign,
@@ -395,15 +598,56 @@ async function runDiscovery(
             blockedDomains,
             existingDomains,
           });
-          newLeadsCreated += mined;
+
+          stats.newLeadsCreated += mineResult.mined;
+          stats.duplicatesSkipped += mineResult.duplicates;
+          stats.discoverySourcesMined++;
+          qNewLeads += mineResult.mined;
+          qDups += mineResult.duplicates;
+
+          // ── Upsert discovery source history ──────────────────────────────
+          const dsNextRefreshAt = new Date(now.getTime() + sourceRefreshMs);
+          try {
+            await db
+              .insert(discoverySourceHistoryTable)
+              .values({
+                campaignId: campaign.id,
+                campaignRunId: campaignRunId ?? null,
+                sourceUrl: result.link,
+                sourceDomain: rootDomain,
+                minedAt: now,
+                companiesFound: mineResult.totalLinks,
+                newCompanyLeads: mineResult.mined,
+                duplicateCompanyLeads: mineResult.duplicates,
+                blockedLinks: mineResult.blocked,
+                status: "completed",
+                nextRefreshAt: dsNextRefreshAt,
+              })
+              .onConflictDoUpdate({
+                target: [discoverySourceHistoryTable.campaignId, discoverySourceHistoryTable.sourceUrl],
+                set: {
+                  campaignRunId: campaignRunId ?? null,
+                  minedAt: now,
+                  companiesFound: mineResult.totalLinks,
+                  newCompanyLeads: mineResult.mined,
+                  duplicateCompanyLeads: mineResult.duplicates,
+                  blockedLinks: mineResult.blocked,
+                  status: "completed",
+                  nextRefreshAt: dsNextRefreshAt,
+                  updatedAt: now,
+                },
+              });
+          } catch { /* non-fatal */ }
           continue;
         }
 
         // classification === "direct" — a real company page
-        if (existingDomains.has(rootDomain)) continue;
+        if (existingDomains.has(rootDomain)) {
+          qDups++;
+          stats.duplicatesSkipped++;
+          continue;
+        }
 
-        // Use a domain-based placeholder company name; the crawl step will
-        // overwrite this with the real name from og:site_name / JSON-LD / etc.
         const cleanName = formatDomainName(rootDomain);
 
         try {
@@ -426,18 +670,40 @@ async function runDiscovery(
             sourceType: "direct",
           });
           existingDomains.add(rootDomain);
-          newLeadsCreated++;
+          stats.newLeadsCreated++;
+          qNewLeads++;
         } catch {
           // unique constraint violation = race condition dupe
+          stats.duplicatesSkipped++;
+          qDups++;
         }
+      }
+
+      // ── Update query history with per-query lead/dup/blocked counts ───────
+      if (queryHistoryId != null) {
+        try {
+          await db
+            .update(searchQueryHistoryTable)
+            .set({
+              newLeadsCount: qNewLeads,
+              duplicateCount: qDups,
+              blockedCount: qBlocked,
+              discoverySourceCount: qSources,
+            })
+            .where(eq(searchQueryHistoryTable.id, queryHistoryId));
+        } catch { /* non-fatal */ }
       }
 
       await new Promise((r) => setTimeout(r, 500));
     }
   }
 
-  await schedulerLog(campaign.id, `Discovery complete: ${searchCount} searches, ${newLeadsCreated} new leads`);
-  return newLeadsCreated;
+  await schedulerLog(
+    campaign.id,
+    `Discovery complete: ${stats.searchesPerformed} searched, ${stats.searchesSkipped} skipped, ${stats.newLeadsCreated} new leads`,
+    { ...stats } as Record<string, unknown>,
+  );
+  return stats;
 }
 
 // ── Step 2: Crawl ───────────────────────────────────────────────────────────
@@ -730,6 +996,15 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
   const result: PipelineResult = {
     campaignId,
     discoveryLeadsCreated: 0,
+    discoverySearchesPerformed: 0,
+    discoverySearchesSkipped: 0,
+    discoveryRawResults: 0,
+    discoveryResultsSeenBefore: 0,
+    discoverySourcesFound: 0,
+    discoverySourcesMined: 0,
+    discoverySourcesSkipped: 0,
+    discoveryDuplicatesSkipped: 0,
+    discoveryBlockedSkipped: 0,
     crawledCount: 0,
     scoredCount: 0,
     emailsSent: 0,
@@ -767,7 +1042,17 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
   await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"`);
 
   try {
-    result.discoveryLeadsCreated = await runDiscovery(campaign, errors, campaignRunId);
+    const discoveryStats = await runDiscovery(campaign, errors, campaignRunId);
+    result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
+    result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
+    result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
+    result.discoveryRawResults = discoveryStats.rawResultsFound;
+    result.discoveryResultsSeenBefore = discoveryStats.resultUrlsSeenBefore;
+    result.discoverySourcesFound = discoveryStats.discoverySourcesFound;
+    result.discoverySourcesMined = discoveryStats.discoverySourcesMined;
+    result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
+    result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
+    result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Discovery failed: ${msg}`);

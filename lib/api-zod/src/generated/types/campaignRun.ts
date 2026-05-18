@@ -18,12 +18,24 @@ export interface CampaignRun {
   startedAt: string;
   /** @nullable */
   completedAt?: string | null;
+  /** Serper queries actually performed */
   totalSearches: number;
+  /** Queries skipped because recently searched */
+  totalSearchesSkipped: number;
+  /** Raw result URLs returned by Serper */
   totalResults: number;
+  /** Result URLs already seen in a previous run */
+  totalResultsSeenBefore: number;
   totalNewLeads: number;
   totalDuplicates: number;
   totalBlocked: number;
   totalRejected: number;
+  /** Discovery source URLs identified (directories, listicles) */
+  totalDiscoverySourcesFound: number;
+  /** Discovery sources actually crawled for company links */
+  totalDiscoverySourcesMined: number;
+  /** Discovery sources skipped because recently mined */
+  totalDiscoverySourcesSkipped: number;
   /** @nullable */
   errorMessage?: string | null;
   /** @nullable */

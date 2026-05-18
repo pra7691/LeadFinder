@@ -1518,6 +1518,8 @@ components:
         - maxLeadsPerDay
         - maxEmailsPerDay
         - resultsPerSearch
+        - queryRefreshDays
+        - discoverySourceRefreshDays
         - createdAt
         - updatedAt
       properties:
@@ -1541,6 +1543,14 @@ components:
           type: integer
           default: 10
           description: Number of Serper search results requested per keyword-country query (10/20/30/50)
+        queryRefreshDays:
+          type: integer
+          default: 30
+          description: Days before the same keyword-country query is searched again
+        discoverySourceRefreshDays:
+          type: integer
+          default: 30
+          description: Days before a previously mined discovery source URL is mined again
         subjectTemplate:
           type: ["string", "null"]
         emailTemplate:
@@ -1607,6 +1617,16 @@ components:
           minimum: 1
           maximum: 50
           description: Number of Serper search results requested per keyword-country query (10/20/30/50)
+        queryRefreshDays:
+          type: integer
+          default: 30
+          minimum: 1
+          description: Days before the same keyword-country query is searched again
+        discoverySourceRefreshDays:
+          type: integer
+          default: 30
+          minimum: 1
+          description: Days before a previously mined discovery source URL is mined again
         subjectTemplate:
           type: string
         emailTemplate:
@@ -1653,6 +1673,14 @@ components:
           minimum: 1
           maximum: 50
           description: Number of Serper search results requested per keyword-country query (10/20/30/50)
+        queryRefreshDays:
+          type: integer
+          minimum: 1
+          description: Days before the same keyword-country query is searched again
+        discoverySourceRefreshDays:
+          type: integer
+          minimum: 1
+          description: Days before a previously mined discovery source URL is mined again
         subjectTemplate:
           type: ["string", "null"]
         emailTemplate:
@@ -2376,7 +2404,7 @@ components:
 
     CampaignRun:
       type: object
-      required: [id, campaignId, runType, status, totalSearches, totalResults, totalNewLeads, totalDuplicates, totalBlocked, totalRejected, startedAt, createdAt]
+      required: [id, campaignId, runType, status, totalSearches, totalSearchesSkipped, totalResults, totalResultsSeenBefore, totalNewLeads, totalDuplicates, totalBlocked, totalRejected, totalDiscoverySourcesFound, totalDiscoverySourcesMined, totalDiscoverySourcesSkipped, startedAt, createdAt]
       properties:
         id:
           type: integer
@@ -2396,8 +2424,16 @@ components:
           type: ["string", "null"]
         totalSearches:
           type: integer
+          description: Serper queries actually performed
+        totalSearchesSkipped:
+          type: integer
+          description: Queries skipped because recently searched
         totalResults:
           type: integer
+          description: Raw result URLs returned by Serper
+        totalResultsSeenBefore:
+          type: integer
+          description: Result URLs already seen in a previous run
         totalNewLeads:
           type: integer
         totalDuplicates:
@@ -2406,6 +2442,15 @@ components:
           type: integer
         totalRejected:
           type: integer
+        totalDiscoverySourcesFound:
+          type: integer
+          description: Discovery source URLs identified (directories, listicles)
+        totalDiscoverySourcesMined:
+          type: integer
+          description: Discovery sources actually crawled for company links
+        totalDiscoverySourcesSkipped:
+          type: integer
+          description: Discovery sources skipped because recently mined
         errorMessage:
           type: ["string", "null"]
         metadataJson:

@@ -38,6 +38,8 @@ export const GetDashboardStatsResponse = zod.object({
  * @summary List all campaigns
  */
 export const listCampaignsResponseResultsPerSearchDefault = 10;
+export const listCampaignsResponseQueryRefreshDaysDefault = 30;
+export const listCampaignsResponseDiscoverySourceRefreshDaysDefault = 30;
 export const listCampaignsResponseScheduleTypeDefault = `manual`;
 
 export const ListCampaignsResponseItem = zod.object({
@@ -50,6 +52,8 @@ export const ListCampaignsResponseItem = zod.object({
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(listCampaignsResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().default(listCampaignsResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().default(listCampaignsResponseDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -80,6 +84,10 @@ export const createCampaignBodyMaxEmailsPerDayDefault = 20;
 export const createCampaignBodyResultsPerSearchDefault = 10;
 export const createCampaignBodyResultsPerSearchMax = 50;
 
+export const createCampaignBodyQueryRefreshDaysDefault = 30;
+
+export const createCampaignBodyDiscoverySourceRefreshDaysDefault = 30;
+
 
 
 export const CreateCampaignBody = zod.object({
@@ -91,6 +99,8 @@ export const CreateCampaignBody = zod.object({
   "maxLeadsPerDay": zod.number().default(createCampaignBodyMaxLeadsPerDayDefault),
   "maxEmailsPerDay": zod.number().default(createCampaignBodyMaxEmailsPerDayDefault),
   "resultsPerSearch": zod.number().min(1).max(createCampaignBodyResultsPerSearchMax).default(createCampaignBodyResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().min(1).default(createCampaignBodyQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().min(1).default(createCampaignBodyDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().optional(),
   "emailTemplate": zod.string().optional(),
   "unsubscribeFooter": zod.string().optional(),
@@ -111,6 +121,8 @@ export const GetCampaignParams = zod.object({
 })
 
 export const getCampaignResponseResultsPerSearchDefault = 10;
+export const getCampaignResponseQueryRefreshDaysDefault = 30;
+export const getCampaignResponseDiscoverySourceRefreshDaysDefault = 30;
 export const getCampaignResponseScheduleTypeDefault = `manual`;
 
 export const GetCampaignResponse = zod.object({
@@ -123,6 +135,8 @@ export const GetCampaignResponse = zod.object({
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(getCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().default(getCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().default(getCampaignResponseDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -151,6 +165,8 @@ export const updateCampaignBodyResultsPerSearchMax = 50;
 
 
 
+
+
 export const UpdateCampaignBody = zod.object({
   "name": zod.string().optional(),
   "objective": zod.string().optional(),
@@ -160,6 +176,8 @@ export const UpdateCampaignBody = zod.object({
   "maxLeadsPerDay": zod.number().optional(),
   "maxEmailsPerDay": zod.number().optional(),
   "resultsPerSearch": zod.number().min(1).max(updateCampaignBodyResultsPerSearchMax).optional().describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().min(1).optional().describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().min(1).optional().describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -172,6 +190,8 @@ export const UpdateCampaignBody = zod.object({
 })
 
 export const updateCampaignResponseResultsPerSearchDefault = 10;
+export const updateCampaignResponseQueryRefreshDaysDefault = 30;
+export const updateCampaignResponseDiscoverySourceRefreshDaysDefault = 30;
 export const updateCampaignResponseScheduleTypeDefault = `manual`;
 
 export const UpdateCampaignResponse = zod.object({
@@ -184,6 +204,8 @@ export const UpdateCampaignResponse = zod.object({
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(updateCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().default(updateCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().default(updateCampaignResponseDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -243,6 +265,8 @@ export const PauseCampaignParams = zod.object({
 })
 
 export const pauseCampaignResponseResultsPerSearchDefault = 10;
+export const pauseCampaignResponseQueryRefreshDaysDefault = 30;
+export const pauseCampaignResponseDiscoverySourceRefreshDaysDefault = 30;
 export const pauseCampaignResponseScheduleTypeDefault = `manual`;
 
 export const PauseCampaignResponse = zod.object({
@@ -255,6 +279,8 @@ export const PauseCampaignResponse = zod.object({
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(pauseCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().default(pauseCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().default(pauseCampaignResponseDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -280,6 +306,8 @@ export const ResumeCampaignParams = zod.object({
 })
 
 export const resumeCampaignResponseResultsPerSearchDefault = 10;
+export const resumeCampaignResponseQueryRefreshDaysDefault = 30;
+export const resumeCampaignResponseDiscoverySourceRefreshDaysDefault = 30;
 export const resumeCampaignResponseScheduleTypeDefault = `manual`;
 
 export const ResumeCampaignResponse = zod.object({
@@ -292,6 +320,8 @@ export const ResumeCampaignResponse = zod.object({
   "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(resumeCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (10\/20\/30\/50)'),
+  "queryRefreshDays": zod.number().default(resumeCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
+  "discoverySourceRefreshDays": zod.number().default(resumeCampaignResponseDiscoverySourceRefreshDaysDefault).describe('Days before a previously mined discovery source URL is mined again'),
   "subjectTemplate": zod.string().nullish(),
   "emailTemplate": zod.string().nullish(),
   "unsubscribeFooter": zod.string().nullish(),
@@ -324,12 +354,17 @@ export const ListCampaignRunsResponseItem = zod.object({
   "status": zod.enum(['running', 'completed', 'failed', 'partial']),
   "startedAt": zod.string(),
   "completedAt": zod.string().nullish(),
-  "totalSearches": zod.number(),
-  "totalResults": zod.number(),
+  "totalSearches": zod.number().describe('Serper queries actually performed'),
+  "totalSearchesSkipped": zod.number().describe('Queries skipped because recently searched'),
+  "totalResults": zod.number().describe('Raw result URLs returned by Serper'),
+  "totalResultsSeenBefore": zod.number().describe('Result URLs already seen in a previous run'),
   "totalNewLeads": zod.number(),
   "totalDuplicates": zod.number(),
   "totalBlocked": zod.number(),
   "totalRejected": zod.number(),
+  "totalDiscoverySourcesFound": zod.number().describe('Discovery source URLs identified (directories, listicles)'),
+  "totalDiscoverySourcesMined": zod.number().describe('Discovery sources actually crawled for company links'),
+  "totalDiscoverySourcesSkipped": zod.number().describe('Discovery sources skipped because recently mined'),
   "errorMessage": zod.string().nullish(),
   "metadataJson": zod.string().nullish(),
   "createdAt": zod.string()
@@ -352,12 +387,17 @@ export const GetCampaignRunResponse = zod.object({
   "status": zod.enum(['running', 'completed', 'failed', 'partial']),
   "startedAt": zod.string(),
   "completedAt": zod.string().nullish(),
-  "totalSearches": zod.number(),
-  "totalResults": zod.number(),
+  "totalSearches": zod.number().describe('Serper queries actually performed'),
+  "totalSearchesSkipped": zod.number().describe('Queries skipped because recently searched'),
+  "totalResults": zod.number().describe('Raw result URLs returned by Serper'),
+  "totalResultsSeenBefore": zod.number().describe('Result URLs already seen in a previous run'),
   "totalNewLeads": zod.number(),
   "totalDuplicates": zod.number(),
   "totalBlocked": zod.number(),
   "totalRejected": zod.number(),
+  "totalDiscoverySourcesFound": zod.number().describe('Discovery source URLs identified (directories, listicles)'),
+  "totalDiscoverySourcesMined": zod.number().describe('Discovery sources actually crawled for company links'),
+  "totalDiscoverySourcesSkipped": zod.number().describe('Discovery sources skipped because recently mined'),
   "errorMessage": zod.string().nullish(),
   "metadataJson": zod.string().nullish(),
   "createdAt": zod.string()

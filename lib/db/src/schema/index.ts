@@ -13,3 +13,6 @@ export * from "./email-templates";
 export * from "./outreach-queue";
 export * from "./logs";
 export * from "./app-settings";
+export * from "./search-query-history";
+export * from "./search-result-history";
+export * from "./discovery-source-history";

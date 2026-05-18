@@ -8,8 +8,10 @@ import {
   leadsTable,
   appSettingsTable,
   logsTable,
+  searchQueryHistoryTable,
+  searchResultHistoryTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 
 const router = Router();
@@ -100,7 +102,9 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
     campaignId,
     runId: campaignRun.id,
     searchesPerformed: 0,
+    searchesSkipped: 0,
     resultsFound: 0,
+    resultUrlsSeenBefore: 0,
     blockedSkipped: 0,
     duplicatesSkipped: 0,
     newLeadsCreated: 0,
@@ -109,6 +113,8 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
   const maxSearches = campaign.maxSearchesPerDay;
   let searchCount = 0;
+  const now = new Date();
+  const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
 
   // Build query pairs: keyword × country
   outer: for (const kw of keywords) {
@@ -117,6 +123,27 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
       const query = `${kw.keyword} ${co.country}`;
       summary.queries.push(query);
+
+      // ── Query history skip check ──────────────────────────────────────────
+      const [qhRecord] = await db
+        .select({ id: searchQueryHistoryTable.id, nextRefreshAt: searchQueryHistoryTable.nextRefreshAt })
+        .from(searchQueryHistoryTable)
+        .where(and(
+          eq(searchQueryHistoryTable.campaignId, campaignId),
+          eq(searchQueryHistoryTable.query, query),
+        ))
+        .limit(1);
+
+      if (qhRecord?.nextRefreshAt && qhRecord.nextRefreshAt > now) {
+        summary.searchesSkipped++;
+        await db.insert(logsTable).values({
+          campaignId,
+          type: "search",
+          message: `Query skipped (recently searched): "${query}"`,
+          metadataJson: JSON.stringify({ query, nextRefreshAt: qhRecord.nextRefreshAt.toISOString(), reason: "skipped_recent" }),
+        });
+        continue;
+      }
 
       await db.insert(logsTable).values({
         campaignId,
@@ -127,7 +154,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
       let results;
       try {
-        results = await searchSerper(query, apiKey);
+        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10);
         searchCount++;
         summary.searchesPerformed++;
         summary.resultsFound += results.length;
@@ -139,14 +166,113 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
           message: `Serper API error for query "${query}": ${msg}`,
           metadataJson: JSON.stringify({ query, error: msg }),
         });
+        // Record failed query so it is not retried immediately
+        try {
+          await db.insert(searchQueryHistoryTable).values({
+            campaignId,
+            campaignRunId: campaignRun.id,
+            query,
+            keyword: kw.keyword,
+            country: co.country,
+            searchedAt: now,
+            resultCount: 0,
+            status: "failed",
+            errorMessage: msg.slice(0, 500),
+            nextRefreshAt: null,
+          }).onConflictDoUpdate({
+            target: [searchQueryHistoryTable.campaignId, searchQueryHistoryTable.query],
+            set: {
+              campaignRunId: campaignRun.id,
+              searchedAt: now,
+              resultCount: 0,
+              status: "failed",
+              errorMessage: msg.slice(0, 500),
+              nextRefreshAt: null,
+              updatedAt: now,
+            },
+          });
+        } catch { /* non-fatal */ }
         continue;
       }
+
+      // ── Upsert query history ──────────────────────────────────────────────
+      const nextQueryRefreshAt = new Date(now.getTime() + queryRefreshMs);
+      let queryHistoryId: number | null = null;
+      try {
+        const [qhRow] = await db
+          .insert(searchQueryHistoryTable)
+          .values({
+            campaignId,
+            campaignRunId: campaignRun.id,
+            query,
+            keyword: kw.keyword,
+            country: co.country,
+            searchedAt: now,
+            resultCount: results.length,
+            status: "completed",
+            nextRefreshAt: nextQueryRefreshAt,
+          })
+          .onConflictDoUpdate({
+            target: [searchQueryHistoryTable.campaignId, searchQueryHistoryTable.query],
+            set: {
+              campaignRunId: campaignRun.id,
+              searchedAt: now,
+              resultCount: results.length,
+              status: "completed",
+              nextRefreshAt: nextQueryRefreshAt,
+              updatedAt: now,
+            },
+          })
+          .returning({ id: searchQueryHistoryTable.id });
+        queryHistoryId = qhRow?.id ?? null;
+      } catch { /* non-fatal */ }
+
+      let qNewLeads = 0;
+      let qDups = 0;
+      let qBlocked = 0;
 
       for (const result of results) {
         const rootDomain = extractRootDomain(result.link);
         if (!rootDomain) continue;
 
-        if (blockedDomains.has(rootDomain)) {
+        const isDuplicate = existingDomains.has(rootDomain);
+        const isBlocked = blockedDomains.has(rootDomain);
+        const resultType = isBlocked ? "blocked" : isDuplicate ? "duplicate" : "direct";
+
+        // ── Track result URL in history ───────────────────────────────────
+        try {
+          const [srhRow] = await db
+            .insert(searchResultHistoryTable)
+            .values({
+              campaignId,
+              campaignRunId: campaignRun.id,
+              searchQueryHistoryId: queryHistoryId,
+              query,
+              resultUrl: result.link,
+              rootDomain,
+              resultTitle: result.title,
+              resultSnippet: result.snippet,
+              resultPosition: result.position,
+              resultType,
+              firstSeenAt: now,
+              lastSeenAt: now,
+              timesSeen: 1,
+            })
+            .onConflictDoUpdate({
+              target: [searchResultHistoryTable.campaignId, searchResultHistoryTable.resultUrl],
+              set: {
+                resultType,
+                lastSeenAt: now,
+                timesSeen: sql`${searchResultHistoryTable.timesSeen} + 1`,
+                updatedAt: now,
+              },
+            })
+            .returning({ timesSeen: searchResultHistoryTable.timesSeen });
+          if (srhRow && srhRow.timesSeen > 1) summary.resultUrlsSeenBefore++;
+        } catch { /* non-fatal */ }
+
+        if (isBlocked) {
+          qBlocked++;
           summary.blockedSkipped++;
           await db.insert(logsTable).values({
             campaignId,
@@ -157,7 +283,8 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
           continue;
         }
 
-        if (existingDomains.has(rootDomain)) {
+        if (isDuplicate) {
+          qDups++;
           summary.duplicatesSkipped++;
           await db.insert(logsTable).values({
             campaignId,
@@ -188,6 +315,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
           existingDomains.add(rootDomain);
           summary.newLeadsCreated++;
+          qNewLeads++;
 
           await db.insert(logsTable).values({
             campaignId,
@@ -198,7 +326,18 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
         } catch {
           // Unique constraint violation = race condition dupe; skip silently
           summary.duplicatesSkipped++;
+          qDups++;
         }
+      }
+
+      // ── Update query history with per-query lead/dup/blocked counts ───────
+      if (queryHistoryId != null) {
+        try {
+          await db
+            .update(searchQueryHistoryTable)
+            .set({ newLeadsCount: qNewLeads, duplicateCount: qDups, blockedCount: qBlocked })
+            .where(eq(searchQueryHistoryTable.id, queryHistoryId));
+        } catch { /* non-fatal */ }
       }
 
       // Small delay between searches to respect rate limits
@@ -213,7 +352,9 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
       status: "completed",
       completedAt: new Date(),
       totalSearches: summary.searchesPerformed,
+      totalSearchesSkipped: summary.searchesSkipped,
       totalResults: summary.resultsFound,
+      totalResultsSeenBefore: summary.resultUrlsSeenBefore,
       totalNewLeads: summary.newLeadsCreated,
       totalDuplicates: summary.duplicatesSkipped,
       totalBlocked: summary.blockedSkipped,
@@ -225,7 +366,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
   await db.insert(logsTable).values({
     campaignId,
     type: "discovery",
-    message: `Discovery run completed: ${summary.searchesPerformed} searches, ${summary.newLeadsCreated} new leads, ${summary.blockedSkipped} blocked, ${summary.duplicatesSkipped} duplicates`,
+    message: `Discovery run completed: ${summary.searchesPerformed} searched, ${summary.searchesSkipped} skipped, ${summary.newLeadsCreated} new leads, ${summary.blockedSkipped} blocked, ${summary.duplicatesSkipped} duplicates`,
     metadataJson: JSON.stringify(summary),
   });
 

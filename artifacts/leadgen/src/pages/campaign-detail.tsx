@@ -59,6 +59,8 @@ type FormData = {
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
   resultsPerSearch: number;
+  queryRefreshDays: number;
+  discoverySourceRefreshDays: number;
   keywords: string;
   countries: string;
   scheduleType: string;
@@ -105,9 +107,11 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
 
   const stats = [
     { label: "New Leads", value: activeRun.totalNewLeads ?? 0 },
-    { label: "Searches", value: activeRun.totalSearches ?? 0 },
+    { label: "Searched", value: activeRun.totalSearches ?? 0 },
+    { label: "Skipped", value: activeRun.totalSearchesSkipped ?? 0 },
+    { label: "Sources", value: activeRun.totalDiscoverySourcesMined ?? 0 },
     { label: "Blocked", value: activeRun.totalBlocked ?? 0 },
-    { label: "Duplicates", value: activeRun.totalDuplicates ?? 0 },
+    { label: "Dupes", value: activeRun.totalDuplicates ?? 0 },
   ];
 
   return (
@@ -218,7 +222,13 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                         </span>
                       )}
                       {run.totalSearches != null && run.totalSearches > 0 && (
-                        <span>{run.totalSearches} searches</span>
+                        <span>{run.totalSearches} searched</span>
+                      )}
+                      {(run.totalSearchesSkipped ?? 0) > 0 && (
+                        <span>{run.totalSearchesSkipped} skipped</span>
+                      )}
+                      {(run.totalDiscoverySourcesMined ?? 0) > 0 && (
+                        <span>{run.totalDiscoverySourcesMined} sources mined</span>
                       )}
                       {(run.totalBlocked ?? 0) > 0 && (
                         <span>{run.totalBlocked} blocked</span>
@@ -268,6 +278,8 @@ export function CampaignDetail() {
     maxLeadsPerDay: 50,
     maxEmailsPerDay: 20,
     resultsPerSearch: 10,
+    queryRefreshDays: 30,
+    discoverySourceRefreshDays: 30,
     keywords: "",
     countries: "",
     scheduleType: "manual",
@@ -289,6 +301,8 @@ export function CampaignDetail() {
         maxLeadsPerDay: campaign.maxLeadsPerDay ?? 50,
         maxEmailsPerDay: campaign.maxEmailsPerDay ?? 20,
         resultsPerSearch: campaign.resultsPerSearch ?? 10,
+        queryRefreshDays: campaign.queryRefreshDays ?? 30,
+        discoverySourceRefreshDays: campaign.discoverySourceRefreshDays ?? 30,
         keywords: Array.isArray(campaign.keywords) ? campaign.keywords.join(", ") : (campaign.keywords ?? ""),
         countries: Array.isArray(campaign.countries) ? campaign.countries.join(", ") : (campaign.countries ?? ""),
         scheduleType: campaign.scheduleType ?? "manual",
@@ -477,6 +491,44 @@ export function CampaignDetail() {
                 </Select>
                 <p className="text-[11px] text-muted-foreground/70">
                   Serper results per keyword-country query
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Query Refresh (days)</Label>
+                <Select
+                  value={String(formData.queryRefreshDays)}
+                  onValueChange={(v) => setFormData({ ...formData, queryRefreshDays: Number(v) })}
+                >
+                  <SelectTrigger className="rounded-xl bg-background/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[7, 14, 30, 60, 90].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n} days</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70">
+                  Days before re-searching the same keyword
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Source Refresh (days)</Label>
+                <Select
+                  value={String(formData.discoverySourceRefreshDays)}
+                  onValueChange={(v) => setFormData({ ...formData, discoverySourceRefreshDays: Number(v) })}
+                >
+                  <SelectTrigger className="rounded-xl bg-background/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[7, 14, 30, 60, 90].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n} days</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70">
+                  Days before re-mining a discovery source URL
                 </p>
               </div>
             </div>
