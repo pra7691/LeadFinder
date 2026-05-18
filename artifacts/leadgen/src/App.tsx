@@ -17,6 +17,7 @@ import { ListDetail } from "@/pages/list-detail";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplates } from "@/pages/email-templates";
 import { Outreach } from "@/pages/outreach";
+import { OutreachReview } from "@/pages/outreach-review";
 import { Logs } from "@/pages/logs";
 import { Settings } from "@/pages/settings";
 
@@ -43,6 +44,7 @@ function Router() {
           <Route path="/email-accounts" component={EmailAccounts} />
           <Route path="/email-templates" component={EmailTemplates} />
           <Route path="/outreach" component={Outreach} />
+          <Route path="/outreach-review" component={OutreachReview} />
           <Route path="/logs" component={Logs} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />

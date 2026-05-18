@@ -4,6 +4,7 @@ import { campaignsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { runPipeline } from "../scheduler/pipeline";
 import { computeNextRunAt } from "../scheduler/index";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -43,6 +44,13 @@ router.get("/scheduler/status", async (_req, res) => {
 });
 
 // ── POST /campaigns/:id/trigger ────────────────────────────────────────────
+//
+// IMPORTANT: This endpoint must return IMMEDIATELY.
+// Running the pipeline synchronously (with await) blocks the entire Node.js
+// event loop for the full pipeline duration (minutes), making the server
+// unresponsive to health checks and all other requests, causing downtime.
+//
+// The pipeline runs in the background, exactly like the cron scheduler does.
 
 router.post("/campaigns/:id/trigger", async (req, res) => {
   const campaignId = Number(req.params.id);
@@ -66,35 +74,59 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
     return;
   }
 
-  // Mark as running
+  // Mark as running immediately so the UI can reflect the state
   await db
     .update(campaignsTable)
     .set({ lastRunStatus: "running", lastRunAt: new Date() })
     .where(eq(campaignsTable.id, campaignId));
 
-  // Run pipeline synchronously (manual trigger waits for result)
-  const result = await runPipeline(campaignId);
+  // Fire-and-forget — do NOT await the pipeline.
+  // Awaiting blocks the event loop (health checks stop responding → outage).
+  runPipeline(campaignId)
+    .then(async (result) => {
+      const status =
+        result.failed > 0 && result.discoveryLeadsCreated === 0 && result.crawledCount === 0
+          ? "failed"
+          : "success";
 
-  const status = result.failed > 0 && result.discoveryLeadsCreated === 0 && result.crawledCount === 0
-    ? "failed"
-    : "success";
+      const nextRunAt = computeNextRunAt(
+        campaign.scheduleType,
+        campaign.scheduleTime,
+        campaign.scheduleDays,
+      );
 
-  const nextRunAt = computeNextRunAt(
-    campaign.scheduleType,
-    campaign.scheduleTime,
-    campaign.scheduleDays,
-  );
+      await db
+        .update(campaignsTable)
+        .set({
+          lastRunStatus: status,
+          lastRunAt: new Date(),
+          nextRunAt: nextRunAt ?? undefined,
+        })
+        .where(eq(campaignsTable.id, campaignId));
 
-  await db
-    .update(campaignsTable)
-    .set({
-      lastRunStatus: status,
-      lastRunAt: new Date(),
-      nextRunAt: nextRunAt ?? undefined,
+      logger.info({ campaignId, status }, "Manual trigger: pipeline complete");
     })
-    .where(eq(campaignsTable.id, campaignId));
+    .catch(async (err) => {
+      logger.error({ err, campaignId }, "Manual trigger: pipeline threw");
 
-  res.json(result);
+      const nextRunAt = computeNextRunAt(
+        campaign.scheduleType,
+        campaign.scheduleTime,
+        campaign.scheduleDays,
+      );
+
+      await db
+        .update(campaignsTable)
+        .set({
+          lastRunStatus: "failed",
+          lastRunAt: new Date(),
+          nextRunAt: nextRunAt ?? undefined,
+        })
+        .where(eq(campaignsTable.id, campaignId));
+    });
+
+  // Return 202 immediately — server stays responsive throughout the pipeline run
+  res.status(202).json({ status: "started", campaignId });
 });
 
 // ── PATCH /campaigns/:id/pause ─────────────────────────────────────────────

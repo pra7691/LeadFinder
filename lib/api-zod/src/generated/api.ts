@@ -212,22 +212,10 @@ export const RunDiscoveryResponse = zod.object({
 
 
 /**
- * @summary Manually trigger the full pipeline for a campaign
+ * @summary Manually trigger the full pipeline for a campaign (non-blocking)
  */
 export const TriggerCampaignPipelineParams = zod.object({
   "id": zod.coerce.number()
-})
-
-export const TriggerCampaignPipelineResponse = zod.object({
-  "campaignId": zod.number(),
-  "discoveryLeadsCreated": zod.number(),
-  "crawledCount": zod.number(),
-  "scoredCount": zod.number(),
-  "emailsSent": zod.number(),
-  "skipped": zod.number(),
-  "failed": zod.number(),
-  "durationMs": zod.number().optional(),
-  "errors": zod.array(zod.string()).optional()
 })
 
 
@@ -1551,6 +1539,10 @@ export const RejectOutreachResponse = zod.object({
  */
 export const RegenerateOutreachParams = zod.object({
   "id": zod.coerce.number()
+})
+
+export const RegenerateOutreachBody = zod.object({
+  "forceAi": zod.boolean().optional()
 })
 
 export const RegenerateOutreachResponse = zod.object({

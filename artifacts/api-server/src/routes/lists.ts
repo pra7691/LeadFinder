@@ -5,8 +5,10 @@ import {
   leadListItemsTable,
   leadsTable,
   campaignsTable,
+  outreachQueueTable,
 } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
+import { classifyEmail } from "../services/email-validator";
 
 const router = Router();
 
@@ -175,11 +177,9 @@ router.post("/lists/:id/leads", async (req, res) => {
     return;
   }
 
-  // Check list exists
   const [list] = await db.select().from(leadListsTable).where(eq(leadListsTable.id, listId));
   if (!list) { res.status(404).json({ error: "List not found" }); return; }
 
-  // Check which leads already exist in list
   const existing = await db
     .select({ leadId: leadListItemsTable.leadId })
     .from(leadListItemsTable)
@@ -211,6 +211,82 @@ router.delete("/lists/:id/leads/:leadId", async (req, res) => {
     .where(and(eq(leadListItemsTable.listId, listId), eq(leadListItemsTable.leadId, leadId)));
 
   res.status(204).end();
+});
+
+// GET /lists/:id/health — List health summary
+router.get("/lists/:id/health", async (req, res) => {
+  const listId = Number(req.params.id);
+  if (isNaN(listId)) { res.status(400).json({ error: "Invalid list ID" }); return; }
+
+  // Get all leads in the list
+  const items = await db
+    .select({ lead: leadsTable })
+    .from(leadListItemsTable)
+    .innerJoin(leadsTable, eq(leadListItemsTable.leadId, leadsTable.id))
+    .where(eq(leadListItemsTable.listId, listId));
+
+  const leads = items.map((r) => r.lead);
+  const totalLeads = leads.length;
+
+  // Email analysis
+  const allEmails: string[] = [];
+  let leadsWithEmail = 0;
+  let leadsWithoutEmail = 0;
+
+  for (const lead of leads) {
+    let emailList: string[] = [];
+    try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
+    if (emailList.length > 0) {
+      leadsWithEmail++;
+      allEmails.push(...emailList.map((e) => e.toLowerCase()));
+    } else {
+      leadsWithoutEmail++;
+    }
+  }
+
+  // Duplicate email detection
+  const emailCounts = new Map<string, number>();
+  for (const email of allEmails) {
+    emailCounts.set(email, (emailCounts.get(email) ?? 0) + 1);
+  }
+  const duplicateEmails = [...emailCounts.values()].filter((c) => c > 1).length;
+
+  // Classify emails
+  let riskyEmails = 0;
+  let genericEmails = 0;
+  for (const email of allEmails) {
+    const result = classifyEmail(email);
+    if (result.type === "noreply" || result.type === "invalid") riskyEmails++;
+    else if (result.type === "generic") genericEmails++;
+  }
+
+  // Lead qualification
+  const qualifiedLeads = leads.filter((l) => l.qualificationStatus === "qualified").length;
+  const rejectedLeads = leads.filter((l) => l.qualificationStatus === "rejected").length;
+
+  // Outreach queue stats for this list
+  const queueItems = await db
+    .select({ status: outreachQueueTable.status, aiPersonalized: outreachQueueTable.aiPersonalized })
+    .from(outreachQueueTable)
+    .where(eq(outreachQueueTable.listId, listId));
+
+  const aiPersonalizedDrafts = queueItems.filter((q) => q.aiPersonalized).length;
+  const pendingReviewDrafts = queueItems.filter((q) => q.status === "pending_review").length;
+  const approvedDrafts = queueItems.filter((q) => q.status === "approved").length;
+
+  res.json({
+    totalLeads,
+    leadsWithEmail,
+    leadsWithoutEmail,
+    qualifiedLeads,
+    rejectedLeads,
+    aiPersonalizedDrafts,
+    duplicateEmails,
+    riskyEmails,
+    genericEmails,
+    pendingReviewDrafts,
+    approvedDrafts,
+  });
 });
 
 export default router;

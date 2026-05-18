@@ -153,6 +153,11 @@ export interface SchedulerStatus {
   isActive?: boolean;
 }
 
+export interface TriggerResult {
+  status: string;
+  campaignId: number;
+}
+
 export interface PipelineResult {
   campaignId: number;
   discoveryLeadsCreated: number;
@@ -460,6 +465,14 @@ export interface OutreachPatch {
   emailAccountId?: number | null;
   /** @nullable */
   scheduledAt?: string | null;
+}
+
+export interface RejectOutreachInput {
+  reason?: string;
+}
+
+export interface RegenerateOutreachInput {
+  forceAi?: boolean;
 }
 
 export interface ListHealthResponse {
@@ -855,10 +868,6 @@ status?: string;
 
 export type BulkRejectOutreach200 = {
   rejected?: number;
-};
-
-export type RejectOutreachBody = {
-  reason?: string;
 };
 
 export type SendTestEmail200 = {

@@ -13,7 +13,6 @@ import {
 import type { CampaignRun } from "@workspace/api-client-react";
 import type {
   Campaign,
-  PipelineResult,
   DiscoverySummary,
 } from "@workspace/api-client-react";
 import { useParams } from "wouter";
@@ -207,7 +206,7 @@ export function CampaignDetail() {
   const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
   const [discoveryResult, setDiscoveryResult] = useState<DiscoverySummary | null>(null);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
+  const [pipelineStarted, setPipelineStarted] = useState(false);
 
   useEffect(() => {
     if (campaign && !initialized.current) {
@@ -284,17 +283,17 @@ export function CampaignDetail() {
   };
 
   const handleTrigger = () => {
-    setPipelineResult(null);
+    setPipelineStarted(false);
     triggerPipeline.mutate(
       { id: campaignId },
       {
-        onSuccess: (result) => {
-          setPipelineResult(result as PipelineResult);
+        onSuccess: () => {
+          setPipelineStarted(true);
           invalidate();
-          toast({ title: "Pipeline run complete." });
+          toast({ title: "Pipeline started — running in background." });
         },
         onError: () => {
-          toast({ title: "Pipeline failed.", variant: "destructive" });
+          toast({ title: "Failed to start pipeline.", variant: "destructive" });
         },
       },
     );
@@ -391,35 +390,32 @@ export function CampaignDetail() {
         </div>
       </div>
 
-      {/* Pipeline result banner */}
-      {pipelineResult && (
+      {/* Pipeline running banner */}
+      {(isRunning || pipelineStarted) && (
         <Card className="glass-card border-primary/20 bg-primary/5 animate-in fade-in">
           <CardContent className="p-5">
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-3">
               <div className="p-2 bg-primary/20 text-primary rounded-full shrink-0">
-                <CheckCircle2 className="w-5 h-5" />
+                {lastRunStatus === "running" || triggerPipeline.isPending
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <CheckCircle2 className="w-5 h-5" />}
               </div>
               <div className="flex-1">
-                <h4 className="font-semibold text-primary mb-3">Pipeline Complete</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { label: "Discovered", value: pipelineResult.discoveryLeadsCreated },
-                    { label: "Crawled", value: pipelineResult.crawledCount },
-                    { label: "Scored", value: pipelineResult.scoredCount },
-                    { label: "Emailed", value: pipelineResult.emailsSent },
-                  ].map((s) => (
-                    <div key={s.label} className="flex flex-col gap-1">
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">{s.label}</span>
-                      <span className="text-2xl font-semibold">{s.value ?? 0}</span>
-                    </div>
-                  ))}
-                </div>
-                {(pipelineResult.errors?.length ?? 0) > 0 && (
-                  <div className="mt-3 text-xs text-destructive space-y-1">
-                    {pipelineResult.errors!.slice(0, 3).map((e, i) => (
-                      <p key={i}>⚠ {e}</p>
-                    ))}
-                  </div>
+                {lastRunStatus === "running" || triggerPipeline.isPending ? (
+                  <>
+                    <h4 className="font-semibold text-primary">Pipeline Running</h4>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Discovery, crawling, and scoring are running in the background.
+                      Check the <strong>Campaign Runs</strong> section below for results when complete.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="font-semibold text-primary">Pipeline Started</h4>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Running in background — the Campaign Runs section below will update when complete.
+                    </p>
+                  </>
                 )}
               </div>
             </div>

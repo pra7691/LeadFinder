@@ -20,10 +20,15 @@ import {
   Loader2,
   Zap,
   Pause,
+  ShieldCheck,
+  ThumbsUp,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 
 type SchedulerRow = {
   campaignId: number;
@@ -80,15 +85,72 @@ export function Dashboard() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Pipeline stat cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         <StatCard title="Total Campaigns" value={stats?.totalCampaigns} icon={Briefcase} loading={statsLoading} />
         <StatCard title="Active Campaigns" value={stats?.activeCampaigns} icon={Activity} loading={statsLoading} valueClassName="text-primary" />
         <StatCard title="Total Leads" value={stats?.totalLeads} icon={Users} loading={statsLoading} />
         <StatCard title="Leads to Review" value={stats?.leadsToReview} icon={Users} loading={statsLoading} valueClassName="text-amber-500" />
         <StatCard title="Emails Queued" value={stats?.emailsQueued} icon={Mail} loading={statsLoading} />
         <StatCard title="Emails Sent Today" value={stats?.emailsSentToday} icon={Send} loading={statsLoading} valueClassName="text-primary" />
+        <StatCard title="Lists Ready" value={stats?.listsReadyForOutreach} icon={Mail} loading={statsLoading} valueClassName="text-primary" />
       </div>
+
+      {/* Review QC panel */}
+      <Card className="glass-card border-border/50">
+        <CardHeader className="border-b border-border/30 pb-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary" /> Outreach Review
+            </CardTitle>
+            <Link href="/outreach-review">
+              <Button variant="ghost" size="sm" className="rounded-xl text-xs h-7 text-primary hover:bg-primary/5">
+                Open Review Queue →
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {statsLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-16 bg-muted/30 animate-pulse rounded-xl" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <ReviewTile
+                label="Needs Review"
+                value={stats?.pendingReview ?? 0}
+                icon={<ShieldCheck className="w-4 h-4" />}
+                colorClass={stats?.pendingReview ? "text-amber-500" : "text-muted-foreground"}
+                bgClass={stats?.pendingReview ? "bg-amber-500/10" : "bg-muted/30"}
+              />
+              <ReviewTile
+                label="Approved"
+                value={stats?.approvedToSend ?? 0}
+                icon={<ThumbsUp className="w-4 h-4" />}
+                colorClass="text-green-600"
+                bgClass="bg-green-500/10"
+              />
+              <ReviewTile
+                label="Rejected"
+                value={stats?.rejectedDrafts ?? 0}
+                icon={<XCircle className="w-4 h-4" />}
+                colorClass="text-destructive"
+                bgClass="bg-destructive/10"
+              />
+              <ReviewTile
+                label="Risky Emails"
+                value={stats?.riskyQueued ?? 0}
+                icon={<AlertTriangle className="w-4 h-4" />}
+                colorClass={stats?.riskyQueued ? "text-destructive" : "text-muted-foreground"}
+                bgClass={stats?.riskyQueued ? "bg-destructive/10" : "bg-muted/30"}
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Scheduler status card */}
@@ -220,6 +282,30 @@ export function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+function ReviewTile({
+  label,
+  value,
+  icon,
+  colorClass,
+  bgClass,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  colorClass: string;
+  bgClass: string;
+}) {
+  return (
+    <div className={cn("rounded-xl p-3 flex items-center gap-3", bgClass)}>
+      <div className={colorClass}>{icon}</div>
+      <div>
+        <div className={cn("text-2xl font-semibold", colorClass)}>{value}</div>
+        <div className="text-[10px] text-muted-foreground">{label}</div>
       </div>
     </div>
   );

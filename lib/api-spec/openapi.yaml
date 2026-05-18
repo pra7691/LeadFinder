@@ -165,7 +165,7 @@ paths:
     post:
       operationId: triggerCampaignPipeline
       tags: [campaigns]
-      summary: Manually trigger the full pipeline for a campaign
+      summary: Manually trigger the full pipeline for a campaign (non-blocking)
       parameters:
         - name: id
           in: path
@@ -173,14 +173,16 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
-          description: Pipeline result
+        "202":
+          description: Pipeline started in background
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PipelineResult"
+                $ref: "#/components/schemas/TriggerResult"
         "404":
           description: Campaign not found
+        "409":
+          description: Pipeline already running
 
   /campaigns/{id}/pause:
     patch:
@@ -1250,10 +1252,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                reason:
-                  type: string
+              $ref: "#/components/schemas/RejectOutreachInput"
       responses:
         "200":
           description: Rejected item
@@ -1273,6 +1272,12 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegenerateOutreachInput"
       responses:
         "200":
           description: Regenerated item
@@ -1681,6 +1686,15 @@ components:
         isActive:
           type: boolean
 
+    TriggerResult:
+      type: object
+      required: [status, campaignId]
+      properties:
+        status:
+          type: string
+        campaignId:
+          type: integer
+
     PipelineResult:
       type: object
       required: [campaignId, discoveryLeadsCreated, crawledCount, scoredCount, emailsSent, skipped, failed]
@@ -2083,6 +2097,18 @@ components:
           type: ["integer", "null"]
         scheduledAt:
           type: ["string", "null"]
+
+    RejectOutreachInput:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    RegenerateOutreachInput:
+      type: object
+      properties:
+        forceAi:
+          type: boolean
 
     QualityWarning:
       type: object

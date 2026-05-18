@@ -14,6 +14,7 @@ import {
   Sun,
   Menu,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/email-accounts", label: "Accounts", icon: Mail },
   { href: "/email-templates", label: "Email Templates", icon: FileText },
   { href: "/outreach", label: "Outreach", icon: Send },
+  { href: "/outreach-review", label: "Review Queue", icon: ShieldCheck },
   { href: "/logs", label: "Activity Logs", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

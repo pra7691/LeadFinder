@@ -70,11 +70,11 @@ import type {
   OutreachFromListInput,
   OutreachItem,
   OutreachPatch,
-  PipelineResult,
   PreviewTemplateInput,
   PreviewTemplateResult,
   QueueLeadInput,
-  RejectOutreachBody,
+  RegenerateOutreachInput,
+  RejectOutreachInput,
   SchedulerStatus,
   ScoreResult,
   SendBatchResult,
@@ -83,7 +83,8 @@ import type {
   SendTestInput,
   SmtpTestResult,
   StatusHistoryEntry,
-  TestAIResult
+  TestAIResult,
+  TriggerResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -698,11 +699,11 @@ export const getTriggerCampaignPipelineUrl = (id: number,) => {
 }
 
 /**
- * @summary Manually trigger the full pipeline for a campaign
+ * @summary Manually trigger the full pipeline for a campaign (non-blocking)
  */
-export const triggerCampaignPipeline = async (id: number, options?: RequestInit): Promise<PipelineResult> => {
+export const triggerCampaignPipeline = async (id: number, options?: RequestInit): Promise<TriggerResult> => {
 
-  return customFetch<PipelineResult>(getTriggerCampaignPipelineUrl(id),
+  return customFetch<TriggerResult>(getTriggerCampaignPipelineUrl(id),
   {
     ...options,
     method: 'POST'
@@ -746,7 +747,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TriggerCampaignPipelineMutationError = ErrorType<void>
 
     /**
- * @summary Manually trigger the full pipeline for a campaign
+ * @summary Manually trigger the full pipeline for a campaign (non-blocking)
  */
 export const useTriggerCampaignPipeline = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerCampaignPipeline>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -4529,7 +4530,7 @@ export const getRejectOutreachUrl = (id: number,) => {
  * @summary Reject a single outreach item
  */
 export const rejectOutreach = async (id: number,
-    rejectOutreachBody?: RejectOutreachBody, options?: RequestInit): Promise<OutreachItem> => {
+    rejectOutreachInput?: RejectOutreachInput, options?: RequestInit): Promise<OutreachItem> => {
 
   return customFetch<OutreachItem>(getRejectOutreachUrl(id),
   {
@@ -4537,7 +4538,7 @@ export const rejectOutreach = async (id: number,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      rejectOutreachBody,)
+      rejectOutreachInput,)
   }
 );}
 
@@ -4545,8 +4546,8 @@ export const rejectOutreach = async (id: number,
 
 
 export const getRejectOutreachMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachBody>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachInput>}, TContext> => {
 
 const mutationKey = ['rejectOutreach'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -4558,7 +4559,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectOutreach>>, {id: number;data?: BodyType<RejectOutreachBody>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectOutreach>>, {id: number;data?: BodyType<RejectOutreachInput>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  rejectOutreach(id,data,requestOptions)
@@ -4572,18 +4573,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RejectOutreachMutationResult = NonNullable<Awaited<ReturnType<typeof rejectOutreach>>>
-    export type RejectOutreachMutationBody = BodyType<RejectOutreachBody> | undefined
+    export type RejectOutreachMutationBody = BodyType<RejectOutreachInput> | undefined
     export type RejectOutreachMutationError = ErrorType<unknown>
 
     /**
  * @summary Reject a single outreach item
  */
 export const useRejectOutreach = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOutreach>>, TError,{id: number;data?: BodyType<RejectOutreachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof rejectOutreach>>,
         TError,
-        {id: number;data?: BodyType<RejectOutreachBody>},
+        {id: number;data?: BodyType<RejectOutreachInput>},
         TContext
       > => {
       return useMutation(getRejectOutreachMutationOptions(options));
@@ -4600,14 +4601,16 @@ export const getRegenerateOutreachUrl = (id: number,) => {
 /**
  * @summary Regenerate email content for a draft outreach item using AI
  */
-export const regenerateOutreach = async (id: number, options?: RequestInit): Promise<OutreachItem> => {
+export const regenerateOutreach = async (id: number,
+    regenerateOutreachInput?: RegenerateOutreachInput, options?: RequestInit): Promise<OutreachItem> => {
 
   return customFetch<OutreachItem>(getRegenerateOutreachUrl(id),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      regenerateOutreachInput,)
   }
 );}
 
@@ -4615,8 +4618,8 @@ export const regenerateOutreach = async (id: number, options?: RequestInit): Pro
 
 
 export const getRegenerateOutreachMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number;data?: BodyType<RegenerateOutreachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number;data?: BodyType<RegenerateOutreachInput>}, TContext> => {
 
 const mutationKey = ['regenerateOutreach'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -4628,10 +4631,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateOutreach>>, {id: number}> = (props) => {
-          const {id} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateOutreach>>, {id: number;data?: BodyType<RegenerateOutreachInput>}> = (props) => {
+          const {id,data} = props ?? {};
 
-          return  regenerateOutreach(id,requestOptions)
+          return  regenerateOutreach(id,data,requestOptions)
         }
 
 
@@ -4642,18 +4645,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RegenerateOutreachMutationResult = NonNullable<Awaited<ReturnType<typeof regenerateOutreach>>>
-
+    export type RegenerateOutreachMutationBody = BodyType<RegenerateOutreachInput> | undefined
     export type RegenerateOutreachMutationError = ErrorType<unknown>
 
     /**
  * @summary Regenerate email content for a draft outreach item using AI
  */
 export const useRegenerateOutreach = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateOutreach>>, TError,{id: number;data?: BodyType<RegenerateOutreachInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof regenerateOutreach>>,
         TError,
-        {id: number},
+        {id: number;data?: BodyType<RegenerateOutreachInput>},
         TContext
       > => {
       return useMutation(getRegenerateOutreachMutationOptions(options));

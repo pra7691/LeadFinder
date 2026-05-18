@@ -8,6 +8,7 @@ import {
   emailTemplatesTable,
   leadListsTable,
   leadListItemsTable,
+  emailAccountsTable,
 } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import {
@@ -20,8 +21,11 @@ import {
   DeleteOutreachParams,
   ApproveOutreachParams,
   OutreachFromListBody,
+  RejectOutreachBody,
+  BulkRejectOutreachBody,
 } from "@workspace/api-zod";
 import { generatePersonalizedEmail } from "../services/email-generator";
+import { analyzeQuality } from "../services/quality-analyzer";
 
 const router = Router();
 
@@ -45,7 +49,6 @@ async function resolveEmailContent(
   campaignId: number | null | undefined,
   context: { campaignName?: string; listName?: string },
 ): Promise<{ subject: string; body: string }> {
-  // Try email template first
   if (templateId) {
     const [tmpl] = await db
       .select()
@@ -56,7 +59,6 @@ async function resolveEmailContent(
       return { subject: result.subject, body: result.body };
     }
   }
-  // Fall back to campaign template if present
   if (campaignId) {
     const [campaign] = await db
       .select()
@@ -73,7 +75,6 @@ async function resolveEmailContent(
       };
     }
   }
-  // Generic fallback
   const { renderTemplate } = await import("../services/email-generator");
   const vars = await getTemplateVars(lead, context.campaignName, context.listName);
   return {
@@ -84,36 +85,93 @@ async function resolveEmailContent(
 
 async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
   const [lead] = await db
-    .select({ companyName: leadsTable.companyName })
+    .select({
+      companyName: leadsTable.companyName,
+      relevanceScore: leadsTable.relevanceScore,
+      qualificationStatus: leadsTable.qualificationStatus,
+      websiteUrl: leadsTable.websiteUrl,
+      country: leadsTable.country,
+    })
     .from(leadsTable)
     .where(eq(leadsTable.id, item.leadId));
   const campaignName = item.campaignId
     ? (await db.select({ name: campaignsTable.name }).from(campaignsTable).where(eq(campaignsTable.id, item.campaignId)))[0]?.name ?? null
     : null;
-  return { ...item, companyName: lead?.companyName ?? null, campaignName };
+  const qualityWarnings = analyzeQuality({
+    recipientEmail: item.recipientEmail,
+    subject: item.subject,
+    body: item.body,
+    aiPersonalized: item.aiPersonalized ?? false,
+    companyName: lead?.companyName,
+    relevanceScore: lead?.relevanceScore,
+    qualificationStatus: lead?.qualificationStatus,
+    websiteUrl: lead?.websiteUrl,
+    country: lead?.country,
+  });
+  return {
+    ...item,
+    companyName: lead?.companyName ?? null,
+    campaignName,
+    relevanceScore: lead?.relevanceScore ?? null,
+    qualificationStatus: lead?.qualificationStatus ?? null,
+    qualityWarnings,
+  };
 }
 
 async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
   if (items.length === 0) return [];
+
   const leadIds = [...new Set(items.map((i) => i.leadId))];
   const campaignIds = [...new Set(items.map((i) => i.campaignId).filter(Boolean))] as number[];
-  const leads = await db.select({ id: leadsTable.id, companyName: leadsTable.companyName }).from(leadsTable).where(inArray(leadsTable.id, leadIds));
-  const campaigns = campaignIds.length
-    ? await db.select({ id: campaignsTable.id, name: campaignsTable.name }).from(campaignsTable).where(inArray(campaignsTable.id, campaignIds))
-    : [];
-  const leadMap = new Map(leads.map((l) => [l.id, l.companyName]));
+
+  const [leads, campaigns] = await Promise.all([
+    db.select({
+      id: leadsTable.id,
+      companyName: leadsTable.companyName,
+      relevanceScore: leadsTable.relevanceScore,
+      qualificationStatus: leadsTable.qualificationStatus,
+      websiteUrl: leadsTable.websiteUrl,
+      country: leadsTable.country,
+    }).from(leadsTable).where(inArray(leadsTable.id, leadIds)),
+    campaignIds.length
+      ? db.select({ id: campaignsTable.id, name: campaignsTable.name }).from(campaignsTable).where(inArray(campaignsTable.id, campaignIds))
+      : Promise.resolve([]),
+  ]);
+
+  const leadMap = new Map(leads.map((l) => [l.id, l]));
   const campMap = new Map(campaigns.map((c) => [c.id, c.name]));
-  return items.map((item) => ({
-    ...item,
-    companyName: leadMap.get(item.leadId) ?? null,
-    campaignName: item.campaignId ? campMap.get(item.campaignId) ?? null : null,
-  }));
+  const allEmails = items.map((i) => i.recipientEmail);
+
+  return items.map((item) => {
+    const lead = leadMap.get(item.leadId);
+    const qualityWarnings = analyzeQuality({
+      recipientEmail: item.recipientEmail,
+      subject: item.subject,
+      body: item.body,
+      aiPersonalized: item.aiPersonalized ?? false,
+      companyName: lead?.companyName,
+      relevanceScore: lead?.relevanceScore,
+      qualificationStatus: lead?.qualificationStatus,
+      websiteUrl: lead?.websiteUrl,
+      country: lead?.country,
+      allRecipientEmails: allEmails,
+    });
+    return {
+      ...item,
+      companyName: lead?.companyName ?? null,
+      campaignName: item.campaignId ? campMap.get(item.campaignId) ?? null : null,
+      relevanceScore: lead?.relevanceScore ?? null,
+      qualificationStatus: lead?.qualificationStatus ?? null,
+      qualityWarnings,
+    };
+  });
 }
 
 async function logAction(campaignId: number | null, type: string, message: string, meta?: Record<string, unknown>) {
   await db.insert(logsTable).values({ campaignId, type, message, metadataJson: meta ? JSON.stringify(meta) : null });
 }
 
+// ─── GET /outreach ────────────────────────────────────────────────────────────
 router.get("/outreach", async (req, res) => {
   const params = ListOutreachQueryParams.parse({
     campaignId: req.query.campaignId ? Number(req.query.campaignId) : undefined,
@@ -128,6 +186,7 @@ router.get("/outreach", async (req, res) => {
   res.json(await enrichItems(items));
 });
 
+// ─── POST /outreach ───────────────────────────────────────────────────────────
 router.post("/outreach", async (req, res) => {
   const body = QueueLeadBody.parse(req.body);
   const [lead] = await db.select().from(leadsTable).where(eq(leadsTable.id, body.leadId));
@@ -158,14 +217,14 @@ router.post("/outreach", async (req, res) => {
     recipientEmail,
     subject,
     body: emailBody,
-    status: "draft",
+    status: "pending_review",
   }).returning();
 
   await logAction(body.campaignId ?? null, "outreach", `Queued lead: ${lead.companyName}`, { leadId: body.leadId, outreachId: item.id });
   res.status(201).json(await enrichItem(item));
 });
 
-// Queue from list
+// ─── POST /outreach/from-list ─────────────────────────────────────────────────
 router.post("/outreach/from-list", async (req, res) => {
   const body = OutreachFromListBody.parse(req.body);
 
@@ -211,7 +270,7 @@ router.post("/outreach/from-list", async (req, res) => {
       recipientEmail,
       subject,
       body: emailBody,
-      status: "draft",
+      status: "pending_review",
     }).returning();
     items.push(item);
     queued++;
@@ -223,6 +282,7 @@ router.post("/outreach/from-list", async (req, res) => {
   res.json({ queued, skipped, items: await enrichItems(items) });
 });
 
+// ─── POST /outreach/bulk-queue ────────────────────────────────────────────────
 router.post("/outreach/bulk-queue", async (req, res) => {
   const body = BulkQueueLeadsBody.parse(req.body);
   const leads = await db.select().from(leadsTable).where(inArray(leadsTable.id, body.leadIds));
@@ -257,7 +317,7 @@ router.post("/outreach/bulk-queue", async (req, res) => {
       recipientEmail,
       subject,
       body: emailBody,
-      status: "draft",
+      status: "pending_review",
     }).returning();
     items.push(item);
     queued++;
@@ -269,13 +329,14 @@ router.post("/outreach/bulk-queue", async (req, res) => {
   res.json({ queued, skipped, items: await enrichItems(items) });
 });
 
+// ─── POST /outreach/bulk-approve ──────────────────────────────────────────────
 router.post("/outreach/bulk-approve", async (req, res) => {
   const body = BulkApproveOutreachBody.parse(req.body);
   const now = new Date();
   const result = await db
     .update(outreachQueueTable)
     .set({ status: "approved", approvedAt: now })
-    .where(and(inArray(outreachQueueTable.id, body.ids), inArray(outreachQueueTable.status, ["draft", "queued"])))
+    .where(and(inArray(outreachQueueTable.id, body.ids), inArray(outreachQueueTable.status, ["draft", "queued", "pending_review"])))
     .returning();
   if (result.length > 0) {
     await logAction(null, "outreach", `Bulk approved ${result.length} outreach items`, { ids: body.ids });
@@ -283,29 +344,130 @@ router.post("/outreach/bulk-approve", async (req, res) => {
   res.json({ approved: result.length });
 });
 
+// ─── POST /outreach/bulk-reject ───────────────────────────────────────────────
+router.post("/outreach/bulk-reject", async (req, res) => {
+  const body = BulkRejectOutreachBody.parse(req.body);
+  const now = new Date();
+  const result = await db
+    .update(outreachQueueTable)
+    .set({ status: "rejected", rejectedAt: now })
+    .where(and(inArray(outreachQueueTable.id, body.ids), inArray(outreachQueueTable.status, ["draft", "queued", "pending_review", "approved"])))
+    .returning();
+  if (result.length > 0) {
+    await logAction(null, "outreach", `Bulk rejected ${result.length} outreach items`, { ids: body.ids });
+  }
+  res.json({ rejected: result.length });
+});
+
+// ─── PATCH /outreach/:id ──────────────────────────────────────────────────────
 router.patch("/outreach/:id", async (req, res) => {
   const { id } = UpdateOutreachParams.parse({ id: Number(req.params.id) });
   const body = UpdateOutreachBody.parse(req.body);
   const setData: Record<string, unknown> = { ...body };
   if (body.scheduledAt !== undefined) setData.scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null;
   if (body.status === "approved") setData.approvedAt = new Date();
+  if (body.status === "rejected") setData.rejectedAt = new Date();
   const [item] = await db.update(outreachQueueTable).set(setData).where(eq(outreachQueueTable.id, id)).returning();
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
   res.json(await enrichItem(item));
 });
 
+// ─── DELETE /outreach/:id ─────────────────────────────────────────────────────
 router.delete("/outreach/:id", async (req, res) => {
   const { id } = DeleteOutreachParams.parse({ id: Number(req.params.id) });
   await db.delete(outreachQueueTable).where(eq(outreachQueueTable.id, id));
   res.status(204).send();
 });
 
+// ─── POST /outreach/:id/approve ───────────────────────────────────────────────
 router.post("/outreach/:id/approve", async (req, res) => {
   const { id } = ApproveOutreachParams.parse({ id: Number(req.params.id) });
-  const [item] = await db.update(outreachQueueTable).set({ status: "approved", approvedAt: new Date() }).where(eq(outreachQueueTable.id, id)).returning();
+  const [item] = await db.update(outreachQueueTable)
+    .set({ status: "approved", approvedAt: new Date() })
+    .where(eq(outreachQueueTable.id, id))
+    .returning();
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
   await logAction(item.campaignId, "outreach", `Approved outreach item #${id}`, { id });
   res.json(await enrichItem(item));
+});
+
+// ─── POST /outreach/:id/reject ────────────────────────────────────────────────
+router.post("/outreach/:id/reject", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const parsed = RejectOutreachBody.safeParse(req.body ?? {});
+  const reason = parsed.success ? (parsed.data.reason ?? null) : null;
+  const [item] = await db.update(outreachQueueTable)
+    .set({ status: "rejected", rejectedAt: new Date() })
+    .where(eq(outreachQueueTable.id, id))
+    .returning();
+  if (!item) { res.status(404).json({ error: "Not found" }); return; }
+  await logAction(item.campaignId, "outreach", `Rejected outreach item #${id}${reason ? `: ${reason}` : ""}`, { id, reason });
+  res.json(await enrichItem(item));
+});
+
+// ─── POST /outreach/:id/regenerate ───────────────────────────────────────────
+router.post("/outreach/:id/regenerate", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const forceAi = Boolean((req.body as Record<string, unknown> | undefined)?.forceAi);
+
+  const [existing] = await db.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+
+  const [lead] = await db.select().from(leadsTable).where(eq(leadsTable.id, existing.leadId));
+  if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  // Determine which email account to use for sender name
+  const emailAccount = existing.emailAccountId
+    ? (await db.select().from(emailAccountsTable).where(eq(emailAccountsTable.id, existing.emailAccountId)))[0]
+    : null;
+
+  const campaign = existing.campaignId
+    ? (await db.select().from(campaignsTable).where(eq(campaignsTable.id, existing.campaignId)))[0]
+    : null;
+
+  const list = existing.listId
+    ? (await db.select().from(leadListsTable).where(eq(leadListsTable.id, existing.listId)))[0]
+    : null;
+
+  let subject: string;
+  let body: string;
+  let aiPersonalized = false;
+
+  if (forceAi && existing.emailTemplateId) {
+    const [tmpl] = await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, existing.emailTemplateId));
+    if (tmpl) {
+      const result = await generatePersonalizedEmail(lead, tmpl, {
+        campaignName: campaign?.name,
+        listName: list?.name,
+      });
+      subject = result.subject;
+      body = result.body;
+      aiPersonalized = result.aiUsed;
+    } else {
+      const content = await resolveEmailContent(lead, existing.emailTemplateId, existing.campaignId, {
+        campaignName: campaign?.name, listName: list?.name,
+      });
+      subject = content.subject;
+      body = content.body;
+    }
+  } else {
+    const content = await resolveEmailContent(lead, existing.emailTemplateId, existing.campaignId, {
+      campaignName: campaign?.name, listName: list?.name,
+    });
+    subject = content.subject;
+    body = content.body;
+  }
+
+  const [updated] = await db.update(outreachQueueTable)
+    .set({ subject, body, aiPersonalized, status: "pending_review", rejectedAt: null })
+    .where(eq(outreachQueueTable.id, id))
+    .returning();
+
+  await logAction(existing.campaignId, "outreach", `Regenerated outreach item #${id}${aiPersonalized ? " (AI)" : ""}`, { id, forceAi });
+  res.json(await enrichItem(updated));
 });
 
 export default router;
