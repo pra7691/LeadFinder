@@ -10,6 +10,7 @@ import {
   useOutreachFromList,
   useListEmailTemplates,
   useListEmailAccounts,
+  useGetListHealth,
   getListEmailAccountsQueryKey,
   getListLeadListsQueryKey,
   getListEmailTemplatesQueryKey,
@@ -18,6 +19,7 @@ import type { Lead } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +47,13 @@ import {
   Send,
   Loader2,
   CheckCircle2,
+  ShieldCheck,
+  AlertTriangle,
+  AlertCircle,
+  UserCheck,
+  UserX,
+  Copy,
+  Zap,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -142,6 +151,34 @@ function LeadRow({ lead, listId, onRemoved }: { lead: Lead; listId: number; onRe
   );
 }
 
+function HealthTile({
+  label,
+  value,
+  icon,
+  colorClass = "text-foreground",
+  bgClass = "bg-muted/30",
+  suffix,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  colorClass?: string;
+  bgClass?: string;
+  suffix?: string;
+}) {
+  return (
+    <div className={cn("rounded-xl p-3 flex items-center gap-3", bgClass)}>
+      <div className={cn("shrink-0", colorClass)}>{icon}</div>
+      <div className="min-w-0">
+        <div className={cn("text-xl font-semibold leading-tight", colorClass)}>
+          {value}{suffix}
+        </div>
+        <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{label}</div>
+      </div>
+    </div>
+  );
+}
+
 export function ListDetail() {
   const params = useParams<{ id: string }>();
   const listId = Number(params.id);
@@ -154,6 +191,9 @@ export function ListDetail() {
   const { data: leads, isLoading: leadsLoading } = useGetListLeads(listId, {
     query: { staleTime: 10_000, queryKey: getGetListLeadsQueryKey(listId) },
   });
+  const { data: health, isLoading: healthLoading } = useGetListHealth(listId, {
+    query: { staleTime: 30_000, enabled: !isNaN(listId), queryKey: ["lists", listId, "health"] },
+  });
   const { data: templates } = useListEmailTemplates(
     { includeInactive: false },
     { query: { queryKey: getListEmailTemplatesQueryKey({ includeInactive: false }), staleTime: 30_000 } },
@@ -165,7 +205,6 @@ export function ListDetail() {
   const updateMut = useUpdateLeadList();
   const outreachFromListMut = useOutreachFromList();
 
-  // Outreach modal state
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
@@ -234,6 +273,9 @@ export function ListDetail() {
     );
   }
 
+  const hasHealthIssues =
+    (health?.riskyEmails ?? 0) > 0 || (health?.duplicateEmails ?? 0) > 0;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -285,7 +327,7 @@ export function ListDetail() {
       </div>
 
       {/* Stats strip */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-6 flex-wrap">
         <div className="glass-card rounded-xl px-4 py-3 flex items-center gap-2">
           <Users className="w-4 h-4 text-muted-foreground" />
           <span className="text-sm font-semibold">{list.leadCount}</span>
@@ -297,7 +339,136 @@ export function ListDetail() {
             <span className="text-sm font-medium">{list.campaignName}</span>
           </div>
         )}
+        {hasHealthIssues && (
+          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs font-medium">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Health issues detected
+          </div>
+        )}
       </div>
+
+      {/* List Health */}
+      <Card className="glass-card border-border/50">
+        <CardHeader className="border-b border-border/30 pb-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary" /> List Health
+            </CardTitle>
+            {health && (
+              <div className="flex items-center gap-1.5">
+                {health.riskyEmails === 0 && health.duplicateEmails === 0 ? (
+                  <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> All clear
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Action needed
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {healthLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="h-16 bg-muted/30 animate-pulse rounded-xl" />
+              ))}
+            </div>
+          ) : health ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <HealthTile
+                  label="Total leads"
+                  value={health.totalLeads}
+                  icon={<Users className="w-4 h-4" />}
+                />
+                <HealthTile
+                  label="With email"
+                  value={health.leadsWithEmail}
+                  icon={<Mail className="w-4 h-4" />}
+                  colorClass="text-green-600"
+                  bgClass="bg-green-500/10"
+                />
+                <HealthTile
+                  label="No email"
+                  value={health.leadsWithoutEmail}
+                  icon={<AlertCircle className="w-4 h-4" />}
+                  colorClass={health.leadsWithoutEmail > 0 ? "text-amber-500" : "text-muted-foreground"}
+                  bgClass={health.leadsWithoutEmail > 0 ? "bg-amber-500/10" : "bg-muted/30"}
+                />
+                <HealthTile
+                  label="Qualified"
+                  value={health.qualifiedLeads}
+                  icon={<UserCheck className="w-4 h-4" />}
+                  colorClass="text-blue-500"
+                  bgClass="bg-blue-500/10"
+                />
+                <HealthTile
+                  label="Rejected"
+                  value={health.rejectedLeads}
+                  icon={<UserX className="w-4 h-4" />}
+                  colorClass={health.rejectedLeads > 0 ? "text-destructive" : "text-muted-foreground"}
+                  bgClass={health.rejectedLeads > 0 ? "bg-destructive/10" : "bg-muted/30"}
+                />
+                <HealthTile
+                  label="Duplicate emails"
+                  value={health.duplicateEmails}
+                  icon={<Copy className="w-4 h-4" />}
+                  colorClass={health.duplicateEmails > 0 ? "text-destructive" : "text-muted-foreground"}
+                  bgClass={health.duplicateEmails > 0 ? "bg-destructive/10" : "bg-muted/30"}
+                />
+                <HealthTile
+                  label="Risky emails"
+                  value={health.riskyEmails}
+                  icon={<AlertTriangle className="w-4 h-4" />}
+                  colorClass={health.riskyEmails > 0 ? "text-destructive" : "text-muted-foreground"}
+                  bgClass={health.riskyEmails > 0 ? "bg-destructive/10" : "bg-muted/30"}
+                />
+                <HealthTile
+                  label="Generic emails"
+                  value={health.genericEmails}
+                  icon={<Mail className="w-4 h-4" />}
+                  colorClass={health.genericEmails > 0 ? "text-amber-500" : "text-muted-foreground"}
+                  bgClass={health.genericEmails > 0 ? "bg-amber-500/10" : "bg-muted/30"}
+                />
+              </div>
+              {/* Outreach queue summary */}
+              {(health.pendingReviewDrafts > 0 || health.approvedDrafts > 0 || health.aiPersonalizedDrafts > 0) && (
+                <div className="pt-3 border-t border-border/30">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Outreach Queue</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <HealthTile
+                      label="Pending review"
+                      value={health.pendingReviewDrafts}
+                      icon={<ShieldCheck className="w-4 h-4" />}
+                      colorClass={health.pendingReviewDrafts > 0 ? "text-amber-500" : "text-muted-foreground"}
+                      bgClass={health.pendingReviewDrafts > 0 ? "bg-amber-500/10" : "bg-muted/30"}
+                    />
+                    <HealthTile
+                      label="Approved"
+                      value={health.approvedDrafts}
+                      icon={<CheckCircle2 className="w-4 h-4" />}
+                      colorClass="text-green-600"
+                      bgClass="bg-green-500/10"
+                    />
+                    <HealthTile
+                      label="AI personalized"
+                      value={health.aiPersonalizedDrafts}
+                      icon={<Zap className="w-4 h-4" />}
+                      colorClass="text-blue-500"
+                      bgClass="bg-blue-500/10"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">Health data unavailable.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Leads table */}
       <div className="glass-card rounded-2xl overflow-hidden">
@@ -365,10 +536,13 @@ export function ListDetail() {
                 <div>
                   <p className="text-lg font-semibold">{outreachResult.queued} drafts created</p>
                   {outreachResult.skipped > 0 && (
-                    <p className="text-sm text-muted-foreground mt-1">{outreachResult.skipped} leads skipped (no email address).</p>
+                    <p className="text-sm text-muted-foreground mt-1">{outreachResult.skipped} leads skipped (no email or already queued).</p>
                   )}
                 </div>
-                <p className="text-sm text-muted-foreground">Review and approve them in the <a href="/outreach" className="text-primary hover:underline">Outreach Queue</a>.</p>
+                <p className="text-sm text-muted-foreground">
+                  Review and approve them in the{" "}
+                  <Link href="/outreach-review" className="text-primary hover:underline">Review Queue</Link>.
+                </p>
               </div>
               <DialogFooter>
                 <Button onClick={() => { setOutreachOpen(false); setOutreachResult(null); }} className="w-full rounded-xl">Done</Button>
@@ -400,7 +574,7 @@ export function ListDetail() {
                 <Label className="text-sm font-medium">Sending Account <span className="text-muted-foreground font-normal">(optional)</span></Label>
                 <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
                   <SelectTrigger className="rounded-xl" data-testid="select-account">
-                    <SelectValue placeholder="Assign later in Outreach Queue" />
+                    <SelectValue placeholder="Assign later in Review Queue" />
                   </SelectTrigger>
                   <SelectContent>
                     {(emailAccounts ?? []).map((a) => (
