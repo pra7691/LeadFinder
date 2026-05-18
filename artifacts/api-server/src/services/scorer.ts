@@ -2,14 +2,16 @@
  * Lead relevance scoring service.
  *
  * Strategy:
- *   1. Read AI settings from app_settings (same key + model as email personalization).
- *   2. If AI is enabled and a key is present, call OpenAI for semantic scoring.
+ *   1. Read AI settings from app_settings.
+ *   2. If ai_scoring_enabled = true AND a key is present, call OpenAI for semantic scoring.
  *   3. On any failure, fall back to keyword scoring and record scoringMethod.
  *
+ * ai_scoring_enabled is independent of ai_enabled (which controls email personalization).
  * scoringMethod is returned with every result so callers can persist and display it.
  */
 
-import { getAISettings } from "./ai-settings";
+import { db } from "@workspace/db";
+import { appSettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 export interface ScoreInput {
@@ -139,27 +141,32 @@ export function scoreWithKeywords(input: ScoreInput): ScoreOutput {
 // ── Main entry point ───────────────────────────────────────────────────────
 
 export async function scoreLead(input: ScoreInput): Promise<ScoreOutput> {
-  const ai = await getAISettings();
+  // Read ai_scoring_enabled independently from ai_enabled (email personalization).
+  const rows = await db.select().from(appSettingsTable);
+  const find = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
+  const scoringEnabled = find("ai_scoring_enabled") === "true";
+  const apiKey = find("openai_api_key");
+  const model = find("openai_model") ?? "gpt-4o-mini";
 
-  if (!ai.enabled || !ai.apiKey) {
+  if (!scoringEnabled || !apiKey) {
     logger.debug(
-      { leadId: input.leadId },
-      "AI scoring skipped (disabled or no key) — using keyword fallback",
+      { leadId: input.leadId, scoringEnabled, hasKey: !!apiKey },
+      "AI scoring skipped (ai_scoring_enabled=false or no key) — using keyword fallback",
     );
     return scoreWithKeywords(input);
   }
 
   try {
-    const result = await scoreWithAI(input, ai.apiKey, ai.model);
+    const result = await scoreWithAI(input, apiKey, model);
     logger.debug(
-      { leadId: input.leadId, model: ai.model, score: result.score },
+      { leadId: input.leadId, model, score: result.score },
       "AI scoring succeeded",
     );
     return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(
-      { leadId: input.leadId, model: ai.model, err: msg },
+      { leadId: input.leadId, model, err: msg },
       "AI scoring failed — using keyword fallback",
     );
     return scoreWithKeywords(input);

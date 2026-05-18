@@ -1,0 +1,405 @@
+Fix lead data quality and export mapping issues found in the latest XLSX export.
+
+Do not rebuild the app.
+Do not change unrelated modules.
+Preserve existing campaigns, runs, lists, outreach queue, email templates, and settings.
+
+Main issues to fix:
+
+1. Export mapping bugs
+2. “20” appearing in wrong fields
+3. target_country vs company_country confusion
+4. bad company names like “Logo”
+5. invalid emails like example.com / yopmail
+6. cross-domain email leakage
+7. lead type classification
+
+==================================================
+PART 1 — FIX EXPORT MAPPING BUGS
+================================
+
+Audit all CSV/XLSX export code.
+
+Current bug:
+Some exported fields contain incorrect value “20”.
+
+Examples:
+
+* Country = 20
+* Notes = 20
+* Emails = 20
+* Phones = 20
+
+This is likely field mapping shift or wrong object key mapping.
+
+Fix:
+Every export column must map to the correct lead field.
+
+Export columns should be:
+
+* Company Name
+* Website URL
+* Root Domain
+* Target Country
+* Company Country
+* Emails
+* Phone Numbers
+* Address
+* LinkedIn URL
+* Relevance Score
+* Relevance Reason
+* Qualification Status
+* Outreach Status
+* Lead Type
+* Source Type
+* Discovery Source Domain
+* Discovery Source URL
+* Source Query
+* Source Keyword
+* Source Country
+* Campaign Name
+* Campaign Run Date
+* Notes
+
+Rules:
+
+* Notes should only export actual notes.
+* results_per_search must never appear in Notes or Country.
+* Empty values should export blank or “unknown”, not “20”.
+* Arrays must export as semicolon-separated text.
+* CSV and XLSX should use the same mapping and same order.
+
+==================================================
+PART 2 — ADD / FIX TARGET COUNTRY AND COMPANY COUNTRY
+=====================================================
+
+Add or verify two separate fields:
+
+1. target_country
+   Meaning:
+   The searched country from campaign keyword-country query.
+
+Example:
+USA
+
+2. company_country
+   Meaning:
+   The country extracted from the company website, address, phone, or footer.
+
+Example:
+United States, India, Singapore, unknown
+
+Rules:
+
+* target_country comes from source_country/search country.
+* company_country comes from crawler extraction.
+* If company_country cannot be extracted, save “unknown”.
+* Never save numeric values like “20” as a country.
+* Do not overwrite target_country with company_country.
+* Do not overwrite company_country with campaign setting values.
+
+Update:
+
+* database schema if needed
+* OpenAPI/API schema if used
+* lead insert/update logic
+* crawler extraction mapping
+* lead detail drawer
+* run detail table if needed
+* CSV/XLSX export
+
+==================================================
+PART 3 — FIX BAD COMPANY NAME EXTRACTION
+========================================
+
+Current bad company names include:
+
+* Logo
+* Cubix logo
+* Header Interexy Logo
+* header logo
+* React Logo 1
+* Phone
+* Stanford Medicine Logo
+* Consumer Trends 2026
+
+These are not company names.
+
+Fix company name extraction priority:
+
+1. JSON-LD Organization name
+2. og:site_name
+3. clean site title
+4. clean copyright company name
+5. clean root domain brand fallback
+
+Logo alt text can be used only if clean.
+
+Reject extracted names if they contain:
+
+* logo
+* icon
+* header
+* footer
+* phone
+* image
+* svg
+* png
+* jpg
+* react logo
+* white logo
+* dark logo
+* compressed
+* symbol
+* consumer trends
+
+If rejected, fallback to clean root domain brand.
+
+Examples:
+
+* cubix.co → Cubix
+* interexy.com → Interexy
+* topflightapps.com → Topflight Apps
+* appinventiv.com → Appinventiv
+* chelsea-apps.com → Chelsea Apps
+
+==================================================
+PART 4 — FIX INVALID EMAIL EXTRACTION
+=====================================
+
+Reject placeholder/test/disposable emails.
+
+Remove or prevent:
+
+* [name@example.com](mailto:name@example.com)
+* [abc@example.com](mailto:abc@example.com)
+* [your@email.com](mailto:your@email.com)
+* [test@test.com](mailto:test@test.com)
+* [test@example.com](mailto:test@example.com)
+* [example@example.com](mailto:example@example.com)
+* [user@example.com](mailto:user@example.com)
+* [demo@example.com](mailto:demo@example.com)
+* [ross@yopmail.com](mailto:ross@yopmail.com)
+* any yopmail.com email
+* noreply@
+* no-reply@
+* donotreply@
+
+Reject if:
+
+* email domain = example.com
+* email domain = yopmail.com
+* local part is name, your, test, demo, abc, user, sample, example
+* email has obvious placeholder pattern
+
+Normalize:
+
+* lowercase emails
+* trim punctuation
+* deduplicate emails
+
+==================================================
+PART 5 — PREVENT CROSS-DOMAIN EMAIL LEAKAGE
+===========================================
+
+Current issue:
+A lead can show an unrelated email from another company/domain.
+
+Example:
+chelsea-apps.com showing [holla@3sidedcube.com](mailto:holla@3sidedcube.com)
+
+Fix:
+Email extraction must be isolated per crawled lead/domain.
+
+Rules:
+
+* reset email/phone extraction arrays for every domain crawl
+* never reuse extraction context across leads
+* prefer emails matching the lead root domain
+* if an email domain differs from the lead root domain, do not include it unless it is clearly found on that lead’s own website page
+* flag external-domain emails as warning
+
+Add field if practical:
+email_domain_status
+
+Values:
+
+* matching_domain
+* external_domain
+* mixed
+* none
+
+Outreach readiness:
+
+* external_domain and mixed should show warning
+* do not auto-approve such leads
+
+==================================================
+PART 6 — FIX PHONE EXPORT / EXTRACTION
+======================================
+
+Phone numbers should never export as “20”.
+
+Rules:
+
+* if no phone exists, export blank
+* validate phone format
+* prefer tel: links
+* ignore decimals
+* ignore short numeric strings
+* ignore IDs, timestamps, coordinates, counts, prices, years
+
+==================================================
+PART 7 — ADD LEAD TYPE CLASSIFICATION
+=====================================
+
+Add or improve lead_type.
+
+Values:
+
+* company
+* directory
+* media
+* event
+* dataset
+* research
+* stats_platform
+* rejected
+
+Examples:
+
+* apppromotionsummit.com → event
+* 42matters.com → stats_platform
+* statista.com → stats_platform
+* arxiv.org → research
+* kaggle.com → dataset
+* clutch.co → directory
+* goodfirms.co → directory
+* designrush.com → directory
+
+Rules:
+Only lead_type = company should be eligible for:
+
+* qualification
+* add to outreach list
+* outreach queue
+
+Non-company lead types should be:
+qualification_status = rejected
+
+Do not delete non-company leads automatically.
+
+==================================================
+PART 8 — STRENGTHEN RELEVANCE SCORING PENALTIES
+===============================================
+
+Penalize:
+
+* event sites
+* directories
+* listicles
+* media/blog sites
+* dataset repositories
+* research sites
+* stats platforms
+* missing company website
+* placeholder emails only
+* weak company name extraction
+
+If lead_type is not company:
+maximum relevance score should be 30.
+
+Do not give high relevance scores to non-company lead types.
+
+==================================================
+PART 9 — CLEAN EXISTING BAD DATA SAFELY
+=======================================
+
+Add admin cleanup action or script.
+
+Dry run mode:
+Detect:
+
+* country = 20
+* notes = 20
+* emails = 20
+* phone_numbers = 20
+* company names containing logo/header/phone
+* invalid/test emails
+* external-domain emails
+* non-company lead types
+
+Commit mode:
+
+* clear Notes if Notes = 20
+* clear invalid numeric email/phone values
+* set unknown country where needed
+* regenerate company name from domain where current name is bad
+* remove invalid/test emails
+* flag external-domain emails
+* classify non-company lead types
+* mark non-company leads rejected
+
+Do not delete leads automatically.
+
+==================================================
+PART 10 — UI UPDATES
+====================
+
+Lead drawer should show:
+
+* Target Country
+* Company Country
+* Lead Type
+* Email Domain Status / warning
+* Notes
+
+Run Detail table should show:
+
+* Company Name
+* Root Domain
+* Target Country
+* Company Country
+* Email count
+* Phone count
+* Lead Type
+* Relevance Score
+* Qualification Status
+
+Export should include corrected fields.
+
+==================================================
+PART 11 — TESTING
+=================
+
+Test using problematic examples:
+
+1. Country should not export as 20.
+2. Notes should not export as 20.
+3. Emails/phones should not export as 20.
+4. Empty fields export blank or unknown.
+5. “Cubix logo” becomes “Cubix”.
+6. “Header Interexy Logo” becomes “Interexy”.
+7. “Phone” is rejected as company name.
+8. example.com/yopmail/test emails are removed.
+9. External-domain emails are warned or excluded.
+10. statista.com is not outreach-ready company lead.
+11. CSV and XLSX export columns match and map correctly.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* export mapping bugs fixed
+* target_country/company_country changes
+* company name extraction changes
+* email validation changes
+* cross-domain email handling
+* phone cleanup
+* lead type classification
+* cleanup action/script results
+* tests run
+* before/after sample rows
+* remaining limitations

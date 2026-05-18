@@ -35,6 +35,7 @@ export function Settings() {
 
   // AI settings
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiScoringEnabled, setAiScoringEnabled] = useState(false);
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -47,6 +48,7 @@ export function Settings() {
       const domains = find("blocked_domains");
       if (domains) setBlockedDomains(domains);
       setAiEnabled(find("ai_enabled") === "true");
+      setAiScoringEnabled(find("ai_scoring_enabled") === "true");
       setOpenaiKey(find("openai_api_key") ?? "");
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
       initialized.current = true;
@@ -72,6 +74,7 @@ export function Settings() {
 
   const handleSaveAI = async () => {
     await save("ai_enabled", aiEnabled ? "true" : "false");
+    await save("ai_scoring_enabled", aiScoringEnabled ? "true" : "false");
     await save("openai_api_key", openaiKey);
     await save("openai_model", openaiModel);
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
@@ -135,7 +138,7 @@ export function Settings() {
               <CardDescription>Configure OpenAI for AI-powered email personalization. The API key is stored encrypted and never shown in full after saving.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6 pt-6">
-              {/* Enable toggle */}
+              {/* Enable AI Personalization toggle */}
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm font-medium">Enable AI Personalization</Label>
@@ -145,6 +148,19 @@ export function Settings() {
                   checked={aiEnabled}
                   onCheckedChange={setAiEnabled}
                   data-testid="toggle-ai-enabled"
+                />
+              </div>
+
+              {/* Enable AI Scoring toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium">AI Scoring Enabled</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">When enabled, lead relevance scoring uses OpenAI. When disabled, scoring uses rule-based keyword fallback.</p>
+                </div>
+                <Switch
+                  checked={aiScoringEnabled}
+                  onCheckedChange={setAiScoringEnabled}
+                  data-testid="toggle-ai-scoring-enabled"
                 />
               </div>
 
