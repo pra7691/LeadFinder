@@ -40,5 +40,26 @@ export interface CampaignRun {
   errorMessage?: string | null;
   /** @nullable */
   metadataJson?: string | null;
+  /**
+     * Elapsed wall-clock seconds from started_at to completed_at
+     * @nullable
+     */
+  durationSeconds?: number | null;
+  /**
+     * Live estimate of seconds until run finishes; null while calculating
+     * @nullable
+     */
+  estimatedRemainingSeconds?: number | null;
+  /**
+     * ISO timestamp of estimated completion; null while calculating
+     * @nullable
+     */
+  estimatedCompletionAt?: string | null;
+  /** 0–100 progress based on completed_work_units / total_work_units */
+  progressPercent?: number;
+  /** Total queries planned at run start (keywords × countries, capped by maxSearchesPerDay) */
+  totalWorkUnits?: number;
+  /** Queries completed so far (searched + skipped) */
+  completedWorkUnits?: number;
   createdAt: string;
 }

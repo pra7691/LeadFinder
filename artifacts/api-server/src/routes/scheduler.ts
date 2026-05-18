@@ -134,6 +134,11 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
               emailsSent: result.emailsSent,
               durationMs: result.durationMs,
             }),
+            durationSeconds: Math.round((Date.now() - campaignRun.startedAt.getTime()) / 1000),
+            progressPercent: 100,
+            completedWorkUnits: result.discoverySearchesPerformed + result.discoverySearchesSkipped,
+            estimatedRemainingSeconds: 0,
+            estimatedCompletionAt: null,
           })
           .where(eq(campaignRunsTable.id, runId)),
       ]);

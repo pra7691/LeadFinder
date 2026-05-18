@@ -4,6 +4,7 @@ import {
   integer,
   text,
   timestamp,
+  real,
 } from "drizzle-orm/pg-core";
 import { campaignsTable } from "./campaigns";
 
@@ -30,6 +31,12 @@ export const campaignRunsTable = pgTable("campaign_runs", {
   totalDiscoverySourcesSkipped: integer("total_discovery_sources_skipped").notNull().default(0),
   errorMessage: text("error_message"),
   metadataJson: text("metadata_json"),
+  durationSeconds: integer("duration_seconds"),
+  estimatedRemainingSeconds: integer("estimated_remaining_seconds"),
+  estimatedCompletionAt: timestamp("estimated_completion_at", { withTimezone: true }),
+  progressPercent: real("progress_percent").notNull().default(0),
+  totalWorkUnits: integer("total_work_units").notNull().default(0),
+  completedWorkUnits: integer("completed_work_units").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

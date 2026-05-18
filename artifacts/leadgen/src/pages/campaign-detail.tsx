@@ -95,6 +95,34 @@ function RunStatusBadge({ status }: { status: CampaignRun["status"] }) {
   );
 }
 
+// ── Live elapsed-seconds ticker ──────────────────────────────────────────────
+
+function useElapsedTicker(startedAt: string | null | undefined): string {
+  const [elapsed, setElapsed] = useState("");
+  useEffect(() => {
+    if (!startedAt) { setElapsed(""); return; }
+    const t0 = new Date(startedAt).getTime();
+    const tick = () => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      if (s < 60) setElapsed(`${s}s`);
+      else if (s < 3600) setElapsed(`${Math.floor(s / 60)}m ${s % 60}s`);
+      else setElapsed(`${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return elapsed;
+}
+
+function fmtRemaining(sec: number | null | undefined): string {
+  if (sec == null) return "Calculating…";
+  if (sec <= 0) return "Almost done";
+  if (sec < 60) return `~${sec}s`;
+  if (sec < 3600) return `~${Math.ceil(sec / 60)}m`;
+  return `~${Math.floor(sec / 3600)}h ${Math.ceil((sec % 3600) / 60)}m`;
+}
+
 // ── Current Run live card ────────────────────────────────────────────────────
 
 function CurrentRunCard({ campaignId }: { campaignId: number }) {
@@ -107,11 +135,18 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
   });
 
   const activeRun = runs?.find((r) => r.status === "running");
+  const elapsed = useElapsedTicker(activeRun?.startedAt);
+
   if (!activeRun) return null;
 
   const startedAt = activeRun.startedAt ? new Date(activeRun.startedAt) : null;
+  const progressPercent = activeRun.progressPercent ?? 0;
+  const totalWorkUnits = activeRun.totalWorkUnits ?? 0;
+  const completedWorkUnits = activeRun.completedWorkUnits ?? 0;
+  const estRemaining = activeRun.estimatedRemainingSeconds;
+  const estCompletion = activeRun.estimatedCompletionAt ? new Date(activeRun.estimatedCompletionAt) : null;
 
-  const stats = [
+  const counters = [
     { label: "New Leads", value: activeRun.totalNewLeads ?? 0 },
     { label: "Searched", value: activeRun.totalSearches ?? 0 },
     { label: "Skipped", value: activeRun.totalSearchesSkipped ?? 0 },
@@ -122,7 +157,7 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
 
   return (
     <Card className="glass-card border-blue-500/20 bg-blue-500/5 animate-in fade-in">
-      <CardHeader className="border-b border-blue-500/10 pb-4">
+      <CardHeader className="border-b border-blue-500/10 pb-3">
         <CardTitle className="text-sm font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" />
           Current Run
@@ -130,31 +165,69 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
             Live
           </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-4">
-        <div className="flex flex-wrap items-center gap-6">
-          {startedAt && (
-            <div className="text-sm text-muted-foreground">
-              Started{" "}
-              <span className="font-medium text-foreground">
-                {formatDistanceToNow(startedAt, { addSuffix: true })}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-6">
-            {stats.map((s) => (
-              <div key={s.label} className="text-center">
-                <p className="text-2xl font-semibold text-foreground">{s.value}</p>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{s.label}</p>
-              </div>
-            ))}
-          </div>
           <Link href={`/campaigns/${campaignId}/runs/${activeRun.id}`} className="ml-auto">
             <Button size="sm" variant="outline" className="rounded-xl gap-1.5 text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10">
               View Run <ArrowRight className="w-3 h-3" />
             </Button>
           </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-4">
+
+        {/* Progress bar */}
+        {totalWorkUnits > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">
+                Queries processed: <span className="font-medium text-foreground">{completedWorkUnits} / {totalWorkUnits}</span>
+              </span>
+              <span className="font-semibold text-blue-500">{Math.round(progressPercent)}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-blue-500/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-700"
+                style={{ width: `${Math.min(100, progressPercent)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Timing row */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+          {startedAt && (
+            <span className="text-muted-foreground">
+              Started <span className="font-medium text-foreground">{format(startedAt, "HH:mm")}</span>
+            </span>
+          )}
+          {elapsed && (
+            <span className="text-muted-foreground">
+              Running for <span className="font-medium text-foreground tabular-nums">{elapsed}</span>
+            </span>
+          )}
+          <span className="text-muted-foreground">
+            Est. remaining{" "}
+            <span className={cn(
+              "font-medium",
+              estRemaining == null ? "text-muted-foreground/60 italic" : "text-foreground",
+            )}>
+              {fmtRemaining(estRemaining)}
+            </span>
+          </span>
+          {estCompletion && estRemaining != null && estRemaining > 0 && (
+            <span className="text-muted-foreground">
+              Est. done <span className="font-medium text-foreground">{format(estCompletion, "HH:mm")}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Counters */}
+        <div className="flex flex-wrap gap-5 pt-1 border-t border-blue-500/10">
+          {counters.map((s) => (
+            <div key={s.label} className="text-center">
+              <p className="text-2xl font-semibold text-foreground">{s.value}</p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{s.label}</p>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -205,7 +278,11 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
             {completedRuns.map((run) => {
               const startedAt = run.startedAt ? new Date(run.startedAt) : null;
               const completedAt = run.completedAt ? new Date(run.completedAt) : null;
-              const dur = startedAt ? durationStr(startedAt, completedAt) : null;
+              const dur = run.durationSeconds != null
+                ? (run.durationSeconds < 60
+                    ? `${run.durationSeconds}s`
+                    : `${Math.floor(run.durationSeconds / 60)}m ${run.durationSeconds % 60}s`)
+                : (startedAt ? durationStr(startedAt, completedAt) : null);
 
               return (
                 <Link key={run.id} href={`/campaigns/${campaignId}/runs/${run.id}`}>

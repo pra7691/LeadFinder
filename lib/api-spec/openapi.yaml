@@ -2512,6 +2512,24 @@ components:
           type: ["string", "null"]
         metadataJson:
           type: ["string", "null"]
+        durationSeconds:
+          type: ["integer", "null"]
+          description: Elapsed wall-clock seconds from started_at to completed_at
+        estimatedRemainingSeconds:
+          type: ["integer", "null"]
+          description: Live estimate of seconds until run finishes; null while calculating
+        estimatedCompletionAt:
+          type: ["string", "null"]
+          description: ISO timestamp of estimated completion; null while calculating
+        progressPercent:
+          type: number
+          description: 0–100 progress based on completed_work_units / total_work_units
+        totalWorkUnits:
+          type: integer
+          description: Total queries planned at run start (keywords × countries, capped by maxSearchesPerDay)
+        completedWorkUnits:
+          type: integer
+          description: Queries completed so far (searched + skipped)
         createdAt:
           type: string
 

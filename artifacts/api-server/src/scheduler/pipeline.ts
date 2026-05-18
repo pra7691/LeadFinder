@@ -19,7 +19,7 @@ import {
   searchResultHistoryTable,
   discoverySourceHistoryTable,
 } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
 import { scoreLead } from "../services/scorer";
@@ -403,6 +403,34 @@ async function runDiscovery(
 
   await schedulerLog(campaign.id, `Discovery started: ${keywords.length} keywords × ${countries.length} countries`);
 
+  // ── Work unit tracking setup ──────────────────────────────────────────────
+  const totalWorkUnits = Math.min(keywords.length * countries.length, maxSearches);
+  const discoveryStartedAt = Date.now();
+
+  // Historical avg seconds-per-unit for better time estimation
+  let avgSecsPerUnit: number | null = null;
+  if (campaignRunId != null) {
+    try {
+      const historicalRuns = await db
+        .select({ durationSeconds: campaignRunsTable.durationSeconds, totalWorkUnits: campaignRunsTable.totalWorkUnits })
+        .from(campaignRunsTable)
+        .where(and(eq(campaignRunsTable.campaignId, campaign.id), eq(campaignRunsTable.status, "completed")))
+        .orderBy(desc(campaignRunsTable.startedAt))
+        .limit(5);
+      const valid = historicalRuns.filter((r) => (r.durationSeconds ?? 0) > 0 && (r.totalWorkUnits ?? 0) > 0);
+      if (valid.length > 0) {
+        const avgDur = valid.reduce((s, r) => s + r.durationSeconds!, 0) / valid.length;
+        const avgUnits = valid.reduce((s, r) => s + (r.totalWorkUnits ?? 0), 0) / valid.length;
+        avgSecsPerUnit = avgDur / avgUnits;
+      }
+    } catch { /* non-fatal */ }
+    try {
+      await db.update(campaignRunsTable)
+        .set({ totalWorkUnits })
+        .where(eq(campaignRunsTable.id, campaignRunId));
+    } catch { /* non-fatal */ }
+  }
+
   outer: for (const kw of keywords) {
     for (const co of countries) {
       if (searchCount >= maxSearches) break outer;
@@ -425,10 +453,21 @@ async function runDiscovery(
           nextRefreshAt: qhRecord.nextRefreshAt.toISOString(),
         });
         if (campaignRunId != null) {
+          const _cu = stats.searchesPerformed + stats.searchesSkipped;
+          const _ru = Math.max(0, totalWorkUnits - _cu);
+          const _el = Date.now() - discoveryStartedAt;
+          const _pp = totalWorkUnits > 0 ? Math.min(100, _cu / totalWorkUnits * 100) : 0;
+          let _ers: number | null = null;
+          let _eca: Date | null = null;
+          if (avgSecsPerUnit != null && _ru > 0) { _ers = Math.round(avgSecsPerUnit * _ru); }
+          else if (_cu >= 2 && _ru > 0) { _ers = Math.round(_el / _cu / 1000 * _ru); }
+          if (_ers != null) _eca = new Date(Date.now() + _ers * 1000);
           try {
-            await db.update(campaignRunsTable)
-              .set({ totalSearchesSkipped: sql`coalesce(${campaignRunsTable.totalSearchesSkipped}, 0) + 1` })
-              .where(eq(campaignRunsTable.id, campaignRunId));
+            await db.update(campaignRunsTable).set({
+              totalSearchesSkipped: sql`coalesce(${campaignRunsTable.totalSearchesSkipped}, 0) + 1`,
+              completedWorkUnits: _cu, progressPercent: _pp,
+              estimatedRemainingSeconds: _ers, estimatedCompletionAt: _eca,
+            }).where(eq(campaignRunsTable.id, campaignRunId));
           } catch { /* non-fatal */ }
         }
         continue;
@@ -702,17 +741,26 @@ async function runDiscovery(
         } catch { /* non-fatal */ }
       }
 
-      // ── Incrementally update campaign_run live counters ──────────────────
+      // ── Incrementally update campaign_run live counters + progress ──────────
       if (campaignRunId != null) {
+        const _cu = stats.searchesPerformed + stats.searchesSkipped;
+        const _ru = Math.max(0, totalWorkUnits - _cu);
+        const _el = Date.now() - discoveryStartedAt;
+        const _pp = totalWorkUnits > 0 ? Math.min(100, _cu / totalWorkUnits * 100) : 0;
+        let _ers: number | null = null;
+        let _eca: Date | null = null;
+        if (avgSecsPerUnit != null && _ru > 0) { _ers = Math.round(avgSecsPerUnit * _ru); }
+        else if (_cu >= 2 && _ru > 0) { _ers = Math.round(_el / _cu / 1000 * _ru); }
+        if (_ers != null) _eca = new Date(Date.now() + _ers * 1000);
         try {
-          await db.update(campaignRunsTable)
-            .set({
-              totalNewLeads: sql`coalesce(${campaignRunsTable.totalNewLeads}, 0) + ${qNewLeads}`,
-              totalSearches: sql`coalesce(${campaignRunsTable.totalSearches}, 0) + 1`,
-              totalBlocked: sql`coalesce(${campaignRunsTable.totalBlocked}, 0) + ${qBlocked}`,
-              totalDuplicates: sql`coalesce(${campaignRunsTable.totalDuplicates}, 0) + ${qDups}`,
-            })
-            .where(eq(campaignRunsTable.id, campaignRunId));
+          await db.update(campaignRunsTable).set({
+            totalNewLeads: sql`coalesce(${campaignRunsTable.totalNewLeads}, 0) + ${qNewLeads}`,
+            totalSearches: sql`coalesce(${campaignRunsTable.totalSearches}, 0) + 1`,
+            totalBlocked: sql`coalesce(${campaignRunsTable.totalBlocked}, 0) + ${qBlocked}`,
+            totalDuplicates: sql`coalesce(${campaignRunsTable.totalDuplicates}, 0) + ${qDups}`,
+            completedWorkUnits: _cu, progressPercent: _pp,
+            estimatedRemainingSeconds: _ers, estimatedCompletionAt: _eca,
+          }).where(eq(campaignRunsTable.id, campaignRunId));
         } catch { /* non-fatal */ }
       }
 

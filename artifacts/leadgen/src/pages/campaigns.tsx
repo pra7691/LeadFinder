@@ -65,7 +65,15 @@ type Campaign = {
 };
 
 export function Campaigns() {
-  const { data: campaigns, isLoading } = useListCampaigns();
+  const { data: campaigns, isLoading } = useListCampaigns({
+    query: {
+      queryKey: getListCampaignsQueryKey(),
+      refetchInterval: (query) => {
+        const arr = query.state.data as Campaign[] | undefined;
+        return arr?.some((c) => c.lastRunStatus === "running") ? 5000 : false;
+      },
+    },
+  });
   const createCampaign = useCreateCampaign();
   const pauseCampaign = usePauseCampaign();
   const resumeCampaign = useResumeCampaign();
@@ -227,9 +235,16 @@ export function Campaigns() {
                       </h3>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
                         {lastRunStatus === "running" ? (
-                          <span className="flex items-center text-[11px] font-medium text-blue-500 bg-blue-500/10 px-2.5 py-1 rounded-full gap-1">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Running
-                          </span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="flex items-center text-[11px] font-medium text-blue-500 bg-blue-500/10 px-2.5 py-1 rounded-full gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" /> Running
+                            </span>
+                            {lastRunAt && (
+                              <span className="text-[10px] text-blue-500/70 tabular-nums pr-0.5">
+                                {formatDistanceToNow(lastRunAt)}
+                              </span>
+                            )}
+                          </div>
                         ) : campaign.isActive && !isPaused ? (
                           <span className="flex items-center text-[11px] font-medium text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full gap-1">
                             <Activity className="w-3 h-3" /> Active

@@ -380,6 +380,12 @@ export const ListCampaignRunsResponseItem = zod.object({
   "totalDiscoverySourcesSkipped": zod.number().describe('Discovery sources skipped because recently mined'),
   "errorMessage": zod.string().nullish(),
   "metadataJson": zod.string().nullish(),
+  "durationSeconds": zod.number().nullish().describe('Elapsed wall-clock seconds from started_at to completed_at'),
+  "estimatedRemainingSeconds": zod.number().nullish().describe('Live estimate of seconds until run finishes; null while calculating'),
+  "estimatedCompletionAt": zod.string().nullish().describe('ISO timestamp of estimated completion; null while calculating'),
+  "progressPercent": zod.number().optional().describe('0–100 progress based on completed_work_units \/ total_work_units'),
+  "totalWorkUnits": zod.number().optional().describe('Total queries planned at run start (keywords × countries, capped by maxSearchesPerDay)'),
+  "completedWorkUnits": zod.number().optional().describe('Queries completed so far (searched + skipped)'),
   "createdAt": zod.string()
 })
 export const ListCampaignRunsResponse = zod.array(ListCampaignRunsResponseItem)
@@ -413,6 +419,12 @@ export const GetCampaignRunResponse = zod.object({
   "totalDiscoverySourcesSkipped": zod.number().describe('Discovery sources skipped because recently mined'),
   "errorMessage": zod.string().nullish(),
   "metadataJson": zod.string().nullish(),
+  "durationSeconds": zod.number().nullish().describe('Elapsed wall-clock seconds from started_at to completed_at'),
+  "estimatedRemainingSeconds": zod.number().nullish().describe('Live estimate of seconds until run finishes; null while calculating'),
+  "estimatedCompletionAt": zod.string().nullish().describe('ISO timestamp of estimated completion; null while calculating'),
+  "progressPercent": zod.number().optional().describe('0–100 progress based on completed_work_units \/ total_work_units'),
+  "totalWorkUnits": zod.number().optional().describe('Total queries planned at run start (keywords × countries, capped by maxSearchesPerDay)'),
+  "completedWorkUnits": zod.number().optional().describe('Queries completed so far (searched + skipped)'),
   "createdAt": zod.string()
 })
 
