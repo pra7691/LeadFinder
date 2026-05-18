@@ -1,0 +1,263 @@
+Fix campaign execution terminology and simplify the run architecture.
+
+Current issue:
+The UI uses confusing terminology:
+
+* Pause
+* Run Pipeline
+* Discovery
+* Pipeline Runs
+* Run Status
+
+This product currently does NOT have automation pipelines yet.
+
+Current workflow is manual:
+
+* manually run campaign
+* manually review leads
+* manually add leads to lists
+* manually prepare outreach
+
+Therefore:
+“Pipeline” terminology is incorrect and confusing.
+
+The system should use simple terminology:
+
+* Run Campaign
+* Campaign Runs
+* Current Run
+* Run History
+
+A “Campaign Run” simply means:
+one execution of a campaign search/discovery process.
+
+==================================================
+PART 1 — TERMINOLOGY CLEANUP
+============================
+
+Rename throughout the app:
+
+“Run Pipeline”
+→ “Run Campaign”
+
+“Pipeline Runs”
+→ “Campaign Runs”
+
+“Run Status”
+→ “Current Run”
+
+Remove:
+“Discovery” button entirely.
+
+Reason:
+Discovery is already part of running a campaign.
+
+==================================================
+PART 2 — REMOVE PAUSE BUTTON
+============================
+
+Remove Pause/Resume controls for now.
+
+Reason:
+There is currently no true automation/scheduling workflow implemented.
+
+Pause/Resume only makes sense later when:
+
+* automated schedules
+* followups
+* recurring runs
+* automation workflows
+  exist.
+
+Current product is manual-first.
+
+==================================================
+PART 3 — CAMPAIGN RUN CREATION
+==============================
+
+When user clicks “Run Campaign”:
+
+Immediately create a campaign_runs entry before any search starts.
+
+Set:
+
+* campaign_id
+* status = running
+* run_type = manual
+* started_at
+* counters initialized to zero
+
+Return campaign_run_id immediately.
+
+All discovered leads must be linked to:
+
+* campaign_id
+* campaign_run_id
+
+When completed:
+update same campaign_runs record with:
+
+* completed_at
+* totals
+* final status
+
+==================================================
+PART 4 — CURRENT RUN SECTION
+============================
+
+Add a small “Current Run” section/card in Campaign Detail page.
+
+Only show if:
+status = running
+
+Show:
+
+* started time
+* searches completed
+* total results
+* new leads
+* blocked
+* duplicates
+* rejected
+* latest activity
+
+Auto-refresh every few seconds while active.
+
+When run completes:
+Current Run card disappears and run remains inside Campaign Runs history.
+
+==================================================
+PART 5 — CAMPAIGN RUNS SECTION
+==============================
+
+Campaign Runs section should show history of every campaign execution.
+
+Each row:
+
+* run date/time
+* status
+* searches
+* results
+* new leads
+* blocked
+* duplicates
+* rejected
+* duration
+* View Run button
+
+Clicking View Run opens:
+
+* run summary
+* logs
+* leads discovered during that run
+
+==================================================
+PART 6 — REMOVE GLOBAL LEADS MENU
+=================================
+
+Remove “Leads” from left sidebar.
+
+Reason:
+Leads should belong to:
+
+* Campaigns
+* Campaign Runs
+* Lists
+
+Lead access flow:
+
+Campaigns
+→ Campaign Detail
+→ Leads tab
+
+Campaigns
+→ Campaign Runs
+→ View Run
+→ Run Leads
+
+Lists
+→ List Detail
+→ Outreach preparation
+
+==================================================
+PART 7 — CAMPAIGN LEADS TAB
+===========================
+
+Inside Campaign Detail add/fix Leads tab.
+
+Show only leads belonging to that campaign.
+
+Filters:
+
+* by run
+* qualification status
+* has email
+* relevance score
+* outreach status
+
+Actions:
+
+* mark qualified
+* reject
+* add to list
+* bulk add to list
+
+==================================================
+PART 8 — RUN DETAIL PAGE
+========================
+
+Run Detail page should show:
+
+* run summary
+* logs
+* leads created during that run only
+
+Actions:
+
+* select leads
+* add to list
+* qualify/reject leads
+
+==================================================
+PART 9 — DATA INTEGRITY
+=======================
+
+Verify:
+
+* every lead has campaign_id
+* every run-created lead has campaign_run_id
+* duplicate prevention works using:
+  campaign_id + root_domain
+
+==================================================
+PART 10 — TESTING
+=================
+
+Run UI dry-run tests:
+
+1. Run Campaign button works.
+2. Discovery button removed.
+3. Pause button removed.
+4. Campaign Runs appears immediately after starting run.
+5. Current Run section updates live.
+6. Completed runs move into Campaign Runs history.
+7. Leads belong correctly to campaigns/runs.
+8. Leads can be added to lists.
+9. Sidebar no longer contains raw Leads page.
+10. No broken navigation/routes remain.
+
+Fix all discovered issues.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Provide:
+
+* renamed sections/buttons
+* removed sections/buttons
+* UI changes
+* API changes
+* run lifecycle behavior
+* tests run
+* remaining limitations

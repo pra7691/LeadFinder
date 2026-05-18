@@ -7,7 +7,6 @@ import {
   Mail,
   Send,
   Settings,
-  Users,
   BookMarked,
   FileText,
   Moon,
@@ -23,7 +22,6 @@ import { Button } from "./ui/button";
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: BarChart },
   { href: "/campaigns", label: "Campaigns", icon: Briefcase },
-  { href: "/leads", label: "Leads", icon: Users },
   { href: "/lists", label: "Lists", icon: BookMarked },
   { href: "/email-accounts", label: "Accounts", icon: Mail },
   { href: "/email-templates", label: "Email Templates", icon: FileText },

@@ -157,6 +157,7 @@ async function schedulerLog(
 async function runDiscovery(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
+  campaignRunId?: number,
 ): Promise<number> {
   const apiKey = process.env["SERPER_API_KEY"];
   if (!apiKey) {
@@ -243,6 +244,7 @@ async function runDiscovery(
         try {
           await db.insert(leadsTable).values({
             campaignId: campaign.id,
+            campaignRunId: campaignRunId ?? null,
             companyName: cleanName,
             rootDomain,
             websiteUrl: result.link,
@@ -555,7 +557,7 @@ async function runEmail(
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
 
-export async function runPipeline(campaignId: number): Promise<PipelineResult> {
+export async function runPipeline(campaignId: number, campaignRunId?: number): Promise<PipelineResult> {
   const startedAt = Date.now();
   const errors: string[] = [];
 
@@ -599,7 +601,7 @@ export async function runPipeline(campaignId: number): Promise<PipelineResult> {
   await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"`);
 
   try {
-    result.discoveryLeadsCreated = await runDiscovery(campaign, errors);
+    result.discoveryLeadsCreated = await runDiscovery(campaign, errors, campaignRunId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Discovery failed: ${msg}`);

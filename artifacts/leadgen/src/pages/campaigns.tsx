@@ -228,9 +228,7 @@ export function Campaigns() {
                       {scheduleType !== "manual" && campaign.scheduleTime && (
                         <span className="opacity-60">@ {campaign.scheduleTime}</span>
                       )}
-                      {scheduleType !== "manual" && (
-                        <span className={cn("w-2 h-2 rounded-full ml-auto shrink-0", dot)} />
-                      )}
+                      <span className={cn("w-2 h-2 rounded-full ml-auto shrink-0", dot)} />
                     </div>
 
                     {nextRunAt && scheduleType !== "manual" && !isPaused && (

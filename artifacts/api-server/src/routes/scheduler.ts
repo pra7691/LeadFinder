@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { campaignsTable } from "@workspace/db";
+import { campaignsTable, campaignRunsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { runPipeline } from "../scheduler/pipeline";
 import { computeNextRunAt } from "../scheduler/index";
@@ -74,7 +74,20 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
     return;
   }
 
-  // Mark as running immediately so the UI can reflect the state
+  // Create a campaign_run record immediately so the UI can show it right away
+  const [campaignRun] = await db
+    .insert(campaignRunsTable)
+    .values({
+      campaignId,
+      runName: `Pipeline – ${new Date().toISOString().slice(0, 10)}`,
+      runType: "manual",
+      status: "running",
+    })
+    .returning();
+
+  const runId = campaignRun.id;
+
+  // Mark campaign as running immediately so the UI can reflect the state
   await db
     .update(campaignsTable)
     .set({ lastRunStatus: "running", lastRunAt: new Date() })
@@ -82,12 +95,12 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
 
   // Fire-and-forget — do NOT await the pipeline.
   // Awaiting blocks the event loop (health checks stop responding → outage).
-  runPipeline(campaignId)
+  runPipeline(campaignId, runId)
     .then(async (result) => {
       const status =
         result.failed > 0 && result.discoveryLeadsCreated === 0 && result.crawledCount === 0
           ? "failed"
-          : "success";
+          : "completed";
 
       const nextRunAt = computeNextRunAt(
         campaign.scheduleType,
@@ -95,19 +108,35 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
         campaign.scheduleDays,
       );
 
-      await db
-        .update(campaignsTable)
-        .set({
-          lastRunStatus: status,
-          lastRunAt: new Date(),
-          nextRunAt: nextRunAt ?? undefined,
-        })
-        .where(eq(campaignsTable.id, campaignId));
+      await Promise.all([
+        db.update(campaignsTable)
+          .set({ lastRunStatus: status === "completed" ? "success" : "failed", lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
+          .where(eq(campaignsTable.id, campaignId)),
+        db.update(campaignRunsTable)
+          .set({
+            status,
+            completedAt: new Date(),
+            totalNewLeads: result.discoveryLeadsCreated,
+            totalSearches: 0,
+            totalResults: 0,
+            totalDuplicates: 0,
+            totalBlocked: 0,
+            totalRejected: result.failed,
+            errorMessage: result.errors.length > 0 ? result.errors.join("; ") : null,
+            metadataJson: JSON.stringify({
+              crawledCount: result.crawledCount,
+              scoredCount: result.scoredCount,
+              emailsSent: result.emailsSent,
+              durationMs: result.durationMs,
+            }),
+          })
+          .where(eq(campaignRunsTable.id, runId)),
+      ]);
 
-      logger.info({ campaignId, status }, "Manual trigger: pipeline complete");
+      logger.info({ campaignId, runId, status }, "Manual trigger: pipeline complete");
     })
     .catch(async (err) => {
-      logger.error({ err, campaignId }, "Manual trigger: pipeline threw");
+      logger.error({ err, campaignId, runId }, "Manual trigger: pipeline threw");
 
       const nextRunAt = computeNextRunAt(
         campaign.scheduleType,
@@ -115,18 +144,18 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
         campaign.scheduleDays,
       );
 
-      await db
-        .update(campaignsTable)
-        .set({
-          lastRunStatus: "failed",
-          lastRunAt: new Date(),
-          nextRunAt: nextRunAt ?? undefined,
-        })
-        .where(eq(campaignsTable.id, campaignId));
+      await Promise.all([
+        db.update(campaignsTable)
+          .set({ lastRunStatus: "failed", lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
+          .where(eq(campaignsTable.id, campaignId)),
+        db.update(campaignRunsTable)
+          .set({ status: "failed", completedAt: new Date(), errorMessage: String(err?.message ?? err) })
+          .where(eq(campaignRunsTable.id, runId)),
+      ]);
     });
 
   // Return 202 immediately — server stays responsive throughout the pipeline run
-  res.status(202).json({ status: "started", campaignId });
+  res.status(202).json({ status: "started", campaignId, runId });
 });
 
 // ── PATCH /campaigns/:id/pause ─────────────────────────────────────────────

@@ -1694,6 +1694,9 @@ components:
           type: string
         campaignId:
           type: integer
+        runId:
+          type: integer
+          description: ID of the campaign_runs record created for this pipeline execution
 
     PipelineResult:
       type: object

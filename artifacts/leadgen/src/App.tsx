@@ -11,6 +11,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Dashboard } from "@/pages/dashboard";
 import { Campaigns } from "@/pages/campaigns";
 import { CampaignDetail } from "@/pages/campaign-detail";
+import { CampaignRunDetail } from "@/pages/campaign-run-detail";
 import { Leads } from "@/pages/leads";
 import { Lists } from "@/pages/lists";
 import { ListDetail } from "@/pages/list-detail";
@@ -37,6 +38,7 @@ function Router() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/campaigns" component={Campaigns} />
+          <Route path="/campaigns/:id/runs/:runId" component={CampaignRunDetail} />
           <Route path="/campaigns/:id" component={CampaignDetail} />
           <Route path="/leads" component={Leads} />
           <Route path="/lists/:id" component={ListDetail} />
