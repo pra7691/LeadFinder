@@ -30,6 +30,11 @@ export interface Lead {
   relevanceScore?: number | null;
   /** @nullable */
   relevanceReason?: string | null;
+  /**
+     * "ai" = scored by OpenAI, "keyword_fallback" = rule-based, null = not yet scored
+     * @nullable
+     */
+  scoringMethod?: string | null;
   /** @nullable */
   contactQuality?: string | null;
   leadStatus: string;

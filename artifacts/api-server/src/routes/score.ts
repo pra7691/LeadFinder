@@ -8,9 +8,39 @@ import {
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { scoreLead } from "../services/scorer";
-import { batchProcess } from "@workspace/integrations-openai-ai-server/batch";
 
 const router = Router();
+
+// ── Local concurrency helper (replaces @workspace/integrations-openai-ai-server/batch) ──
+
+async function batchProcess<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  opts: { concurrency: number; retries: number },
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += opts.concurrency) {
+    const chunk = items.slice(i, i + opts.concurrency);
+    const chunkResults = await Promise.all(
+      chunk.map(async (item) => {
+        let lastErr: unknown;
+        for (let attempt = 0; attempt <= opts.retries; attempt++) {
+          try {
+            return await fn(item);
+          } catch (err) {
+            lastErr = err;
+            if (attempt < opts.retries) {
+              await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+            }
+          }
+        }
+        throw lastErr;
+      }),
+    );
+    results.push(...chunkResults);
+  }
+  return results;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -37,9 +67,11 @@ async function scoreAndSaveLead(
   leadId: number;
   score: number;
   reason: string;
+  scoringMethod: string;
   reviewStatus: string;
 }> {
   const result = await scoreLead({
+    leadId: lead.id,
     campaignObjective,
     campaignKeywords,
     companyName: lead.companyName,
@@ -56,6 +88,7 @@ async function scoreAndSaveLead(
     .set({
       relevanceScore: result.score,
       relevanceReason: result.reason,
+      scoringMethod: result.scoringMethod,
       reviewStatus,
     })
     .where(eq(leadsTable.id, lead.id));
@@ -63,16 +96,23 @@ async function scoreAndSaveLead(
   await db.insert(logsTable).values({
     campaignId: lead.campaignId,
     type: "score",
-    message: `Scored ${lead.rootDomain}: ${result.score}/100${result.score < minRelevanceScore ? " (low_relevance)" : ""}`,
+    message: `Scored ${lead.rootDomain}: ${result.score}/100 [${result.scoringMethod}]${result.score < minRelevanceScore ? " (low_relevance)" : ""}`,
     metadataJson: JSON.stringify({
       leadId: lead.id,
       score: result.score,
       reason: result.reason,
+      scoringMethod: result.scoringMethod,
       reviewStatus,
     }),
   });
 
-  return { leadId: lead.id, score: result.score, reason: result.reason, reviewStatus };
+  return {
+    leadId: lead.id,
+    score: result.score,
+    reason: result.reason,
+    scoringMethod: result.scoringMethod,
+    reviewStatus,
+  };
 }
 
 // ── Single lead scoring ────────────────────────────────────────────────────
@@ -179,19 +219,27 @@ router.post("/leads/bulk-score", async (req, res) => {
     leadId: number;
     score: number;
     reason: string;
+    scoringMethod: string;
     reviewStatus: string;
     error?: string;
   }> = [];
   let succeeded = 0;
   let failed = 0;
 
-  // Use batchProcess for rate-limited parallel AI calls (concurrency=3)
+  // Rate-limited parallel scoring (concurrency=3, retries=3)
   const processed = await batchProcess(
     targetLeads,
     async (lead) => {
       const ctx = contextMap.get(lead.campaignId);
       if (!ctx) {
-        return { leadId: lead.id, error: "No campaign context", score: 0, reason: "", reviewStatus: lead.reviewStatus };
+        return {
+          leadId: lead.id,
+          error: "No campaign context",
+          score: 0,
+          reason: "",
+          scoringMethod: "keyword_fallback",
+          reviewStatus: lead.reviewStatus,
+        };
       }
       return scoreAndSaveLead(lead, ctx.objective, ctx.keywords, ctx.minScore);
     },

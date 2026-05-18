@@ -1,9 +1,7 @@
-import { db } from "@workspace/db";
-import { appSettingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import type { EmailTemplate } from "@workspace/db";
 import type { Lead } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { getAISettings } from "./ai-settings";
 
 interface GeneratedEmail {
   subject: string;
@@ -23,24 +21,6 @@ export interface TemplateVars {
 
 export function renderTemplate(template: string, vars: Partial<TemplateVars> & Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key as keyof typeof vars] ?? `{{${key}}}`);
-}
-
-async function getAISettings(): Promise<{ enabled: boolean; apiKey: string | null; model: string }> {
-  const rows = await db
-    .select()
-    .from(appSettingsTable)
-    .where(eq(appSettingsTable.key, "ai_enabled"));
-  const enabledRow = rows.find((r) => r.key === "ai_enabled");
-
-  const allRows = await db.select().from(appSettingsTable);
-  const keyRow = allRows.find((r) => r.key === "openai_api_key");
-  const modelRow = allRows.find((r) => r.key === "openai_model");
-
-  return {
-    enabled: enabledRow?.value === "true",
-    apiKey: keyRow?.value ?? null,
-    model: modelRow?.value ?? "gpt-4o-mini",
-  };
 }
 
 export async function generatePersonalizedEmail(

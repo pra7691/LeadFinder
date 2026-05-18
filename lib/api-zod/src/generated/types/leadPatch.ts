@@ -24,6 +24,8 @@ export interface LeadPatch {
   /** @nullable */
   relevanceReason?: string | null;
   /** @nullable */
+  scoringMethod?: string | null;
+  /** @nullable */
   contactQuality?: string | null;
   leadStatus?: string;
   reviewStatus?: string;

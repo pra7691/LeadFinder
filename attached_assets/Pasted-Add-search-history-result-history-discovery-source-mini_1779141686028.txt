@@ -1,0 +1,324 @@
+Add search history, result history, discovery-source mining history, and improved deduplication to reduce repeated work across campaign runs.
+
+Current issue:
+If the same campaign searches the same keyword-country query again tomorrow, Serper may return many of the same results. The current system may skip duplicate leads, but it may still waste API calls, reprocess the same result URLs, remine the same discovery sources, and repeatedly count duplicates.
+
+Goal:
+Make campaign runs incremental and efficient.
+
+The system should remember:
+
+* which search queries were already run
+* when they were last run
+* which result URLs were already seen
+* which discovery sources were already mined
+* which company domains already exist inside the campaign
+
+==================================================
+PART 1 — ADD QUERY HISTORY
+==========================
+
+Create table:
+
+search_query_history
+
+Fields:
+
+* id
+* campaign_id
+* campaign_run_id nullable
+* query
+* keyword
+* country
+* searched_at
+* result_count
+* new_leads_count
+* duplicate_count
+* blocked_count
+* discovery_source_count
+* status
+* next_refresh_at
+* error_message nullable
+* created_at
+* updated_at
+
+Status values:
+
+* completed
+* failed
+* skipped_recent
+* partial
+
+Add campaign setting:
+
+query_refresh_days
+
+Default:
+30
+
+Meaning:
+If the same campaign query was searched within the last query_refresh_days, skip it unless user forces refresh.
+
+==================================================
+PART 2 — SEARCH QUERY SKIP LOGIC
+================================
+
+Before calling Serper:
+
+Check:
+campaign_id + exact query
+
+If query was searched recently and next_refresh_at is in the future:
+
+* skip Serper call
+* log skipped_recent
+* do not spend API quota
+
+If query is due for refresh:
+
+* run Serper again
+
+If previous status was failed:
+
+* allow retry
+
+Add optional force refresh flag later, but not required now.
+
+==================================================
+PART 3 — ADD RESULT URL HISTORY
+===============================
+
+Create table:
+
+search_result_history
+
+Fields:
+
+* id
+* campaign_id
+* campaign_run_id nullable
+* search_query_history_id nullable
+* query
+* result_url
+* root_domain
+* result_title
+* result_snippet
+* result_position
+* result_type
+* first_seen_at
+* last_seen_at
+* times_seen
+* created_at
+* updated_at
+
+result_type values:
+
+* direct
+* discovery_source
+* blocked
+* ignored
+
+Before processing a search result:
+
+* normalize result URL
+* normalize root domain
+* check if result URL was already seen recently
+* update times_seen and last_seen_at
+* avoid unnecessary reprocessing if recently seen
+
+==================================================
+PART 4 — ADD DISCOVERY SOURCE MINING HISTORY
+============================================
+
+Create table:
+
+discovery_source_history
+
+Fields:
+
+* id
+* campaign_id
+* campaign_run_id nullable
+* source_url
+* source_domain
+* mined_at
+* companies_found
+* new_company_leads
+* duplicate_company_leads
+* blocked_links
+* status
+* next_refresh_at
+* error_message nullable
+* created_at
+* updated_at
+
+Status values:
+
+* completed
+* failed
+* skipped_recent
+* partial
+
+Add setting:
+discovery_source_refresh_days
+
+Default:
+30
+
+Before mining a discovery source:
+
+* check if source_url was mined recently
+* if yes, skip mining
+* if due, mine again
+
+==================================================
+PART 5 — LEAD / DOMAIN DEDUPLICATION
+====================================
+
+Keep current rule:
+
+Same root_domain cannot duplicate inside same campaign.
+
+Unique key:
+campaign_id + root_domain
+
+Same root_domain may exist in different campaigns.
+
+Before creating any lead:
+
+* normalize root_domain
+* check global blacklist
+* check campaign existing leads
+* if exists, skip lead creation and count as duplicate
+
+==================================================
+PART 6 — CAMPAIGN RUN COUNTERS
+==============================
+
+Update Campaign Run counters to include:
+
+* searches_performed
+* searches_skipped_recent
+* raw_results_found
+* result_urls_seen_before
+* discovery_sources_found
+* discovery_sources_mined
+* discovery_sources_skipped_recent
+* new_leads
+* duplicate_leads
+* blocked_domains
+* rejected_results
+
+Show these counters in Run Detail.
+
+==================================================
+PART 7 — UI CHANGES
+===================
+
+Campaign Detail:
+Show query refresh setting:
+
+* Query Refresh Days
+
+Show discovery source refresh setting:
+
+* Discovery Source Refresh Days
+
+Run Detail:
+Show new counters clearly.
+
+Logs:
+Show:
+
+* query skipped because recently searched
+* result URL already seen
+* discovery source skipped because recently mined
+* duplicate domain skipped
+* new lead created
+
+==================================================
+PART 8 — SETTINGS / DEFAULTS
+============================
+
+Defaults:
+query_refresh_days = 30
+discovery_source_refresh_days = 30
+
+These should be campaign-level fields if practical.
+
+If not practical immediately:
+store as app settings and apply globally.
+
+Preferred:
+campaign-level fields.
+
+==================================================
+PART 9 — MANUAL OVERRIDE
+========================
+
+Add optional button or checkbox when running campaign:
+
+Force Refresh
+
+If enabled:
+
+* ignore query_refresh_days
+* run Serper queries again
+* but still do not duplicate leads
+
+If too much for now, prepare backend support and add UI later.
+
+==================================================
+PART 10 — TESTING SCENARIO
+==========================
+
+Test with same campaign and same query twice.
+
+First run:
+
+* Serper should be called
+* result URLs stored
+* leads created
+* query history created
+* discovery source history created
+
+Second run immediately:
+
+* query should be skipped as recently searched
+* Serper should not be called for that query
+* no duplicate leads created
+* run summary should show skipped_recent
+
+Force refresh run:
+
+* Serper should be called again
+* existing result URLs should update times_seen
+* existing company domains should be skipped as duplicates
+* only new company domains should be created
+
+==================================================
+PART 11 — DATA MIGRATION
+========================
+
+For existing campaigns/leads:
+
+* do not delete anything
+* start tracking history from now
+* existing leads should still participate in duplicate checking
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* tables added
+* fields added
+* query skip logic added
+* result history added
+* discovery source mining history added
+* deduplication behavior verified
+* UI changes
+* tests run
+* sample first run vs second run behavior
+* known limitations

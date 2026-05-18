@@ -214,6 +214,11 @@ export interface Lead {
   relevanceScore?: number | null;
   /** @nullable */
   relevanceReason?: string | null;
+  /**
+     * "ai" = scored by OpenAI, "keyword_fallback" = rule-based, null = not yet scored
+     * @nullable
+     */
+  scoringMethod?: string | null;
   /** @nullable */
   contactQuality?: string | null;
   leadStatus: string;
@@ -265,6 +270,7 @@ export interface LeadInput {
   linkedinUrl?: string;
   relevanceScore?: number;
   relevanceReason?: string;
+  scoringMethod?: string;
   contactQuality?: string;
   leadStatus?: string;
   reviewStatus?: string;
@@ -312,6 +318,8 @@ export interface LeadPatch {
   relevanceScore?: number | null;
   /** @nullable */
   relevanceReason?: string | null;
+  /** @nullable */
+  scoringMethod?: string | null;
   /** @nullable */
   contactQuality?: string | null;
   leadStatus?: string;

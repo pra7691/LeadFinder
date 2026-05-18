@@ -1,0 +1,150 @@
+Fix and unify AI usage across the application.
+
+Current AI audit findings:
+
+1. There are two separate AI systems:
+
+   * Replit OpenAI integration proxy used by lead relevance scoring.
+   * User-configured OpenAI API key from Settings used by email personalization.
+
+2. Lead relevance scoring is not actually using AI because scorer.ts uses an invalid/hardcoded model and silently falls back to keyword scoring.
+
+3. Email personalization correctly uses the OpenAI key saved in Settings.
+
+Goal:
+Use one consistent AI system across the app:
+Settings → OpenAI API Key + Model → all AI features.
+
+Do not add new AI features.
+Do not change unrelated modules.
+Fix the current AI architecture.
+
+==================================================
+PART 1 — REMOVE REPLIT AI DEPENDENCY FROM SCORING
+=================================================
+
+Update relevance scoring so it does NOT depend on:
+AI_INTEGRATIONS_OPENAI_API_KEY
+AI_INTEGRATIONS_OPENAI_BASE_URL
+@workspace/integrations-openai-ai-server
+
+Scoring should use the same OpenAI API key and model saved in app_settings.
+
+Settings should control:
+
+* email personalization
+* AI regeneration
+* relevance scoring
+
+==================================================
+PART 2 — FIX MODEL HANDLING
+===========================
+
+Do not hardcode invalid model names.
+
+Use:
+
+* openai_model from app_settings
+* fallback model from app config if missing
+
+Default fallback:
+gpt-4o-mini
+
+The model selector in Settings must affect:
+
+* email personalization
+* regenerate with AI
+* relevance scoring
+
+==================================================
+PART 3 — GRACEFUL FALLBACK
+==========================
+
+If AI is disabled, missing, or fails:
+
+* do not crash server
+* use keyword/rule-based fallback scoring
+* clearly record that fallback was used
+
+Add fields or logs where practical:
+
+* ai_used: true/false
+* scoring_method: ai / keyword_fallback
+* ai_error_message if failed
+
+==================================================
+PART 4 — FIX LOGGING
+====================
+
+Replace console.warn in scorer.ts with the project logger.
+
+All AI failures should be logged consistently:
+
+* feature name
+* lead id if applicable
+* model used
+* fallback used
+* error message
+
+==================================================
+PART 5 — UI CLARITY
+===================
+
+Where relevance score is shown, indicate scoring source if available:
+
+* AI scored
+* Keyword fallback
+* Not scored
+
+Do not falsely show AI scoring if fallback was used.
+
+==================================================
+PART 6 — TEST AI SCORING
+========================
+
+If OpenAI key is configured:
+Run a real test:
+
+* score one lead using AI
+* verify OpenAI is actually called
+* verify score/reason is saved
+* verify scoring_method = ai
+
+If no key is configured:
+
+* verify keyword fallback works
+* verify UI/logs show fallback clearly
+
+==================================================
+PART 7 — CHECK EMAIL PERSONALIZATION STILL WORKS
+================================================
+
+After unifying AI:
+
+* test email personalization
+* test regenerate with AI
+* test AI connection button
+* confirm all use same settings key/model
+
+==================================================
+PART 8 — REMOVE OR ISOLATE DEAD AI CODE
+=======================================
+
+Remove unused Replit AI integration imports from scoring.
+If removal is risky, isolate them so they cannot crash the server.
+
+No AI dependency should throw at module import time.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* files changed
+* old AI path removed
+* new unified AI flow
+* scoring test result
+* email personalization test result
+* fallback behavior
+* remaining limitations

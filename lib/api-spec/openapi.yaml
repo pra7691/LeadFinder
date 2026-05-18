@@ -1764,6 +1764,9 @@ components:
           type: ["integer", "null"]
         relevanceReason:
           type: ["string", "null"]
+        scoringMethod:
+          type: ["string", "null"]
+          description: '"ai" = scored by OpenAI, "keyword_fallback" = rule-based, null = not yet scored'
         contactQuality:
           type: ["string", "null"]
         leadStatus:
@@ -1832,6 +1835,8 @@ components:
           type: integer
         relevanceReason:
           type: string
+        scoringMethod:
+          type: string
         contactQuality:
           type: string
         leadStatus:
@@ -1873,6 +1878,8 @@ components:
         relevanceScore:
           type: ["integer", "null"]
         relevanceReason:
+          type: ["string", "null"]
+        scoringMethod:
           type: ["string", "null"]
         contactQuality:
           type: ["string", "null"]

@@ -995,7 +995,7 @@ export function Leads() {
                             <AlertCircle className="w-3 h-3" /> Error
                           </span>
                         ) : lead.relevanceScore != null ? (
-                          <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} />
+                          <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
                         ) : (
                           <span className="text-[11px] text-muted-foreground/40 italic">—</span>
                         )}

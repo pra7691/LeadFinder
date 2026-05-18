@@ -32,6 +32,7 @@ export const leadsTable = pgTable(
     linkedinUrl: text("linkedin_url"),
     relevanceScore: integer("relevance_score"),
     relevanceReason: text("relevance_reason"),
+    scoringMethod: text("scoring_method"), // "ai" | "keyword_fallback" | null = not yet scored
     contactQuality: text("contact_quality"),
     leadStatus: text("lead_status").notNull().default("new"),
     reviewStatus: text("review_status").notNull().default("pending"),

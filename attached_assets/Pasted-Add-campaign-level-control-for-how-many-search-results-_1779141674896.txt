@@ -1,0 +1,131 @@
+Add campaign-level control for how many search results are fetched per search query.
+
+Current issue:
+The system currently appears to fetch a fixed number of results from Serper.dev, likely 10 results per query. This should be editable per campaign.
+
+Goal:
+Add a campaign setting called “Results Per Search” so each campaign can control how many Serper results are requested per keyword-country query.
+
+==================================================
+PART 1 — DATABASE FIELD
+=======================
+
+Add field to campaigns table:
+
+results_per_search
+
+Type:
+integer
+
+Default:
+10
+
+Allowed values:
+10
+20
+30
+50
+
+If using free numeric input, validate:
+minimum = 1
+maximum = 50
+default = 10
+
+==================================================
+PART 2 — CAMPAIGN FORM UI
+=========================
+
+Add field in Campaign create/edit form:
+
+Label:
+Results Per Search
+
+Help text:
+Number of search results requested from Serper for each keyword-country query.
+
+Place it near:
+
+* max searches per day
+* max leads per day
+* minimum relevance score
+
+Use dropdown if possible:
+10, 20, 30, 50
+
+Default:
+10
+
+==================================================
+PART 3 — CAMPAIGN DETAIL DISPLAY
+================================
+
+Show Results Per Search in Campaign Detail settings/limits section.
+
+Example:
+Results/Search: 10
+
+==================================================
+PART 4 — SERPER REQUEST UPDATE
+==============================
+
+When calling Serper.dev, pass:
+
+num: campaign.results_per_search
+
+Example request body:
+{
+q: query,
+num: campaign.results_per_search
+}
+
+If campaign value is missing:
+fallback to 10.
+
+==================================================
+PART 5 — RUN SUMMARY UPDATE
+===========================
+
+In Campaign Run summary, include:
+
+* results_per_search used
+* expected maximum raw results
+
+Example:
+12 searches × 10 results/search = up to 120 raw results
+
+==================================================
+PART 6 — VALIDATION
+===================
+
+Validate:
+
+* cannot be empty
+* cannot be zero
+* cannot exceed 50
+* must be integer
+
+==================================================
+PART 7 — TESTING
+================
+
+Test:
+
+1. Campaign can be created with results_per_search.
+2. Campaign can be edited with results_per_search.
+3. Serper request uses this value.
+4. Invalid values are blocked.
+5. Run summary shows correct value.
+6. Existing campaigns default to 10.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* database changes
+* UI changes
+* API changes
+* Serper request change
+* tests run
+* any limitations

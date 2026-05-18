@@ -18,6 +18,7 @@ export interface LeadInput {
   linkedinUrl?: string;
   relevanceScore?: number;
   relevanceReason?: string;
+  scoringMethod?: string;
   contactQuality?: string;
   leadStatus?: string;
   reviewStatus?: string;

@@ -316,7 +316,7 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                 )}
                 <StatusChip status={lead.leadStatus} meta={LEAD_STATUS_META} />
                 {lead.relevanceScore != null && (
-                  <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} />
+                  <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
                 )}
                 {quality && (
                   <span className={`text-[11px] font-medium ${quality.color}`}>
@@ -470,7 +470,7 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                     {lead.relevanceScore != null ? (
                       <div className="glass-card p-3 space-y-1.5">
                         <div className="flex items-center gap-2">
-                          <ScoreBadge score={lead.relevanceScore} reason={null} />
+                          <ScoreBadge score={lead.relevanceScore} reason={null} scoringMethod={lead.scoringMethod} />
                           <span className="text-sm text-muted-foreground">out of 100</span>
                         </div>
                         {lead.relevanceReason && (
