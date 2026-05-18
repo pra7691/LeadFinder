@@ -10,7 +10,8 @@ import {
   leadListItemsTable,
   emailAccountsTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or, isNull } from "drizzle-orm";
+import { classifyEmail } from "../services/email-validator";
 import {
   ListOutreachQueryParams,
   UpdateOutreachBody,
@@ -123,8 +124,11 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
 
   const leadIds = [...new Set(items.map((i) => i.leadId))];
   const campaignIds = [...new Set(items.map((i) => i.campaignId).filter(Boolean))] as number[];
+  const templateIds = [...new Set(items.map((i) => i.emailTemplateId).filter(Boolean))] as number[];
+  const accountIds = [...new Set(items.map((i) => i.emailAccountId).filter(Boolean))] as number[];
+  const listIds = [...new Set(items.map((i) => i.listId).filter(Boolean))] as number[];
 
-  const [leads, campaigns] = await Promise.all([
+  const [leads, campaigns, templates, accounts, lists] = await Promise.all([
     db.select({
       id: leadsTable.id,
       companyName: leadsTable.companyName,
@@ -136,10 +140,22 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
     campaignIds.length
       ? db.select({ id: campaignsTable.id, name: campaignsTable.name }).from(campaignsTable).where(inArray(campaignsTable.id, campaignIds))
       : Promise.resolve([]),
+    templateIds.length
+      ? db.select({ id: emailTemplatesTable.id, name: emailTemplatesTable.name }).from(emailTemplatesTable).where(inArray(emailTemplatesTable.id, templateIds))
+      : Promise.resolve([]),
+    accountIds.length
+      ? db.select({ id: emailAccountsTable.id, email: emailAccountsTable.email }).from(emailAccountsTable).where(inArray(emailAccountsTable.id, accountIds))
+      : Promise.resolve([]),
+    listIds.length
+      ? db.select({ id: leadListsTable.id, name: leadListsTable.name }).from(leadListsTable).where(inArray(leadListsTable.id, listIds))
+      : Promise.resolve([]),
   ]);
 
   const leadMap = new Map(leads.map((l) => [l.id, l]));
   const campMap = new Map(campaigns.map((c) => [c.id, c.name]));
+  const tmplMap = new Map(templates.map((t) => [t.id, t.name]));
+  const acctMap = new Map(accounts.map((a) => [a.id, a.email]));
+  const listMap = new Map(lists.map((l) => [l.id, l.name]));
   const allEmails = items.map((i) => i.recipientEmail);
 
   return items.map((item) => {
@@ -156,12 +172,17 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
       country: lead?.country,
       allRecipientEmails: allEmails,
     });
+    const emailClassification = classifyEmail(item.recipientEmail);
     return {
       ...item,
       companyName: lead?.companyName ?? null,
       campaignName: item.campaignId ? campMap.get(item.campaignId) ?? null : null,
+      templateName: item.emailTemplateId ? tmplMap.get(item.emailTemplateId) ?? null : null,
+      senderEmail: item.emailAccountId ? acctMap.get(item.emailAccountId) ?? null : null,
+      listName: item.listId ? listMap.get(item.listId) ?? null : null,
       relevanceScore: lead?.relevanceScore ?? null,
       qualificationStatus: lead?.qualificationStatus ?? null,
+      recipientEmailType: emailClassification.type,
       qualityWarnings,
     };
   });
@@ -196,6 +217,19 @@ router.post("/outreach", async (req, res) => {
   try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
   const recipientEmail = body.recipientEmail ?? emailList[0] ?? "";
   if (!recipientEmail) { res.status(400).json({ error: "No email address for this lead" }); return; }
+
+  // Duplicate protection: reject if same recipient already queued for same campaign/list
+  const dupConditions = [
+    eq(outreachQueueTable.recipientEmail, recipientEmail),
+    inArray(outreachQueueTable.status, ["pending_review", "approved", "draft", "queued"]),
+  ];
+  if (body.campaignId) dupConditions.push(eq(outreachQueueTable.campaignId, body.campaignId));
+  if (body.listId) dupConditions.push(eq(outreachQueueTable.listId, body.listId));
+  const [dup] = await db.select({ id: outreachQueueTable.id }).from(outreachQueueTable).where(and(...dupConditions));
+  if (dup) {
+    res.status(409).json({ error: "Duplicate: this recipient is already queued for this campaign/list", existingId: dup.id });
+    return;
+  }
 
   const campaign = body.campaignId
     ? (await db.select().from(campaignsTable).where(eq(campaignsTable.id, body.campaignId)))[0]
@@ -248,11 +282,24 @@ router.post("/outreach/from-list", async (req, res) => {
   let skipped = 0;
   const items: (typeof outreachQueueTable.$inferSelect)[] = [];
 
+  // Pre-fetch existing queue items for this list to detect duplicates
+  const existingForList = await db
+    .select({ recipientEmail: outreachQueueTable.recipientEmail })
+    .from(outreachQueueTable)
+    .where(and(
+      eq(outreachQueueTable.listId, body.listId),
+      inArray(outreachQueueTable.status, ["pending_review", "approved", "draft", "queued"]),
+    ));
+  const alreadyQueued = new Set(existingForList.map((r) => r.recipientEmail.toLowerCase()));
+
   for (const lead of leads) {
     let leadEmails: string[] = [];
     try { leadEmails = lead.emails ? JSON.parse(lead.emails) : []; } catch { leadEmails = []; }
     const recipientEmail = leadEmails[0] ?? "";
     if (!recipientEmail) { skipped++; continue; }
+
+    // Duplicate protection
+    if (alreadyQueued.has(recipientEmail.toLowerCase())) { skipped++; continue; }
 
     const { subject, body: emailBody } = await resolveEmailContent(
       lead,
@@ -273,6 +320,7 @@ router.post("/outreach/from-list", async (req, res) => {
       status: "pending_review",
     }).returning();
     items.push(item);
+    alreadyQueued.add(recipientEmail.toLowerCase());
     queued++;
   }
 

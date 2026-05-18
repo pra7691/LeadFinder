@@ -1,0 +1,238 @@
+Fix Campaign Pipeline Run tracking and lead visibility structure.
+
+Current issues:
+
+1. When “Run Pipeline” is clicked, the Pipeline Runs section still says:
+   “No pipeline runs yet. Trigger the pipeline manually above to get started.”
+   This is wrong.
+
+2. A campaign_run record is either not being created immediately, or the UI is not refreshing after creation.
+
+3. There is no live run status showing while the campaign is running.
+
+4. The campaign listing should show when a campaign is currently running.
+
+5. Leads should be associated with Campaigns and Campaign Runs, not shown as a generic global Leads menu.
+
+6. The left sidebar still has a “Leads” section. This should be removed or replaced because raw leads should be accessed from inside Campaigns/Runs. Curated leads should be accessed from Lists.
+
+==================================================
+PART 1 — CREATE CAMPAIGN RUN IMMEDIATELY
+========================================
+
+When user clicks “Run Pipeline”:
+
+Immediately create a campaign_runs row before any search/crawl starts.
+
+Initial values:
+
+* campaign_id
+* run_type = manual
+* status = running
+* started_at = current timestamp
+* total_searches = 0
+* total_results = 0
+* total_new_leads = 0
+* total_duplicates = 0
+* total_blocked = 0
+* total_rejected = 0
+
+Return the campaign_run_id immediately from the API response.
+
+Then all leads discovered in this run must be saved with:
+campaign_run_id = current run id
+
+When run completes:
+update campaign_runs:
+
+* status = completed / failed / partial
+* completed_at
+* final totals
+
+==================================================
+PART 2 — LIVE RUN STATUS
+========================
+
+Add live/polling status for active campaign runs.
+
+Campaign Detail page should show:
+
+If a run is active:
+
+* status: Running
+* started time
+* searches completed
+* total results
+* new leads
+* duplicates
+* blocked
+* rejected
+* latest activity
+
+Refresh automatically every few seconds while status = running.
+
+Do not require page refresh.
+
+==================================================
+PART 3 — PIPELINE RUNS SECTION FIX
+==================================
+
+In Campaign Detail > Pipeline Runs:
+
+As soon as run is created, show it in the list.
+
+Each run row:
+
+* run date/time
+* status badge
+* searches
+* results
+* new leads
+* duplicates
+* blocked
+* rejected
+* action: View Run
+
+Clicking View Run should open:
+
+* run detail page/drawer
+* leads discovered in that run
+* run logs
+
+==================================================
+PART 4 — CAMPAIGN LIST RUNNING STATUS
+=====================================
+
+In Campaigns listing:
+
+Below or beside campaign active status, show pipeline status:
+
+* Idle
+* Running
+* Last run completed
+* Last run failed
+
+If currently running:
+show:
+
+* Running badge
+* spinner/loader
+* last updated time
+
+==================================================
+PART 5 — LEADS LOCATION CHANGE
+==============================
+
+Remove the global Leads page from the main sidebar OR rename it to “All Leads” only if absolutely necessary.
+
+Preferred:
+Remove “Leads” from left sidebar.
+
+Lead access should be:
+
+Campaigns > Campaign Detail > Leads tab
+Campaigns > Campaign Detail > Pipeline Runs > View Run > Run Leads
+Lists > List Detail
+
+The main operational place for manually selected leads should be:
+Lists
+
+==================================================
+PART 6 — CAMPAIGN DETAIL LEADS TAB
+==================================
+
+Inside Campaign Detail, add or fix Leads tab.
+
+It should show only leads for that campaign.
+
+Filters:
+
+* all campaign leads
+* by run
+* qualification status
+* has email
+* relevance score
+
+Actions:
+
+* select leads
+* add selected leads to List
+* mark qualified
+* mark rejected
+
+==================================================
+PART 7 — RUN DETAIL LEADS TABLE
+===============================
+
+Inside Run Detail:
+
+Show only leads from that campaign_run_id.
+
+Actions:
+
+* select leads
+* add selected leads to List
+* mark qualified
+* mark rejected
+
+==================================================
+PART 8 — LIST INTEGRATION CHECK
+===============================
+
+Ensure leads can be added to List from:
+
+* Campaign Detail > Leads tab
+* Run Detail > Leads table
+
+Add selected leads to existing list or create new list.
+
+Prevent duplicate lead inside same list.
+
+==================================================
+PART 9 — DATA INTEGRITY
+=======================
+
+Verify:
+
+* every new lead created by pipeline has campaign_id
+* every new lead created by pipeline has campaign_run_id
+* duplicate check is campaign_id + root_domain
+* same domain can exist in another campaign
+* same domain cannot duplicate inside same campaign
+
+==================================================
+PART 10 — TESTING
+=================
+
+Run UI dry-run and API tests:
+
+Test:
+
+1. Click Run Pipeline.
+2. Campaign run appears immediately.
+3. Campaign listing shows Running.
+4. Campaign Detail shows live running status.
+5. Leads generated during run are linked to campaign_run_id.
+6. View Run shows only leads from that run.
+7. Campaign Leads tab shows only campaign leads.
+8. Leads can be added to List from campaign leads.
+9. Leads can be added to List from run detail.
+10. Duplicate leads are skipped.
+11. Sidebar no longer shows raw global Leads page, unless renamed and intentionally kept.
+
+Fix all issues found.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* files changed
+* database changes if any
+* API changes
+* UI changes
+* run lifecycle behavior
+* lead visibility behavior
+* tests run
+* remaining limitations
