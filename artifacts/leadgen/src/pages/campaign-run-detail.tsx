@@ -3,6 +3,7 @@ import {
   useGetCampaignRunLeads,
   useListLeadLists,
   useAddLeadsToList,
+  useUpdateLead,
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
 } from "@workspace/api-client-react";
@@ -22,6 +23,8 @@ import {
   Plus,
   Globe,
   Star,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -79,6 +82,7 @@ export function CampaignRunDetail() {
 
   const { data: lists } = useListLeadLists();
   const addLeadsToList = useAddLeadsToList();
+  const updateLead = useUpdateLead();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [addToListOpen, setAddToListOpen] = useState(false);
@@ -96,6 +100,18 @@ export function CampaignRunDetail() {
     if (!leads) return;
     if (selectedIds.size === leads.length) setSelectedIds(new Set());
     else setSelectedIds(new Set(leads.map((l) => l.id)));
+  };
+
+  const handleQualify = (leadId: number, status: "qualified" | "rejected") => {
+    updateLead.mutate(
+      { id: leadId, data: { qualificationStatus: status } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+        },
+        onError: () => toast({ title: "Failed to update lead.", variant: "destructive" }),
+      },
+    );
   };
 
   const handleAddToList = (listId: number) => {
@@ -206,7 +222,7 @@ export function CampaignRunDetail() {
         {run.status === "running" && (
           <div className="flex items-center gap-2 text-sm text-blue-500 bg-blue-500/10 border border-blue-500/20 px-4 py-2 rounded-xl">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Pipeline is running — leads will appear as they are discovered
+            Campaign is running — leads will appear as they are discovered
           </div>
         )}
         {run.errorMessage && (
@@ -274,15 +290,16 @@ export function CampaignRunDetail() {
                 />
                 <span className="flex-1">Company</span>
                 <span className="w-40 hidden md:block">Domain</span>
-                <span className="w-24 hidden sm:block">Score</span>
+                <span className="w-16 hidden sm:block">Score</span>
                 <span className="w-24">Status</span>
+                <span className="w-20 text-right">Actions</span>
               </div>
               <div className="divide-y divide-border/30">
                 {leads.map((lead) => (
                   <div
                     key={lead.id}
                     className={cn(
-                      "flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors",
+                      "flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors group",
                       selectedIds.has(lead.id) && "bg-primary/5",
                     )}
                   >
@@ -301,7 +318,7 @@ export function CampaignRunDetail() {
                     <span className="w-40 text-xs text-muted-foreground truncate hidden md:block">
                       {lead.rootDomain}
                     </span>
-                    <span className="w-24 hidden sm:block">
+                    <span className="w-16 hidden sm:block">
                       <span className="inline-flex items-center gap-1 text-xs">
                         <Star className="w-3 h-3 text-amber-400" />
                         {lead.relevanceScore}
@@ -316,8 +333,26 @@ export function CampaignRunDetail() {
                             ? "bg-red-500/10 text-red-500"
                             : "bg-muted/50 text-muted-foreground",
                       )}>
-                        {lead.qualificationStatus ?? "unqualified"}
+                        {lead.qualificationStatus ?? "unreviewed"}
                       </span>
+                    </span>
+                    <span className="w-20 shrink-0 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        title="Qualify"
+                        onClick={() => handleQualify(lead.id, "qualified")}
+                        disabled={lead.qualificationStatus === "qualified" || updateLead.isPending}
+                        className="p-1 rounded-lg hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600 transition-colors disabled:opacity-30"
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        title="Reject"
+                        onClick={() => handleQualify(lead.id, "rejected")}
+                        disabled={lead.qualificationStatus === "rejected" || updateLead.isPending}
+                        className="p-1 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30"
+                      >
+                        <ThumbsDown className="w-3.5 h-3.5" />
+                      </button>
                     </span>
                   </div>
                 ))}
