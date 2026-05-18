@@ -1,0 +1,166 @@
+Perform a complete AI usage audit across the entire application.
+
+Goal:
+Identify exactly where AI/OpenAI is currently being used, where it is NOT being used, and whether each AI integration is actually functioning.
+
+Do not add new AI features in this task.
+This is an inspection/audit/debugging task only.
+
+==================================================
+PART 1 — FIND ALL AI USAGE
+==========================
+
+Search the entire codebase for:
+
+* OpenAI usage
+* AI provider usage
+* LLM calls
+* prompt generation
+* text generation
+* AI scoring
+* AI personalization
+* embeddings
+* chat completions
+* inference calls
+* AI SDK imports
+* model references
+* API key usage
+
+Examples:
+
+* OpenAI SDK
+* GPT models
+* Anthropic
+* Gemini
+* AI helper services
+* generatePersonalizedEmail()
+* AI scoring functions
+* AI relevance logic
+* AI regeneration
+* AI settings usage
+
+==================================================
+PART 2 — IDENTIFY REAL VS PLACEHOLDER AI
+========================================
+
+For every AI-related feature, determine:
+
+1. Is it actually calling an AI model?
+2. Is it mocked/fake/rule-based?
+3. Is it fallback-only logic?
+4. Is it partially implemented?
+5. Is it unused dead code?
+
+==================================================
+PART 3 — CHECK CURRENT AI FEATURES
+==================================
+
+Specifically verify:
+
+1. Email personalization
+
+* Is OpenAI actually being called?
+* Which model?
+* Which prompt?
+* Is fallback template logic being used instead?
+
+2. Relevance scoring
+
+* AI-based or keyword-based?
+* Is OpenAI involved?
+* Is there real semantic scoring?
+
+3. Regenerate with AI
+
+* Does it actually regenerate using OpenAI?
+* Or is it local/template regeneration?
+
+4. AI Settings page
+
+* Is the API key actually being used?
+* Is model selection respected?
+* Is test connection real?
+
+5. Discovery qualification
+
+* Is AI used at all during discovery/filtering?
+
+==================================================
+PART 4 — TRACE AI EXECUTION FLOW
+================================
+
+For each AI feature found:
+Document:
+
+* frontend trigger
+* backend route/service
+* model used
+* prompt construction
+* fallback behavior
+* response handling
+* error handling
+
+==================================================
+PART 5 — VERIFY ENVIRONMENT VARIABLES
+=====================================
+
+Check:
+
+* OPENAI_API_KEY usage
+* environment loading
+* whether missing keys disable AI correctly
+* whether AI silently fails
+
+==================================================
+PART 6 — TEST REAL EXECUTION
+============================
+
+If OpenAI key exists:
+Run real test calls for:
+
+* email personalization
+* AI regenerate
+* connection test
+
+Verify:
+
+* real API response received
+* model used correctly
+* output stored correctly
+* errors handled properly
+
+If no key exists:
+Verify graceful fallback behavior.
+
+==================================================
+PART 7 — IDENTIFY UNUSED OR BROKEN AI CODE
+==========================================
+
+List:
+
+* dead AI code
+* placeholder AI code
+* partially wired AI code
+* duplicated AI utilities
+* unreachable AI logic
+
+==================================================
+PART 8 — OUTPUT REPORT
+======================
+
+Generate a complete AI Audit Report including:
+
+1. All AI features currently implemented
+2. Which ones are real vs placeholder
+3. Which models are used
+4. Which prompts are used
+5. Which features are not actually AI-powered
+6. Current AI execution flow
+7. API usage points
+8. Broken AI integrations
+9. Unused AI code
+10. Recommendations for cleanup
+11. Recommendations for future AI improvements
+
+Do not make architectural changes in this task unless critical bugs are found.
+This task is inspection + reporting only.

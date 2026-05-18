@@ -1,0 +1,197 @@
+Fix discovery quality so blog/listicle/directory pages are not saved as leads.
+
+Current issue:
+When searching “mobile app development companies USA”, the system saves pages like:
+
+* Top 11 Mobile App Development Companies in United States
+* Top App Developers in the United States
+* Top USA App Developers (2026)
+* Clutch / Business of Apps / listicle pages
+
+These are not leads. They are discovery sources.
+
+Required behavior:
+Do not save article/listicle/directory pages as final leads.
+Instead, use them to discover actual company websites.
+
+==================================================
+PART 1 — CLASSIFY SEARCH RESULTS
+================================
+
+For every search result, classify it as:
+
+1. Direct Company Website
+   Save as lead.
+
+2. Discovery Source
+   Do not save as lead, but crawl/extract company domains from it.
+
+3. Blocked/Irrelevant
+   Skip completely.
+
+Discovery Source signals:
+
+* title contains “top”
+* title contains “best”
+* title contains “list”
+* title contains “companies”
+* title contains “agencies”
+* title contains “developers”
+* URL contains /blog
+* URL contains /article
+* URL contains /top-
+* URL contains /best-
+* domain is a directory/listing site
+
+Examples of discovery sources:
+clutch.co
+businessofapps.com
+buildfire.com/blog
+designrush.com
+goodfirms.co
+themanifest.com
+g2.com
+capterra.com
+
+These should not be saved as leads.
+
+==================================================
+PART 2 — DISCOVERY SOURCE MINING
+================================
+
+When a discovery source is found:
+
+1. Crawl the page.
+2. Extract outbound company website links.
+3. Remove social links.
+4. Remove same-domain/internal links.
+5. Remove blocked domains.
+6. Normalize root domains.
+7. Save extracted actual company domains as leads.
+
+Example:
+If buildfire.com article lists 10 app development companies:
+
+* do not save buildfire.com
+* extract actual company domains from the article
+* crawl those company websites
+* save those companies
+
+==================================================
+PART 3 — COMPANY NAME EXTRACTION FIX
+====================================
+
+Do not use search result title as company name for final leads.
+
+Current wrong examples:
+“Top 11 Mobile App Development Companies in United States”
+“Mobile App Development Services in USA for Android & iOS”
+
+Correct behavior:
+Company name should come from actual company website.
+
+Use this priority:
+
+1. Organization schema name
+2. og:site_name
+3. logo alt text
+4. footer copyright company name
+5. clean domain brand name as fallback
+
+Examples:
+mindinventory.com → MindInventory
+simform.com → Simform
+w2ssolutions.com → W2S Solutions
+
+==================================================
+PART 4 — BLOCK DIRECTORY DOMAINS AS FINAL LEADS
+===============================================
+
+Add these domains to “not final lead” list:
+
+clutch.co
+goodfirms.co
+designrush.com
+themanifest.com
+businessofapps.com
+buildfire.com
+g2.com
+capterra.com
+softwareworld.co
+appdevelopmentcompanies.co
+topdevelopers.co
+selectedfirms.co
+
+Important:
+These domains may be used as discovery sources.
+They must not be saved as final leads.
+
+==================================================
+PART 5 — LEAD SOURCE TRACKING
+=============================
+
+For every lead, store:
+
+* source_type: direct_search_result / discovery_source
+* discovery_source_domain
+* discovery_source_url
+* original_search_query
+
+This helps us understand why the lead entered the system.
+
+==================================================
+PART 6 — REPROCESS EXISTING BAD LEADS
+=====================================
+
+For existing leads that are actually blog/listicle/directory pages:
+
+1. Mark them as rejected or source_only.
+2. Do not delete them unless necessary.
+3. If possible, mine those pages for actual company domains.
+4. Create proper leads from discovered company websites.
+
+Add status:
+lead_type:
+
+* company
+* discovery_source
+* rejected
+
+Only lead_type=company should be available for qualification/list/outreach.
+
+==================================================
+PART 7 — TESTING
+================
+
+Test with query:
+mobile app development companies USA
+
+Expected behavior:
+
+* buildfire.com article should not be saved as company lead
+* clutch.co should not be saved as company lead
+* businessofapps.com should not be saved as company lead
+* actual company websites listed on those pages should be extracted and saved
+* company names should be actual company names, not page titles
+
+Run UI/API test and provide:
+
+* search results found
+* discovery sources detected
+* final company leads created
+* domains skipped
+* company names extracted
+* examples before/after
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* classification logic added
+* discovery-source domains added
+* company-name extraction changes
+* existing bad lead handling
+* tests run
+* sample corrected output

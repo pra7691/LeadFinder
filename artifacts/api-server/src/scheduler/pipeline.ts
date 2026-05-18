@@ -86,8 +86,10 @@ function isJunkResult(
 ): boolean {
   const domainLower = rootDomain.toLowerCase();
 
-  // User-configured blocked domains
-  if (blockedDomains.has(domainLower)) return true;
+  // User-configured blocked domains (exact match + subdomain match)
+  for (const blocked of blockedDomains) {
+    if (domainLower === blocked || domainLower.endsWith(`.${blocked}`)) return true;
+  }
 
   // Hard-coded junk domains
   if (JUNK_DOMAINS.has(domainLower)) return true;

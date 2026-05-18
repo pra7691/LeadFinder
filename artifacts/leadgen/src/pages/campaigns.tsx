@@ -18,6 +18,7 @@ import {
   Calendar,
   Clock,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import {
   Dialog,
@@ -39,12 +40,12 @@ const SCHEDULE_LABELS: Record<string, string> = {
   weekly: "Weekly",
 };
 
-const STATUS_DOT: Record<string, string> = {
-  idle: "bg-muted-foreground/40",
-  running: "bg-blue-500 animate-pulse",
-  success: "bg-green-500",
-  failed: "bg-destructive",
-};
+function getStatusDot(lastRunStatus: string, isActive: boolean): { dot: string; label: string } {
+  if (lastRunStatus === "running") return { dot: "bg-blue-500 animate-pulse", label: "Running" };
+  if (!isActive) return { dot: "bg-muted-foreground/30", label: "Inactive" };
+  if (lastRunStatus === "failed") return { dot: "bg-destructive", label: "Failed" };
+  return { dot: "bg-emerald-500", label: "Active" };
+}
 
 type Campaign = {
   id: number;
@@ -191,7 +192,7 @@ export function Campaigns() {
             const isPaused = Boolean(campaign.isPaused);
             const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
             const lastRunAt = campaign.lastRunAt ? new Date(campaign.lastRunAt) : null;
-            const dot = STATUS_DOT[lastRunStatus] ?? STATUS_DOT.idle!;
+            const { dot, label: dotLabel } = getStatusDot(lastRunStatus, campaign.isActive);
 
             return (
               <Link key={campaign.id} href={`/campaigns/${campaign.id}`} data-testid={`link-campaign-${campaign.id}`}>
@@ -202,9 +203,17 @@ export function Campaigns() {
                         {campaign.name}
                       </h3>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
-                        {campaign.isActive && !isPaused ? (
-                          <span className="flex items-center text-[11px] font-medium text-primary bg-primary/10 px-2.5 py-1 rounded-full gap-1">
+                        {lastRunStatus === "running" ? (
+                          <span className="flex items-center text-[11px] font-medium text-blue-500 bg-blue-500/10 px-2.5 py-1 rounded-full gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Running
+                          </span>
+                        ) : campaign.isActive && !isPaused ? (
+                          <span className="flex items-center text-[11px] font-medium text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full gap-1">
                             <Activity className="w-3 h-3" /> Active
+                          </span>
+                        ) : lastRunStatus === "failed" ? (
+                          <span className="flex items-center text-[11px] font-medium text-destructive bg-destructive/10 px-2.5 py-1 rounded-full gap-1">
+                            <Activity className="w-3 h-3" /> Failed
                           </span>
                         ) : isPaused ? (
                           <span className="flex items-center text-[11px] font-medium text-amber-600 bg-amber-500/10 px-2.5 py-1 rounded-full gap-1">
@@ -228,7 +237,10 @@ export function Campaigns() {
                       {scheduleType !== "manual" && campaign.scheduleTime && (
                         <span className="opacity-60">@ {campaign.scheduleTime}</span>
                       )}
-                      <span className={cn("w-2 h-2 rounded-full ml-auto shrink-0", dot)} />
+                      <span className="flex items-center gap-1.5 ml-auto">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", dot)} />
+                        <span className="text-[10px] text-muted-foreground">{dotLabel}</span>
+                      </span>
                     </div>
 
                     {nextRunAt && scheduleType !== "manual" && !isPaused && (

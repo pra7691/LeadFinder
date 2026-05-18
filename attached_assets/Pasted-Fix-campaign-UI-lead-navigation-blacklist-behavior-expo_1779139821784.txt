@@ -1,0 +1,277 @@
+Fix campaign UI, lead navigation, blacklist behavior, export, and layout issues found during manual testing.
+
+Do not rebuild the app.
+Do not change the core database unless necessary.
+Preserve existing campaign runs, leads, lists, and outreach data.
+
+Current issues found:
+
+1. Campaign list shows a green dot even when the campaign is not running.
+2. Lead detail view is missing. Earlier clicking a lead opened detailed information; restore this.
+3. “Run Info” section at the bottom is redundant because the same information exists in Campaign Runs. Remove it.
+4. Scheduler section is placed poorly. Move it below Limits/Templates and reduce wasted height.
+5. Campaign Detail has a separate Leads tab, but leads should be accessed through Campaign Runs only.
+6. Run Detail lead table has fewer details than the separate Leads tab had. Move useful details/filters/actions into Run Detail.
+7. Need export option for current visible leads.
+8. Global blacklist must work across all campaigns before crawling.
+9. If a blacklisted domain appears in search results, it must be skipped before crawl and before lead creation.
+10. Need to verify blacklist behavior through logs and testing.
+
+==================================================
+PART 1 — FIX CAMPAIGN STATUS DOT
+================================
+
+Campaign list status indicator must clearly represent run state.
+
+Use:
+
+* Green dot = campaign active/enabled, but not running
+* Blue animated dot/spinner = campaign currently running
+* Red/amber = last run failed
+* Gray = inactive
+
+Add label beside dot:
+
+* Active
+* Running
+* Failed
+* Inactive
+
+Do not show only a green dot without explanation.
+
+==================================================
+PART 2 — RESTORE LEAD DETAIL VIEW
+=================================
+
+Restore lead detail view when clicking a lead row.
+
+Lead detail drawer/page should show:
+
+* company name
+* website URL
+* root domain
+* country
+* emails
+* phone numbers
+* address
+* LinkedIn URL
+* relevance score
+* relevance reason
+* qualification status
+* outreach status
+* source query
+* source keyword
+* source country
+* campaign run
+* crawl status
+* notes
+* raw/extracted summary if available
+
+Actions:
+
+* mark qualified
+* reject
+* add to list
+* edit notes
+* close drawer
+
+This must work from:
+
+* Run Detail lead table
+* List Detail lead table
+* any other lead table where applicable
+
+==================================================
+PART 3 — REMOVE REDUNDANT RUN INFO SECTION
+==========================================
+
+Remove the bottom “Run Info” section from Campaign Detail.
+
+Reason:
+Campaign Runs already shows:
+
+* last run
+* status
+* run history
+* success/failure
+* counts
+
+Do not duplicate this information.
+
+==================================================
+PART 4 — REORGANIZE CAMPAIGN DETAIL LAYOUT
+==========================================
+
+In Campaign Detail Overview:
+
+Keep:
+
+* campaign summary
+* Run Campaign button
+* Campaign Runs section
+* Limits/Templates section
+* Scheduler section
+
+Move Scheduler section below Limits/Templates.
+
+Reduce height/padding of Limits/Templates if it is wasting space.
+
+Make the overview compact and useful.
+
+==================================================
+PART 5 — REMOVE CAMPAIGN LEADS TAB
+==================================
+
+Remove separate Leads tab from Campaign Detail.
+
+Reason:
+Leads should be navigated through Campaign Runs.
+
+Correct flow:
+Campaign Detail
+→ Campaign Runs
+→ View Run
+→ Run Leads
+
+Lists remain separate for curated leads.
+
+==================================================
+PART 6 — IMPROVE RUN DETAIL LEADS TABLE
+=======================================
+
+Run Detail page should become the main place to inspect discovered leads.
+
+Add all useful lead table features here:
+
+* search/filter
+* qualification filter
+* has email filter
+* country filter
+* relevance score display
+* email count
+* phone count
+* qualification status
+* outreach status
+* select checkbox
+* add selected to list
+* mark qualified/rejected
+* click row to open lead detail
+
+This should replace the removed Campaign Leads tab.
+
+==================================================
+PART 7 — EXPORT CURRENT LEADS
+=============================
+
+Add export button on Run Detail page.
+
+Export current visible/filtered leads.
+
+Support:
+
+* CSV at minimum
+* XLSX if already available
+
+Export fields:
+
+* company name
+* website URL
+* root domain
+* country
+* emails
+* phone numbers
+* address
+* LinkedIn URL
+* relevance score
+* relevance reason
+* qualification status
+* outreach status
+* source query
+* source keyword
+* source country
+* campaign run date
+* notes
+
+Also add export from List Detail if not already present.
+
+==================================================
+PART 8 — GLOBAL BLACKLIST BEHAVIOR
+==================================
+
+Global blocked domains must apply to all campaigns.
+
+Before crawling or creating lead:
+
+* normalize root domain
+* check against global blocked domains
+* if blocked, skip immediately
+* do not crawl
+* do not create lead
+* log as blocked
+
+Blocked domains should be managed from Settings.
+
+Blacklist must support:
+
+* exact domain match
+* www normalization
+* subdomain handling
+
+Example:
+If ycombinator.com is blocked:
+
+* ycombinator.com skipped
+* [www.ycombinator.com](http://www.ycombinator.com) skipped
+* blog.ycombinator.com skipped
+
+==================================================
+PART 9 — BLACKLIST TESTING
+==========================
+
+Add test case:
+
+1. Add a domain to global blacklist.
+2. Run campaign that returns that domain.
+3. Verify:
+
+   * domain is skipped
+   * no lead is created
+   * crawler is not called
+   * log entry created
+   * applies across all campaigns
+
+==================================================
+PART 10 — UI DRY RUN TESTING
+============================
+
+Test:
+
+* campaign status dot labels
+* running state indicator
+* Run Info removed
+* Scheduler moved
+* Leads tab removed
+* Campaign Runs still works
+* Run Detail shows leads
+* lead detail drawer opens
+* export visible leads works
+* add selected leads to list works
+* blacklist skips domains globally
+* no broken sidebar routes
+* no console errors
+
+Fix all discovered issues.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* UI sections removed
+* layout changes
+* lead detail restored
+* export added
+* blacklist behavior fixed
+* tests run
+* remaining limitations
