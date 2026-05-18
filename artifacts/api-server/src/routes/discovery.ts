@@ -142,6 +142,11 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
           message: `Query skipped (recently searched): "${query}"`,
           metadataJson: JSON.stringify({ query, nextRefreshAt: qhRecord.nextRefreshAt.toISOString(), reason: "skipped_recent" }),
         });
+        try {
+          await db.update(campaignRunsTable)
+            .set({ totalSearchesSkipped: sql`coalesce(${campaignRunsTable.totalSearchesSkipped}, 0) + 1` })
+            .where(eq(campaignRunsTable.id, campaignRun.id));
+        } catch { /* non-fatal */ }
         continue;
       }
 
@@ -339,6 +344,18 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
             .where(eq(searchQueryHistoryTable.id, queryHistoryId));
         } catch { /* non-fatal */ }
       }
+
+      // ── Incrementally update campaign_run live counters ──────────────────
+      try {
+        await db.update(campaignRunsTable)
+          .set({
+            totalNewLeads: sql`coalesce(${campaignRunsTable.totalNewLeads}, 0) + ${qNewLeads}`,
+            totalSearches: sql`coalesce(${campaignRunsTable.totalSearches}, 0) + 1`,
+            totalBlocked: sql`coalesce(${campaignRunsTable.totalBlocked}, 0) + ${qBlocked}`,
+            totalDuplicates: sql`coalesce(${campaignRunsTable.totalDuplicates}, 0) + ${qDups}`,
+          })
+          .where(eq(campaignRunsTable.id, campaignRun.id));
+      } catch { /* non-fatal */ }
 
       // Small delay between searches to respect rate limits
       await new Promise((r) => setTimeout(r, 500));

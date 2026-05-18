@@ -8,6 +8,7 @@ import {
   campaignsTable,
   campaignKeywordsTable,
   campaignCountriesTable,
+  campaignRunsTable,
   leadsTable,
   outreachQueueTable,
   emailAccountsTable,
@@ -423,6 +424,13 @@ async function runDiscovery(
         await schedulerLog(campaign.id, `Query skipped (recently searched): "${query}"`, {
           nextRefreshAt: qhRecord.nextRefreshAt.toISOString(),
         });
+        if (campaignRunId != null) {
+          try {
+            await db.update(campaignRunsTable)
+              .set({ totalSearchesSkipped: sql`coalesce(${campaignRunsTable.totalSearchesSkipped}, 0) + 1` })
+              .where(eq(campaignRunsTable.id, campaignRunId));
+          } catch { /* non-fatal */ }
+        }
         continue;
       }
 
@@ -691,6 +699,20 @@ async function runDiscovery(
               discoverySourceCount: qSources,
             })
             .where(eq(searchQueryHistoryTable.id, queryHistoryId));
+        } catch { /* non-fatal */ }
+      }
+
+      // ── Incrementally update campaign_run live counters ──────────────────
+      if (campaignRunId != null) {
+        try {
+          await db.update(campaignRunsTable)
+            .set({
+              totalNewLeads: sql`coalesce(${campaignRunsTable.totalNewLeads}, 0) + ${qNewLeads}`,
+              totalSearches: sql`coalesce(${campaignRunsTable.totalSearches}, 0) + 1`,
+              totalBlocked: sql`coalesce(${campaignRunsTable.totalBlocked}, 0) + ${qBlocked}`,
+              totalDuplicates: sql`coalesce(${campaignRunsTable.totalDuplicates}, 0) + ${qDups}`,
+            })
+            .where(eq(campaignRunsTable.id, campaignRunId));
         } catch { /* non-fatal */ }
       }
 

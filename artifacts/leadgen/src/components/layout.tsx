@@ -88,7 +88,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {NAV_ITEMS.map((item) => {
             const isActive =
               location === item.href ||
-              (item.href !== "/" && location.startsWith(item.href));
+              (item.href !== "/" && location.startsWith(item.href + "/"));
             return (
               <Link
                 key={item.href}

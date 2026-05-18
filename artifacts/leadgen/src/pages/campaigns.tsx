@@ -260,10 +260,11 @@ export function Campaigns() {
                       {scheduleType !== "manual" && campaign.scheduleTime && (
                         <span className="opacity-60">@ {campaign.scheduleTime}</span>
                       )}
-                      <span className="flex items-center gap-1.5 ml-auto">
-                        <span className={cn("w-2 h-2 rounded-full shrink-0", dot)} />
-                        <span className="text-[10px] text-muted-foreground">{dotLabel}</span>
-                      </span>
+                      {lastRunAt && (
+                        <span className="text-[10px] text-muted-foreground ml-auto">
+                          {formatDistanceToNow(lastRunAt, { addSuffix: true })}
+                        </span>
+                      )}
                     </div>
 
                     {nextRunAt && scheduleType !== "manual" && !isPaused && (
@@ -271,12 +272,6 @@ export function Campaigns() {
                         <Clock className="w-3.5 h-3.5" />
                         Next: {formatDistanceToNow(nextRunAt, { addSuffix: true })}
                       </div>
-                    )}
-
-                    {lastRunAt && (
-                      <p className="text-[11px] text-muted-foreground/60 mb-3">
-                        Last run {formatDistanceToNow(lastRunAt, { addSuffix: true })}
-                      </p>
                     )}
 
                     <div className="flex gap-2 flex-wrap mt-auto pt-4 border-t border-border/30">
