@@ -1,0 +1,151 @@
+Add a post-deployment smoke test script and default app settings seed.
+
+Do not rebuild the app.
+Do not change unrelated modules.
+
+Goal:
+Make production deployment safer by verifying that the API, database, schema, and critical settings are ready before actual usage.
+
+PART 1 — POST-DEPLOYMENT SMOKE TEST SCRIPT
+
+Create a script:
+
+scripts/smoke-test-production.ts
+
+or similar.
+
+The script should accept:
+
+API_BASE_URL
+
+Example:
+API_BASE_URL=https://yourdomain.com pnpm run smoke:test
+
+The script should check:
+
+1. GET /api/healthz
+Expected:
+status 200
+{ "status": "ok" }
+
+2. GET /api/healthz/deep
+Expected:
+status is "ok" or "warning"
+
+Fail the script if:
+- API is unreachable
+- database is not connected
+- required tables are missing
+- required columns are missing
+- status = error
+
+Allow warning if:
+- optional app settings are missing
+
+But clearly print warnings.
+
+Output should be readable:
+
+API Health: OK
+Database: Connected
+Schema: OK
+Warnings:
+- blocked_domains not configured
+- ai_enabled not configured
+
+Exit codes:
+- 0 = safe to continue
+- 1 = deployment is broken
+
+PART 2 — PACKAGE SCRIPT
+
+Add package.json command:
+
+pnpm run smoke:test
+
+or workspace-compatible equivalent.
+
+Document exact usage.
+
+PART 3 — DEFAULT SETTINGS SEED
+
+Add a safe seed command for default app settings.
+
+Create script:
+
+scripts/seed-default-settings.ts
+
+It should insert default app_settings only if missing.
+
+Seed these default settings:
+
+blocked_domains:
+google.com
+linkedin.com
+facebook.com
+youtube.com
+twitter.com
+x.com
+instagram.com
+wikipedia.org
+reddit.com
+medium.com
+github.com
+crunchbase.com
+techcrunch.com
+ycombinator.com
+yc.com
+producthunt.com
+wellfound.com
+angel.co
+glassdoor.com
+indeed.com
+upwork.com
+fiverr.com
+clutch.co
+g2.com
+capterra.com
+
+ai_enabled:
+false
+
+ai_scoring_enabled:
+false
+
+openai_model:
+gpt-4o-mini
+
+Do not overwrite existing user-configured settings.
+
+PART 4 — UPDATE DEPLOYMENT DOC
+
+Update DEPLOYMENT.md.
+
+After database schema push, add:
+
+pnpm run seed:settings
+pnpm run smoke:test
+
+Mention:
+- schema push creates tables
+- seed settings creates safe defaults
+- smoke test verifies deployment health
+
+PART 5 — TESTING
+
+Test:
+1. Fresh DB after schema push.
+2. Run seed settings.
+3. Verify app_settings has default keys.
+4. Run smoke test against local API.
+5. Smoke test exits 0 when DB is healthy.
+6. Smoke test exits 1 when schema is missing.
+7. Smoke test does not expose secrets.
+
+Completion report:
+- scripts added
+- package commands added
+- default settings seeded
+- smoke test output examples
+- deployment doc changes
+- tests run
