@@ -1,0 +1,107 @@
+I need a production installation/deployment document for this project so a developer can host it on my own server.
+
+Please provide the exact technical details below:
+
+1. What is the exact tech stack?
+- Frontend framework
+- Backend framework
+- Database
+- ORM/migration tool
+- Package manager
+- Node.js version required
+
+2. What is the exact folder structure?
+Mention the important paths for:
+- frontend app
+- backend API server
+- database schema/migrations
+- shared packages
+- generated API client
+- build output folders
+
+3. What are the exact install commands?
+Example:
+pnpm install
+or npm install
+or any workspace-specific install command.
+
+4. What are the exact database setup steps?
+- PostgreSQL version requirement
+- DATABASE_URL format
+- migration command
+- seed command if any
+- reset command if any
+
+5. What are the exact build commands?
+Provide separate commands for:
+- backend build
+- frontend build
+- full monorepo build
+
+6. What are the exact run commands for production?
+Provide:
+- backend production start command
+- frontend serving method
+- port used by backend
+- whether backend serves frontend static files or frontend must be served separately
+
+7. Does the API server serve the frontend build in production?
+Yes or No.
+If yes, mention the static build path.
+If no, explain how frontend should be deployed and how it connects to backend.
+
+8. What environment variables are required?
+List all required and optional variables, including:
+- DATABASE_URL
+- SERPER_API_KEY
+- OpenAI-related variables if any
+- SMTP-related variables if any
+- frontend API base URL if any
+- PORT
+- NODE_ENV
+
+Do not include actual secret values.
+
+9. Are API keys stored in environment variables or app settings?
+Clarify:
+- Serper key
+- OpenAI key
+- SMTP credentials
+- blocked domains/settings
+
+10. Does the app require Playwright in production?
+If yes:
+- where is it used?
+- install command
+- server dependencies required
+
+11. Does the app generate CSV/XLSX files in memory or save them on disk?
+If disk:
+- which folder?
+- does that folder need write permissions?
+
+12. Are there background jobs or long-running campaign runs?
+If yes:
+- are they handled inside the API process?
+- do they need a worker process?
+- what timeout settings should be configured?
+
+13. What health check endpoint exists?
+Example:
+/api/healthz
+
+14. What are the recommended deployment commands for:
+- VPS with PM2 + Nginx
+- Replit deployment
+
+15. What tests should be run after deployment?
+Provide exact test commands and manual verification checklist.
+
+16. Are there any known deployment limitations or risks?
+Example:
+- long-running requests
+- crawler rate limits
+- missing frontend serving
+- migration risks
+- CORS issues
+- file permissions
