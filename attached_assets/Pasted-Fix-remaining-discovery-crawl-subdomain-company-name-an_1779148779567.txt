@@ -1,0 +1,301 @@
+Fix remaining discovery, crawl, subdomain, company-name, and run-label issues found during testing.
+
+Do not rebuild the app.
+Do not change unrelated modules.
+Preserve existing campaigns, runs, lists, leads, outreach, and settings.
+
+==================================================
+ISSUE 1 — ADD STOP RUNNING CAMPAIGN OPTION
+==========================================
+
+Current issue:
+When a campaign is running, there is no option to stop/cancel it.
+
+Add button:
+Stop Run
+
+Show only when a campaign run status = running.
+
+Behavior:
+
+* user clicks Stop Run
+* confirmation modal appears
+* if confirmed, mark current campaign run as cancelled
+* stop processing remaining queries/results as soon as safely possible
+* preserve leads already created
+* set completed_at
+* calculate duration_seconds
+* log cancellation
+
+Add run status:
+cancelled
+
+Rules:
+
+* cancelled run should not be considered failed
+* cancelled run should show in Campaign Runs history
+* leads already created remain linked to that run
+* UI should stop polling when run is cancelled
+
+==================================================
+ISSUE 2 — FIX SUBDOMAIN BLOCKING
+================================
+
+Current issue:
+Subdomains are still appearing as leads.
+
+Examples:
+
+* blog.houzz.com
+* pro.houzz.com
+* feeds.feedburner.com
+
+Fix domain blocking using root-domain/eTLD+1 logic.
+
+Rules:
+If blocked domain is:
+houzz.com
+
+Then skip:
+
+* houzz.com
+* [www.houzz.com](http://www.houzz.com)
+* blog.houzz.com
+* pro.houzz.com
+* any-subdomain.houzz.com
+
+If blocked domain is:
+feedburner.com
+
+Then skip:
+
+* feeds.feedburner.com
+* anything.feedburner.com
+
+Use proper root domain extraction, not simple string matching only.
+
+==================================================
+ISSUE 3 — DISCOVERY SOURCE MINING SHOULD NOT SAVE SAME-SITE LINKS
+=================================================================
+
+Current issue:
+When mining a discovery source like Houzz, the system is saving internal/source-related links as leads.
+
+Example:
+Discovery source:
+houzz.com
+
+Bad saved leads:
+
+* blog.houzz.com
+* pro.houzz.com
+* feeds.feedburner.com
+
+Fix:
+When mining a discovery source:
+
+* do not save same root domain as the discovery source
+* do not save subdomains of the discovery source
+* do not save RSS/feed/utility domains
+* do not save login/signup/blog/internal links
+* only save actual external company websites
+
+Reject domains containing or matching:
+
+* feedburner.com
+* rss
+* feeds
+* blog subdomains
+* cdn
+* assets
+* static
+* support
+* help
+* docs
+* login
+* app
+* dashboard
+
+==================================================
+ISSUE 4 — COMPANY NAME SHOULD NOT BE POPULATED BEFORE CRAWL
+===========================================================
+
+Current issue:
+The system adds page title/domain-derived values as company names before scraping.
+
+This creates bad names like:
+
+* Feeds
+* Pro.houzz
+* page titles
+* directory/listicle titles
+
+Fix:
+When lead is first discovered but not crawled:
+
+* company_name should be blank or “Pending crawl”
+* do not use search result title as final company name
+* do not use page title from discovery source as company name
+
+After crawling the actual company website:
+
+* update company_name using extraction logic
+
+UI:
+If company_name is blank or pending, display:
+“Pending crawl”
+and show root domain below it.
+
+==================================================
+ISSUE 5 — FIX REMAINING PIPELINE COPY
+=====================================
+
+Current issue:
+Run page still shows:
+“Pipeline – 2026-05-18”
+
+Replace all remaining “Pipeline” wording with:
+
+* Campaign Run
+* Run
+* Campaign is running
+
+Examples:
+“Pipeline – 2026-05-18”
+should become:
+“Campaign Run – 2026-05-18”
+
+Search the full codebase and remove leftover pipeline labels from user-facing UI.
+
+==================================================
+ISSUE 6 — IMPROVE LEAD TYPE CLASSIFICATION
+==========================================
+
+Current issue:
+Bad domains are still classified as company.
+
+Examples:
+feeds.feedburner.com should not be company.
+
+Add lead types:
+
+* company
+* directory
+* media
+* feed
+* utility
+* platform
+* event
+* research
+* dataset
+* rejected
+
+Rules:
+
+* feedburner/feed/rss domains = feed
+* blog subdomains = media or rejected
+* source-site subdomains from discovery source = rejected
+* pro.houzz.com = platform/directory, not company
+
+Only lead_type = company should be eligible for:
+
+* qualify
+* add to list
+* outreach
+
+==================================================
+ISSUE 7 — PHONE EXTRACTION CLEANUP
+==================================
+
+Current issue:
+Phone numbers are still noisy.
+
+Example exported phones include:
+
+* random 10-digit strings
+* duplicates
+* partial-looking numbers
+
+Improve phone validation:
+
+* prefer tel: links
+* use libphonenumber-js or equivalent if available
+* normalize to E.164 where possible
+* deduplicate numbers
+* reject random numeric strings unless they appear near phone/contact labels
+* reject IDs, tracking numbers, years, counts, coordinates
+
+If target country is US:
+prefer valid US phone formats.
+
+==================================================
+ISSUE 8 — ADDRESS CLEANUP
+=========================
+
+Clean extracted addresses.
+
+Example bad address:
+Corporate Headquarters:614 2nd St SWaite Park, MN 56387
+
+Should become:
+Corporate Headquarters: 614 2nd St SW, Waite Park, MN 56387
+
+Add basic spacing cleanup:
+
+* add space after colon
+* fix missing space before city if detectable
+* normalize repeated whitespace
+* trim junk
+
+==================================================
+ISSUE 9 — CURRENT RUN / LIVE STATS CONSISTENCY
+==============================================
+
+Ensure when a run is active:
+
+* Stop Run button appears
+* counters update live
+* leads appear live
+* current run card updates
+* run detail updates
+* campaign card shows running state
+* cancelled status works correctly
+
+==================================================
+ISSUE 10 — TESTING
+==================
+
+Test with campaign query:
+Home Improvement company US
+
+Verify:
+
+1. Stop Run button appears while running.
+2. Stop Run cancels safely.
+3. campaign run status becomes cancelled.
+4. blog.houzz.com is not saved as company lead.
+5. pro.houzz.com is not saved as company lead.
+6. feeds.feedburner.com is not saved as company lead.
+7. same-root-domain links from discovery sources are skipped.
+8. company name is Pending crawl before crawling.
+9. company name updates only after crawling actual company website.
+10. “Pipeline” text is removed from UI.
+11. phone cleanup removes junk/duplicates.
+12. exported CSV/XLSX reflects corrected data.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* Stop Run behavior added
+* subdomain blocking fix
+* discovery-source mining fix
+* company name placeholder change
+* pipeline copy cleanup
+* lead type classification changes
+* phone/address cleanup
+* tests run
+* before/after examples
+* remaining limitations

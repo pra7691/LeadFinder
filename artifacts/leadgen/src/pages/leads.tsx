@@ -940,7 +940,7 @@ export function Leads() {
 
                     {/* Company */}
                     <TableCell className="font-medium text-foreground leading-tight">
-                      <div>{lead.companyName}</div>
+                      <div>{lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-sm">Pending crawl</span>}</div>
                       <ContactQualityBadge emails={lead.emails} phones={lead.phoneNumbers} linkedin={lead.linkedinUrl} />
                     </TableCell>
 

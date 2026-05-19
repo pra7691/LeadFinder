@@ -13,7 +13,10 @@ export type LeadType =
   | "event"
   | "dataset"
   | "research"
-  | "stats_platform";
+  | "stats_platform"
+  | "feed"
+  | "utility"
+  | "platform";
 
 // ── Known-domain lookup tables ─────────────────────────────────────────────
 
@@ -53,6 +56,19 @@ const MEDIA_DOMAINS = new Set([
   "theverge.com", "engadget.com", "androidauthority.com",
   "9to5mac.com", "macrumors.com", "mashable.com",
   "businessinsider.com", "inc.com", "entrepreneur.com",
+]);
+
+const FEED_DOMAINS = new Set([
+  "feedburner.com", "feedproxy.google.com",
+  "rss.com", "feedblitz.com", "feedspot.com",
+  "feedly.com", "inoreader.com", "newsblur.com",
+  "theoldreader.com", "bazqux.com",
+]);
+
+const PLATFORM_DOMAINS = new Set([
+  "houzz.com", "etsy.com", "amazon.com", "ebay.com",
+  "alibaba.com", "aliexpress.com", "walmart.com",
+  "wayfair.com", "overstock.com",
 ]);
 
 // ── Pattern-based detection ────────────────────────────────────────────────
@@ -144,6 +160,9 @@ export function classifyLeadType(domain: string, title?: string | null): LeadTyp
   const text = (title ?? "").toLowerCase();
 
   // 1. Exact known-domain lookups (highest confidence)
+  if (FEED_DOMAINS.has(d) || d.endsWith(".feedburner.com") || d.endsWith(".feedproxy.google.com")) return "feed";
+  if (/^(feeds?|rss|atom)\.[^.]+\.[^.]+/.test(d)) return "feed";
+  if (PLATFORM_DOMAINS.has(d)) return "platform";
   if (DIRECTORY_DOMAINS.has(d)) return "directory";
   if (STATS_PLATFORM_DOMAINS.has(d)) return "stats_platform";
   if (DATASET_DOMAINS.has(d)) return "dataset";
@@ -154,6 +173,14 @@ export function classifyLeadType(domain: string, title?: string | null): LeadTyp
   if (EVENT_DOMAIN_PATTERNS.some((p) => p.test(d))) return "event";
   if (MEDIA_DOMAIN_PATTERNS.some((p) => p.test(d))) return "media";
   if (RESEARCH_DOMAIN_PATTERNS.some((p) => p.test(d))) return "research";
+
+  // 2b. Subdomains of known directory / platform domains
+  for (const dir of DIRECTORY_DOMAINS) {
+    if (d.endsWith(`.${dir}`)) return "directory";
+  }
+  for (const plat of PLATFORM_DOMAINS) {
+    if (d.endsWith(`.${plat}`)) return "platform";
+  }
 
   // 3. Title / description pattern matching
   if (DIRECTORY_TITLE_PATTERNS.some((p) => p.test(text))) return "directory";

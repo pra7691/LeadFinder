@@ -159,6 +159,12 @@ function isLikelyPhone(digits: string): boolean {
   if (digits.length < 7 || digits.length > 15) return false;
   if (/^(\d)\1{6,}$/.test(digits)) return false;
   if (/^\d{4,5}$/.test(digits)) return false;
+  // Reject year-like 4-digit sequences (1900–2099)
+  if (/^(19|20)\d{2}$/.test(digits)) return false;
+  // Reject 6-digit sequences (short codes / partial IDs)
+  if (digits.length === 6) return false;
+  // Reject 8-digit sequences that look like calendar dates (YYYYMMDD)
+  if (digits.length === 8 && /^(19|20)\d{2}(0[1-9]|1[0-2])/.test(digits)) return false;
   return true;
 }
 
@@ -325,6 +331,14 @@ const COUNTRY_HINTS: Record<string, string> = {
   india: "India", singapore: "Singapore", israel: "Israel",
 };
 
+function cleanAddress(raw: string): string {
+  return raw
+    .replace(/\s+/g, " ")
+    .replace(/:(?!\s)/g, ": ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+}
+
 function extractAddressAndCountry(
   $: ReturnType<typeof cheerio.load>,
 ): { address: string | null; country: string | null } {
@@ -335,7 +349,7 @@ function extractAddressAndCountry(
     const el = $(sel).first();
     if (el.length > 0) {
       const text = el.text().replace(/\s+/g, " ").trim();
-      if (text.length > 5 && text.length < 300) { address = text; break; }
+      if (text.length > 5 && text.length < 300) { address = cleanAddress(text); break; }
     }
   }
 
@@ -392,7 +406,11 @@ export async function extractCompanyLinksFromPage(
     try {
       const parsed = new URL(href);
       const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
-      if (!host || host === sourceRootDomain || seen.has(host)) return;
+      if (!host || host === sourceRootDomain || host.endsWith(`.${sourceRootDomain}`) || seen.has(host)) return;
+      // Skip utility/feed/blog subdomains that are never real company sites
+      if (/^(blog|feeds?|rss|atom|cdn|static|assets|support|help|docs|login|app|dashboard|status|api|dev|staging|mail|newsletter|careers|jobs|forum|community|wiki|portal)\./i.test(host)) return;
+      // Skip known feed relay services
+      if (host === "feedburner.com" || host.endsWith(".feedburner.com") || host === "feedproxy.google.com") return;
       const path = parsed.pathname.toLowerCase();
       if (/\.(css|js|png|jpg|jpeg|gif|svg|pdf|ico|woff|xml|json|zip|mp4|mp3)$/.test(path)) return;
       const socialish = ["facebook.com", "twitter.com", "x.com", "linkedin.com",

@@ -28,6 +28,26 @@ import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
 
+// ── Cancellation registry ─────────────────────────────────────────────────
+
+const cancelledRuns = new Set<number>();
+
+/** Signal the pipeline to stop at the next safe checkpoint. */
+export function requestCancellation(runId: number): void {
+  cancelledRuns.add(runId);
+}
+
+/** Clear the cancellation flag once the pipeline has acknowledged it. */
+export function clearCancellation(runId: number | undefined | null): void {
+  if (runId != null) cancelledRuns.delete(runId);
+}
+
+function isCancelled(runId: number | undefined | null): boolean {
+  return runId != null && cancelledRuns.has(runId);
+}
+
+// ── Pipeline result ────────────────────────────────────────────────────────
+
 export interface PipelineResult {
   campaignId: number;
   discoveryLeadsCreated: number;
@@ -234,6 +254,7 @@ async function mineDiscoverySource({
   let blocked = 0;
 
   for (const { href, rootDomain, anchorText } of links) {
+    if (isCancelled(campaignRunId)) break;
     if (existingDomains.has(rootDomain)) {
       duplicates++;
       continue;
@@ -246,14 +267,11 @@ async function mineDiscoverySource({
       continue;
     }
 
-    // Use domain-based placeholder name; crawl step will overwrite with real name
-    const cleanName = formatDomainName(rootDomain);
-
     try {
       await db.insert(leadsTable).values({
         campaignId: campaign.id,
         campaignRunId: campaignRunId ?? null,
-        companyName: cleanName,
+        companyName: "",
         rootDomain,
         websiteUrl: href,
         leadStatus: "discovered",
@@ -697,13 +715,11 @@ async function runDiscovery(
           continue;
         }
 
-        const cleanName = formatDomainName(rootDomain);
-
         try {
           await db.insert(leadsTable).values({
             campaignId: campaign.id,
             campaignRunId: campaignRunId ?? null,
-            companyName: cleanName,
+            companyName: "",
             rootDomain,
             websiteUrl: result.link,
             leadStatus: "discovered",
@@ -1132,6 +1148,12 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
     errors.push(`Discovery failed: ${msg}`);
     result.failed++;
     logger.error({ err, campaignId }, "Scheduler: discovery step failed");
+  }
+
+  if (isCancelled(campaignRunId)) {
+    clearCancellation(campaignRunId);
+    result.durationMs = Date.now() - startedAt;
+    return result;
   }
 
   try {

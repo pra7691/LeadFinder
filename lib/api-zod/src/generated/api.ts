@@ -486,6 +486,44 @@ export const GetCampaignRunLeadsResponse = zod.array(GetCampaignRunLeadsResponse
 
 
 /**
+ * @summary Cancel a currently running campaign run
+ */
+export const CancelCampaignRunParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const CancelCampaignRunResponse = zod.object({
+  "id": zod.number(),
+  "campaignId": zod.number(),
+  "runName": zod.string().nullish(),
+  "runType": zod.enum(['manual', 'scheduled']),
+  "status": zod.enum(['running', 'completed', 'failed', 'partial']),
+  "startedAt": zod.string(),
+  "completedAt": zod.string().nullish(),
+  "totalSearches": zod.number().describe('Serper queries actually performed'),
+  "totalSearchesSkipped": zod.number().describe('Queries skipped because recently searched'),
+  "totalResults": zod.number().describe('Raw result URLs returned by Serper'),
+  "totalResultsSeenBefore": zod.number().describe('Result URLs already seen in a previous run'),
+  "totalNewLeads": zod.number(),
+  "totalDuplicates": zod.number(),
+  "totalBlocked": zod.number(),
+  "totalRejected": zod.number(),
+  "totalDiscoverySourcesFound": zod.number().describe('Discovery source URLs identified (directories, listicles)'),
+  "totalDiscoverySourcesMined": zod.number().describe('Discovery sources actually crawled for company links'),
+  "totalDiscoverySourcesSkipped": zod.number().describe('Discovery sources skipped because recently mined'),
+  "errorMessage": zod.string().nullish(),
+  "metadataJson": zod.string().nullish(),
+  "durationSeconds": zod.number().nullish().describe('Elapsed wall-clock seconds from started_at to completed_at'),
+  "estimatedRemainingSeconds": zod.number().nullish().describe('Live estimate of seconds until run finishes; null while calculating'),
+  "estimatedCompletionAt": zod.string().nullish().describe('ISO timestamp of estimated completion; null while calculating'),
+  "progressPercent": zod.number().optional().describe('0–100 progress based on completed_work_units \/ total_work_units'),
+  "totalWorkUnits": zod.number().optional().describe('Total queries planned at run start (keywords × countries, capped by maxSearchesPerDay)'),
+  "completedWorkUnits": zod.number().optional().describe('Queries completed so far (searched + skipped)'),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary List all email templates
  */
 export const ListEmailTemplatesQueryParams = zod.object({

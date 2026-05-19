@@ -1281,6 +1281,76 @@ export function useGetCampaignRunLeads<TData = Awaited<ReturnType<typeof getCamp
 
 
 
+export const getCancelCampaignRunUrl = (id: number,) => {
+
+
+
+
+  return `/api/campaign-runs/${id}/cancel`
+}
+
+/**
+ * @summary Cancel a currently running campaign run
+ */
+export const cancelCampaignRun = async (id: number, options?: RequestInit): Promise<CampaignRun> => {
+
+  return customFetch<CampaignRun>(getCancelCampaignRunUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCancelCampaignRunMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelCampaignRun>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelCampaignRun>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['cancelCampaignRun'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelCampaignRun>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  cancelCampaignRun(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelCampaignRunMutationResult = NonNullable<Awaited<ReturnType<typeof cancelCampaignRun>>>
+
+    export type CancelCampaignRunMutationError = ErrorType<void>
+
+    /**
+ * @summary Cancel a currently running campaign run
+ */
+export const useCancelCampaignRun = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelCampaignRun>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelCampaignRun>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getCancelCampaignRunMutationOptions(options));
+    }
+
 export const getListEmailTemplatesUrl = (params?: ListEmailTemplatesParams,) => {
   const normalizedParams = new URLSearchParams();
 

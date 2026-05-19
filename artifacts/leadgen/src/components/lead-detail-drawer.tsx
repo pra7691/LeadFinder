@@ -154,7 +154,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-lg font-semibold leading-tight">
-                    {lead.companyName}
+                    {lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-base">Pending crawl</span>}
                   </SheetTitle>
                   {lead.websiteUrl && (
                     <a

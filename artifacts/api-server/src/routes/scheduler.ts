@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { campaignsTable, campaignRunsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { runPipeline } from "../scheduler/pipeline";
+import { runPipeline, clearCancellation } from "../scheduler/pipeline";
 import { computeNextRunAt } from "../scheduler/index";
 import { logger } from "../lib/logger";
 
@@ -79,7 +79,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
     .insert(campaignRunsTable)
     .values({
       campaignId,
-      runName: `Pipeline – ${new Date().toISOString().slice(0, 10)}`,
+      runName: `Campaign Run – ${new Date().toISOString().slice(0, 10)}`,
       runType: "manual",
       status: "running",
     })
@@ -97,6 +97,17 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
   // Awaiting blocks the event loop (health checks stop responding → outage).
   runPipeline(campaignId, runId)
     .then(async (result) => {
+      // If the run was cancelled mid-flight, don't overwrite the cancelled status
+      const [currentRun] = await db
+        .select({ status: campaignRunsTable.status })
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.id, runId));
+      if (currentRun?.status === "cancelled") {
+        clearCancellation(runId);
+        logger.info({ campaignId, runId }, "Manual trigger: run was cancelled — skipping status update");
+        return;
+      }
+
       const status =
         result.failed > 0 && result.discoveryLeadsCreated === 0 && result.crawledCount === 0
           ? "failed"

@@ -280,7 +280,9 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
         if (!rootDomain) continue;
 
         const isDuplicate = existingDomains.has(rootDomain);
-        const isBlocked = blockedDomains.has(rootDomain);
+        const isBlocked = [...blockedDomains].some(
+          (b) => rootDomain === b || rootDomain.endsWith(`.${b}`)
+        );
         const resultType = isBlocked ? "blocked" : isDuplicate ? "duplicate" : "direct";
 
         // ── Track result URL in history ───────────────────────────────────
@@ -344,7 +346,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
           await db.insert(leadsTable).values({
             campaignId,
             campaignRunId: campaignRun.id,
-            companyName: result.title.split(/[-|–]/, 1)[0].trim() || rootDomain,
+            companyName: "",
             rootDomain,
             websiteUrl: result.link,
             leadStatus: "discovered",

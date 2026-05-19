@@ -323,6 +323,29 @@ paths:
                 items:
                   $ref: "#/components/schemas/Lead"
 
+  /campaign-runs/{id}/cancel:
+    post:
+      operationId: cancelCampaignRun
+      tags: [campaign-runs]
+      summary: Cancel a currently running campaign run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign run cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignRun"
+        "400":
+          description: Run is not currently running
+        "404":
+          description: Not found
+
   # ── Email Templates ───────────────────────────────────────────
   /email-templates:
     get:

@@ -7,6 +7,7 @@ import {
   useDeleteCampaignRun,
   useDeleteLead,
   useBulkDeleteLeads,
+  useCancelCampaignRun,
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
   getListCampaignRunsQueryKey,
@@ -40,6 +41,7 @@ import {
   Mail,
   Phone,
   Trash2,
+  Square,
 } from "lucide-react";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -111,6 +113,7 @@ export function CampaignRunDetail() {
   const deleteRun = useDeleteCampaignRun();
   const deleteLead = useDeleteLead();
   const bulkDeleteLeads = useBulkDeleteLeads();
+  const cancelRun = useCancelCampaignRun();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [addToListOpen, setAddToListOpen] = useState(false);
@@ -122,6 +125,7 @@ export function CampaignRunDetail() {
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
   const [deleteRunKeepLeads, setDeleteRunKeepLeads] = useState(false);
   const [deleteRunTyped, setDeleteRunTyped] = useState("");
+  const [cancelRunOpen, setCancelRunOpen] = useState(false);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -189,6 +193,21 @@ export function CampaignRunDetail() {
     if (!filteredLeads.length) return;
     const ids = filteredLeads.map((l) => l.id).join(",");
     window.open(`/api/leads/export?format=${format}&leadIds=${ids}`, "_blank");
+  };
+
+  const handleCancelRun = () => {
+    cancelRun.mutate(
+      { id: runIdNum },
+      {
+        onSuccess: () => {
+          toast({ title: "Run stopped. Leads discovered so far have been kept." });
+          setCancelRunOpen(false);
+          queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
+          queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+        },
+        onError: () => toast({ title: "Failed to stop run.", variant: "destructive" }),
+      },
+    );
   };
 
   const handleDeleteRun = () => {
@@ -319,6 +338,18 @@ export function CampaignRunDetail() {
             )}
           </div>
           <RunStatusBadge status={run.status} />
+          {run.status === "running" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs border-amber-500/40 text-amber-600 hover:bg-amber-500/10 hover:border-amber-500/60"
+              onClick={() => setCancelRunOpen(true)}
+              data-testid="button-stop-run"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              Stop Run
+            </Button>
+          )}
           {run.status !== "running" && (
             <Button
               size="sm"
@@ -524,7 +555,7 @@ export function CampaignRunDetail() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                          {lead.companyName}
+                          {lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-xs">Pending crawl</span>}
                         </p>
                         <div className="flex items-center gap-2 flex-wrap">
                           {lead.sourceCountry && (
@@ -626,6 +657,17 @@ export function CampaignRunDetail() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Stop Run confirm */}
+      <ConfirmDialog
+        open={cancelRunOpen}
+        onOpenChange={setCancelRunOpen}
+        title="Stop Campaign Run?"
+        description="The pipeline will stop at its next safe checkpoint. All leads discovered so far will be kept. This action cannot be undone."
+        confirmLabel="Stop Run"
+        loading={cancelRun.isPending}
+        onConfirm={handleCancelRun}
+      />
 
       {/* Delete Run dialog (custom — has option A/B + typed confirmation) */}
       <Dialog open={deleteRunOpen} onOpenChange={(v) => { if (!v) { setDeleteRunTyped(""); } setDeleteRunOpen(v); }}>

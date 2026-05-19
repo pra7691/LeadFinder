@@ -3,6 +3,7 @@ import {
   useUpdateCampaign,
   useTriggerCampaignPipeline,
   useListCampaignRuns,
+  useCancelCampaignRun,
   getListCampaignRunsQueryKey,
   getGetCampaignQueryKey,
   getListCampaignsQueryKey,
@@ -41,6 +42,7 @@ import {
   Users,
   Trash2,
   RotateCcw,
+  Square,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
@@ -134,6 +136,11 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
     },
   });
 
+  const [stopOpen, setStopOpen] = useState(false);
+  const cancelRun = useCancelCampaignRun();
+  const queryClientCRC = useQueryClient();
+  const { toast: toastCRC } = useToast();
+
   const activeRun = runs?.find((r) => r.status === "running");
   const elapsed = useElapsedTicker(activeRun?.startedAt);
 
@@ -165,11 +172,44 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
             Live
           </span>
-          <Link href={`/campaigns/${campaignId}/runs/${activeRun.id}`} className="ml-auto">
-            <Button size="sm" variant="outline" className="rounded-xl gap-1.5 text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10">
-              View Run <ArrowRight className="w-3 h-3" />
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+              onClick={() => setStopOpen(true)}
+              disabled={cancelRun.isPending}
+            >
+              <Square className="w-3 h-3 fill-current" />
+              Stop
             </Button>
-          </Link>
+            <Link href={`/campaigns/${campaignId}/runs/${activeRun.id}`}>
+              <Button size="sm" variant="outline" className="rounded-xl gap-1.5 text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10">
+                View Run <ArrowRight className="w-3 h-3" />
+              </Button>
+            </Link>
+          </div>
+          <ConfirmDialog
+            open={stopOpen}
+            onOpenChange={setStopOpen}
+            title="Stop Campaign Run?"
+            description="The pipeline will stop at its next safe checkpoint. All leads discovered so far will be kept."
+            confirmLabel="Stop Run"
+            loading={cancelRun.isPending}
+            onConfirm={() => {
+              cancelRun.mutate(
+                { id: activeRun.id },
+                {
+                  onSuccess: () => {
+                    toastCRC({ title: "Run stopped. Leads discovered so far have been kept." });
+                    setStopOpen(false);
+                    queryClientCRC.invalidateQueries({ queryKey: getListCampaignRunsQueryKey(params) });
+                  },
+                  onError: () => toastCRC({ title: "Failed to stop run.", variant: "destructive" }),
+                },
+              );
+            }}
+          />
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
