@@ -8,6 +8,7 @@ import {
   campaignCountriesTable,
   leadsTable,
   logsTable,
+  appSettingsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import type { SerperOrganicResult } from "../services/serper";
@@ -121,10 +122,27 @@ describe("POST /api/campaigns/:id/run-discovery", () => {
     process.env["SERPER_API_KEY"] = "test-key-12345";
     // Default mock returns empty results unless overridden per-test
     mockSearchSerper.mockResolvedValue([]);
+    // Seed blocked_domains so domain-filtering tests work against a clean DB
+    await db
+      .insert(appSettingsTable)
+      .values({
+        key: "blocked_domains",
+        value: "linkedin.com\ngoogle.com\nfacebook.com\ntwitter.com\nglassdoor.com\nindeed.com",
+      })
+      .onConflictDoUpdate({
+        target: appSettingsTable.key,
+        set: {
+          value: "linkedin.com\ngoogle.com\nfacebook.com\ntwitter.com\nglassdoor.com\nindeed.com",
+        },
+      });
   });
 
   afterEach(async () => {
     process.env["SERPER_API_KEY"] = originalApiKey;
+    // Remove seeded settings
+    await db
+      .delete(appSettingsTable)
+      .where(eq(appSettingsTable.key, "blocked_domains"));
     if (testCampaignId) {
       await cleanupCampaign(testCampaignId);
       testCampaignId = 0;

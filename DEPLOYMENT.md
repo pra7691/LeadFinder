@@ -2,6 +2,31 @@
 
 ---
 
+## CRITICAL: First-Time Database Setup
+
+> **If you skip this step, every API call will fail with:**
+> ```
+> error: relation "campaigns" does not exist
+> ```
+
+After configuring `DATABASE_URL`, you **must** push the schema before starting the server:
+
+```bash
+pnpm --filter @workspace/db run push
+```
+
+This applies all 18 table definitions to your PostgreSQL database. There are no migration files — the schema in `lib/db/src/schema/` is the source of truth and `drizzle-kit push` syncs it directly.
+
+Run this command:
+- On every fresh database (new install, new environment, new Replit import)
+- After any schema change (new columns, new tables)
+
+The server will not start erroring immediately — it starts fine but returns 500 errors on every route that touches the database until the schema is applied.
+
+> This step is also shown in Section 4 (Database Setup) and Section 14 (Step 4) of the deployment walkthrough below.
+
+---
+
 ## 1. Tech Stack
 
 | Layer | Technology |
