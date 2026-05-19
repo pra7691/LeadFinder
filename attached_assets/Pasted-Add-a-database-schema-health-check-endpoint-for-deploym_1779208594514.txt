@@ -1,0 +1,149 @@
+Add a database/schema health check endpoint for deployment diagnostics.
+
+Current issue:
+In a newly imported Replit/project deployment, DATABASE_URL was configured correctly, but the database schema had not been pushed. The app started, but API calls failed with errors like:
+relation "campaigns" does not exist
+
+Goal:
+Make broken deployments immediately diagnosable.
+
+Do not rebuild the app.
+Do not change unrelated modules.
+Do not expose secret values.
+
+PART 1 — KEEP BASIC HEALTH CHECK
+
+Keep existing:
+
+GET /api/healthz
+
+This should remain lightweight and return 200 if the API server process is alive.
+
+Example:
+{
+  "status": "ok"
+}
+
+Do not make this endpoint fail because of optional settings.
+
+PART 2 — ADD DEEP HEALTH CHECK
+
+Add:
+
+GET /api/healthz/deep
+
+or
+
+GET /api/diagnostics/db
+
+This endpoint should check:
+
+1. DATABASE_URL exists
+2. Database connection works
+3. Required tables exist:
+- app_settings
+- campaign_countries
+- campaign_email_accounts
+- campaign_keywords
+- campaign_runs
+- campaigns
+- discovery_source_history
+- email_accounts
+- email_templates
+- lead_list_items
+- lead_lists
+- lead_notes
+- lead_status_history
+- leads
+- logs
+- outreach_queue
+- search_query_history
+- search_result_history
+
+4. Critical columns exist in major tables:
+- campaigns
+- campaign_runs
+- leads
+- outreach_queue
+- email_accounts
+
+5. Critical app_settings are present where applicable:
+- blocked_domains
+- ai_enabled
+- ai_scoring_enabled
+- openai_model
+
+If optional settings are missing, return warning, not failure.
+
+PART 3 — RESPONSE FORMAT
+
+Return structured JSON:
+
+{
+  "status": "ok" | "warning" | "error",
+  "database": {
+    "connected": true,
+    "missingTables": [],
+    "missingColumns": [],
+    "warnings": []
+  },
+  "message": "Database schema is healthy"
+}
+
+If schema is missing:
+{
+  "status": "error",
+  "database": {
+    "connected": true,
+    "missingTables": ["campaigns", "leads"],
+    "missingColumns": [],
+    "warnings": []
+  },
+  "message": "Database schema is not applied. Run: pnpm --filter @workspace/db run push"
+}
+
+PART 4 — ERROR HANDLING
+
+If DATABASE_URL is missing:
+Return clear error.
+
+If database connection fails:
+Return clear error.
+
+If tables are missing:
+Return clear error and include the exact schema push command:
+pnpm --filter @workspace/db run push
+
+Do not include database password, host credentials, API keys, or secret values.
+
+PART 5 — UI OPTIONAL
+
+If practical, add a small Settings → System Health section showing:
+- API alive
+- DB connected
+- Schema healthy
+- Missing tables/columns if any
+
+If not practical now, backend endpoint is enough.
+
+PART 6 — TESTING
+
+Add tests for:
+1. healthy DB returns ok
+2. missing table returns error
+3. missing DATABASE_URL returns error
+4. missing optional app_settings returns warning
+5. response never exposes secrets
+
+Run full test suite.
+Confirm all tests pass.
+Confirm typecheck passes.
+
+COMPLETION REPORT
+
+Report:
+- endpoint added
+- health checks performed
+- response examples
+- tests run
+- deployment doc update if needed

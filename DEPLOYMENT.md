@@ -301,13 +301,79 @@ The manual Campaign Run trigger (`POST /api/campaigns/:id/runs`) and cancellatio
 
 ---
 
-## 13. Health check endpoint
+## 13. Health check endpoints
+
+### Shallow — liveness probe
 
 ```
 GET /api/healthz
 ```
 
-Returns `200 OK` with `{ "status": "ok" }` when the server is running. Use this for load balancer and uptime monitor health checks.
+Returns `200 OK` with `{ "status": "ok" }` when the server process is alive. Lightweight — no DB query. Use this for load balancer and uptime monitor health checks.
+
+### Deep — DB connectivity + schema check
+
+```
+GET /api/healthz/deep
+```
+
+Runs a full diagnostic and returns structured JSON. Use this after deployment or when debugging a broken environment.
+
+**Healthy response (200):**
+```json
+{
+  "status": "ok",
+  "database": {
+    "connected": true,
+    "missingTables": [],
+    "missingColumns": [],
+    "warnings": []
+  },
+  "message": "Database schema is healthy"
+}
+```
+
+**Schema not applied (503):**
+```json
+{
+  "status": "error",
+  "database": {
+    "connected": true,
+    "missingTables": ["campaigns", "leads"],
+    "missingColumns": [],
+    "warnings": []
+  },
+  "message": "Database schema is not applied. Run: pnpm --filter @workspace/db run push"
+}
+```
+
+**Optional settings missing (200 with warning):**
+```json
+{
+  "status": "warning",
+  "database": {
+    "connected": true,
+    "missingTables": [],
+    "missingColumns": [],
+    "warnings": [
+      "Optional setting \"blocked_domains\" is not configured — set it in Settings",
+      "Optional setting \"ai_enabled\" is not configured — set it in Settings"
+    ]
+  },
+  "message": "Database connected but some optional settings are not configured"
+}
+```
+
+What the deep check verifies:
+1. `DATABASE_URL` environment variable is set
+2. Database connection works (live query)
+3. All 18 required tables exist
+4. Critical columns exist on `campaigns`, `campaign_runs`, `leads`, `outreach_queue`, `email_accounts`
+5. Optional `app_settings` keys are configured (warns, does not fail)
+
+The endpoint never exposes credentials, API keys, or secret values — database passwords are stripped from any error messages.
+
+> The **Settings → System Health** card in the UI calls this endpoint automatically when the Settings page is opened.
 
 ---
 

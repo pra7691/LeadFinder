@@ -4,7 +4,7 @@ import {
   useTestAIConnection,
   getListSettingsQueryKey,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,189 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle } from "lucide-react";
+
+// ---------------------------------------------------------------------------
+// System Health types + fetcher
+// ---------------------------------------------------------------------------
+
+interface DeepHealthResponse {
+  status: "ok" | "warning" | "error";
+  database: {
+    connected: boolean;
+    missingTables: string[];
+    missingColumns: string[];
+    warnings: string[];
+  };
+  message: string;
+}
+
+function makeErrorDb() {
+  return { connected: false, missingTables: [] as string[], missingColumns: [] as string[], warnings: [] as string[] };
+}
+
+async function fetchDeepHealth(): Promise<DeepHealthResponse> {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}api/healthz/deep`);
+    const json = await res.json().catch(() => null);
+    if (json && typeof json === "object" && "status" in json) {
+      return json as DeepHealthResponse;
+    }
+    return {
+      status: "error",
+      database: makeErrorDb(),
+      message: res.ok ? "Unexpected response from health endpoint" : `Health endpoint returned ${res.status}`,
+    };
+  } catch {
+    return {
+      status: "error",
+      database: makeErrorDb(),
+      message: "Could not reach the API server",
+    };
+  }
+}
+
+function SystemHealthCard() {
+  const { data, isLoading, isFetching, refetch } = useQuery<DeepHealthResponse>({
+    queryKey: ["healthz-deep"],
+    queryFn: fetchDeepHealth,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  const statusColor = {
+    ok: "text-emerald-600 dark:text-emerald-400",
+    warning: "text-amber-600 dark:text-amber-400",
+    error: "text-red-600 dark:text-red-400",
+  };
+  const statusBg = {
+    ok: "bg-emerald-500/10",
+    warning: "bg-amber-500/10",
+    error: "bg-red-500/10",
+  };
+  const StatusIcon = {
+    ok: CheckCircle2,
+    warning: AlertTriangle,
+    error: XCircle,
+  };
+
+  const status = data?.status ?? (isLoading ? null : "error");
+
+  return (
+    <Card className="glass-card">
+      <CardHeader className="border-b border-border/30 pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-lg font-medium text-foreground">System Health</CardTitle>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-lg"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Refresh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+        <CardDescription>Database connectivity and schema status.</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-6 space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking…
+          </div>
+        ) : status ? (
+          <>
+            {/* Overall status banner */}
+            <div className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm ${statusBg[status]}`}>
+              {(() => { const Icon = StatusIcon[status]; return <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${statusColor[status]}`} />; })()}
+              <div className="space-y-0.5">
+                <p className={`font-medium ${statusColor[status]}`}>
+                  {status === "ok" && "All systems operational"}
+                  {status === "warning" && "Operational — configuration incomplete"}
+                  {status === "error" && "Action required"}
+                </p>
+                <p className="text-xs text-muted-foreground">{data?.message}</p>
+              </div>
+            </div>
+
+            {/* Individual checks */}
+            <div className="space-y-2">
+              <HealthRow label="API alive" ok={true} />
+              <HealthRow label="Database connected" ok={data?.database.connected ?? false} />
+              <HealthRow
+                label="Schema applied"
+                ok={(data?.database.missingTables.length ?? 0) === 0 && (data?.database.missingColumns.length ?? 0) === 0}
+              />
+            </div>
+
+            {/* Missing tables */}
+            {(data?.database.missingTables.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-red-600 dark:text-red-400">Missing tables</p>
+                <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2 space-y-0.5">
+                  {data!.database.missingTables.map((t) => (
+                    <p key={t} className="font-mono text-xs text-muted-foreground">{t}</p>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground pt-1">
+                  Run: <code className="font-mono bg-muted px-1 rounded">pnpm --filter @workspace/db run push</code>
+                </p>
+              </div>
+            )}
+
+            {/* Missing columns */}
+            {(data?.database.missingColumns.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-red-600 dark:text-red-400">Missing columns</p>
+                <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2 space-y-0.5">
+                  {data!.database.missingColumns.map((c) => (
+                    <p key={c} className="font-mono text-xs text-muted-foreground">{c}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Warnings */}
+            {(data?.database.warnings.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Warnings</p>
+                <div className="space-y-0.5">
+                  {data!.database.warnings.map((w) => (
+                    <p key={w} className="text-xs text-muted-foreground">{w}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Health check unavailable.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function HealthRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      {ok ? (
+        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+          <CheckCircle2 className="w-3.5 h-3.5" /> OK
+        </span>
+      ) : (
+        <span className="flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-medium">
+          <XCircle className="w-3.5 h-3.5" /> Failed
+        </span>
+      )}
+    </div>
+  );
+}
 
 const OPENAI_MODELS = [
   { value: "gpt-4o-mini", label: "GPT-4o Mini (recommended)" },
@@ -127,6 +309,9 @@ export function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          {/* System Health */}
+          <SystemHealthCard />
 
           {/* AI Settings */}
           <Card className="glass-card">
