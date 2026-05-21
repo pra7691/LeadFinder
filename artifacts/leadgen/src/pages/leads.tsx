@@ -249,7 +249,7 @@ function ExportDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All campaigns</SelectItem>
-                    {campaignRows.map((c) => (
+                    {(campaigns ?? []).map((c) => (
                       <SelectItem key={c.id} value={String(c.id)}>
                         {c.name}
                       </SelectItem>
@@ -1004,7 +1004,7 @@ export function Leads() {
                           <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
                             <AlertCircle className="w-3 h-3" /> Error
                           </span>
-                        ) : lead.relevanceScore != null ? (
+                        ) : lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed") ? (
                           <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
                         ) : (
                           <span className="text-[11px] text-muted-foreground/40 italic">—</span>

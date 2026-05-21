@@ -47,6 +47,7 @@ function getStatusDot(lastRunStatus: string, isActive: boolean): { dot: string; 
   if (lastRunStatus === "running") return { dot: "bg-blue-500 animate-pulse", label: "Running" };
   if (!isActive) return { dot: "bg-muted-foreground/30", label: "Inactive" };
   if (lastRunStatus === "failed") return { dot: "bg-destructive", label: "Failed" };
+  if (lastRunStatus === "partial") return { dot: "bg-amber-500", label: "Partial" };
   return { dot: "bg-emerald-500", label: "Active" };
 }
 

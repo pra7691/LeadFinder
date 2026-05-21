@@ -65,10 +65,11 @@ async function scoreAndSaveLead(
   minRelevanceScore: number,
 ): Promise<{
   leadId: number;
-  score: number;
+  score: number | null;
   reason: string;
   scoringMethod: string;
   reviewStatus: string;
+  failed: boolean;
 }> {
   const result = await scoreLead({
     leadId: lead.id,
@@ -80,8 +81,9 @@ async function scoreAndSaveLead(
     sourceQuery: lead.sourceQuery ?? null,
   });
 
+  const failed = result.score == null;
   const reviewStatus =
-    result.score < minRelevanceScore ? "low_relevance" : lead.reviewStatus;
+    result.score != null && result.score < minRelevanceScore ? "low_relevance" : lead.reviewStatus;
 
   await db
     .update(leadsTable)
@@ -96,13 +98,16 @@ async function scoreAndSaveLead(
   await db.insert(logsTable).values({
     campaignId: lead.campaignId,
     type: "score",
-    message: `Scored ${lead.rootDomain}: ${result.score}/100 [${result.scoringMethod}]${result.score < minRelevanceScore ? " (low_relevance)" : ""}`,
+    message: failed
+      ? `Score failed for ${lead.rootDomain}: ${result.reason} [${result.scoringMethod}]`
+      : `Scored ${lead.rootDomain}: ${result.score}/100 [${result.scoringMethod}]${result.score !== null && result.score < minRelevanceScore ? " (low_relevance)" : ""}`,
     metadataJson: JSON.stringify({
       leadId: lead.id,
       score: result.score,
       reason: result.reason,
       scoringMethod: result.scoringMethod,
       reviewStatus,
+      failed,
     }),
   });
 
@@ -112,6 +117,7 @@ async function scoreAndSaveLead(
     reason: result.reason,
     scoringMethod: result.scoringMethod,
     reviewStatus,
+    failed,
   };
 }
 
@@ -148,7 +154,7 @@ router.post("/leads/:id/score", async (req, res) => {
   });
 
   try {
-    const result = await scoreAndSaveLead(
+  const result = await scoreAndSaveLead(
       lead,
       campaign.objective,
       keywords,
@@ -217,10 +223,11 @@ router.post("/leads/bulk-score", async (req, res) => {
 
   const results: Array<{
     leadId: number;
-    score: number;
+    score: number | null;
     reason: string;
     scoringMethod: string;
     reviewStatus: string;
+    failed: boolean;
     error?: string;
   }> = [];
   let succeeded = 0;
@@ -235,10 +242,11 @@ router.post("/leads/bulk-score", async (req, res) => {
         return {
           leadId: lead.id,
           error: "No campaign context",
-          score: 0,
-          reason: "",
-          scoringMethod: "keyword_fallback",
+          score: null,
+          reason: "Score failed: no campaign context",
+          scoringMethod: "failed_ai_error",
           reviewStatus: lead.reviewStatus,
+          failed: true,
         };
       }
       return scoreAndSaveLead(lead, ctx.objective, ctx.keywords, ctx.minScore);
@@ -250,7 +258,8 @@ router.post("/leads/bulk-score", async (req, res) => {
     if ("error" in result && result.error) {
       failed++;
     } else {
-      succeeded++;
+      if (result.failed) failed++;
+      else succeeded++;
     }
     results.push(result as (typeof results)[number]);
   }

@@ -10,10 +10,18 @@ import { searchSerper } from "../services/serper";
 const router = Router();
 
 // Keys that contain secrets and must be masked in responses
-const MASKED_KEYS = ["openai_api_key", "serper_api_key"];
+const MASKED_KEYS = ["openai_api_key", "serper_api_key"] as const;
+const SECRET_ENV_KEYS: Record<string, string> = {
+  openai_api_key: "OPENAI_API_KEY",
+  serper_api_key: "SERPER_API_KEY",
+};
+
+function isMaskedKey(key: string): key is (typeof MASKED_KEYS)[number] {
+  return MASKED_KEYS.some((maskedKey) => maskedKey === key);
+}
 
 function maskValue(key: string, value: string): string {
-  if (MASKED_KEYS.includes(key) && value) {
+  if (isMaskedKey(key) && value) {
     return "••••••••" + value.slice(-4);
   }
   return value;
@@ -58,9 +66,28 @@ router.post("/settings/test-serper", async (_req, res) => {
 
 router.get("/settings", async (_req, res) => {
   const all = await db.select().from(appSettingsTable);
-  const masked = all.map((s) => ({
+  const byKey = new Map(all.map((s) => [s.key, s]));
+  const envRows = Object.entries(SECRET_ENV_KEYS)
+    .flatMap(([key, envVar]) => {
+      const existing = byKey.get(key);
+      if (existing && existing.value && !isMaskedPlaceholder(existing.value)) return [];
+      const value = process.env[envVar];
+      if (!value) return [];
+      const now = new Date().toISOString();
+      return [{
+        id: 0,
+        key,
+        value,
+        createdAt: now,
+        updatedAt: now,
+        // Signal to the UI that this value came from server environment, not DB.
+        source: "server_env",
+      }];
+    });
+  const masked = [...all, ...envRows].map((s) => ({
     ...s,
     value: maskValue(s.key, s.value),
+    source: (s as { source?: string }).source ?? "database",
   }));
   res.json(masked);
 });
@@ -70,7 +97,7 @@ router.put("/settings/:key", async (req, res) => {
   const body = UpsertSettingBody.parse(req.body);
 
   // Don't overwrite a real secret with the masked placeholder
-  if (MASKED_KEYS.includes(key) && isMaskedPlaceholder(body.value)) {
+  if (isMaskedKey(key) && isMaskedPlaceholder(body.value)) {
     const [existing] = await db
       .select()
       .from(appSettingsTable)

@@ -282,7 +282,9 @@ export function Settings() {
   const handleSaveAI = async () => {
     await save("ai_enabled", aiEnabled ? "true" : "false");
     await save("ai_scoring_enabled", aiScoringEnabled ? "true" : "false");
-    await save("openai_api_key", openaiKey);
+    if (!openaiKey.startsWith("••••••••")) {
+      await save("openai_api_key", openaiKey);
+    }
     await save("openai_model", openaiModel);
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "AI settings saved." });

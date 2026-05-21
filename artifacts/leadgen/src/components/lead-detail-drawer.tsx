@@ -38,6 +38,7 @@ import {
   Search as SearchIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScoreBadge } from "./ScoreBadge";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -268,11 +269,21 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                 <section className="space-y-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Relevance</h4>
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Star className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span className="font-semibold">{lead.relevanceScore ?? 0}</span>
-                      <span className="text-muted-foreground">/ 100</span>
-                    </div>
+                    {(lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed")) ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
+                        {lead.scoringMethod?.startsWith("failed") ? (
+                          <span className="text-muted-foreground">scoring unavailable</span>
+                        ) : (
+                          <span className="text-muted-foreground">/ 100</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Star className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="italic">Not yet scored</span>
+                      </div>
+                    )}
                     {lead.relevanceReason && (
                       <p className="text-sm text-muted-foreground leading-relaxed">{lead.relevanceReason}</p>
                     )}

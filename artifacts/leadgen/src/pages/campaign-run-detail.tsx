@@ -37,7 +37,6 @@ import {
   Search,
   Plus,
   Globe,
-  Star,
   ThumbsUp,
   ThumbsDown,
   Download,
@@ -51,6 +50,7 @@ import {
 } from "lucide-react";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ScoreBadge } from "@/components/ScoreBadge";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
@@ -724,10 +724,11 @@ export function CampaignRunDetail() {
                         {lead.rootDomain}
                       </span>
                       <span className="w-12 hidden sm:block text-center">
-                        <span className="inline-flex items-center gap-0.5 text-xs">
-                          <Star className="w-3 h-3 text-amber-400" />
-                          {lead.relevanceScore ?? 0}
-                        </span>
+                        {(lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed")) ? (
+                          <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground/40">—</span>
+                        )}
                       </span>
                       <span className="w-14 hidden sm:block text-center">
                         <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">

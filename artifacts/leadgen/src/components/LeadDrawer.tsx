@@ -315,7 +315,7 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                   <StatusChip status={lead.outreachStatus} meta={OUTREACH_STATUS_META} />
                 )}
                 <StatusChip status={lead.leadStatus} meta={LEAD_STATUS_META} />
-                {lead.relevanceScore != null && (
+                {(lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed")) && (
                   <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
                 )}
                 {quality && (
@@ -467,11 +467,15 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Relevance
                     </h3>
-                    {lead.relevanceScore != null ? (
+                    {lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed") ? (
                       <div className="glass-card p-3 space-y-1.5">
                         <div className="flex items-center gap-2">
                           <ScoreBadge score={lead.relevanceScore} reason={null} scoringMethod={lead.scoringMethod} />
-                          <span className="text-sm text-muted-foreground">out of 100</span>
+                          {lead.scoringMethod?.startsWith("failed") ? (
+                            <span className="text-sm text-muted-foreground">scoring unavailable</span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">out of 100</span>
+                          )}
                         </div>
                         {lead.relevanceReason && (
                           <p className="text-xs text-muted-foreground leading-relaxed">

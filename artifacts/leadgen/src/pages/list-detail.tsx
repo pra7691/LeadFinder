@@ -21,6 +21,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScoreBadge } from "@/components/ScoreBadge";
 import {
   Dialog,
   DialogContent,
@@ -132,9 +133,11 @@ function LeadRow({ lead, listId, onRemoved }: { lead: Lead; listId: number; onRe
       </td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-1">
-          <span className="text-xs font-mono text-muted-foreground">
-            {lead.relevanceScore ?? "—"}
-          </span>
+          {lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed") ? (
+            <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
+          ) : (
+            <span className="text-xs font-mono text-muted-foreground">—</span>
+          )}
         </div>
       </td>
       <td className="py-3 px-4">

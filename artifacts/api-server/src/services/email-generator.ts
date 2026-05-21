@@ -112,10 +112,6 @@ export async function testAIConnection(): Promise<{ success: boolean; message: s
     return { success: false, message: "No OpenAI API key configured. Add it in Settings → AI Settings.", model: null };
   }
 
-  if (!ai.enabled) {
-    return { success: false, message: "AI is disabled. Enable it in Settings → AI Settings.", model: null };
-  }
-
   try {
     const { default: OpenAI } = await import("openai");
     const client = new OpenAI({ apiKey: ai.apiKey });

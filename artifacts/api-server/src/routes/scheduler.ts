@@ -95,7 +95,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
 
   // Fire-and-forget — do NOT await the pipeline.
   // Awaiting blocks the event loop (health checks stop responding → outage).
-  runPipeline(campaignId, runId)
+  runPipeline(campaignId, runId, { forceDiscoveryRefresh: true })
     .then(async (result) => {
       // If the run was cancelled mid-flight, don't overwrite the cancelled status
       const [currentRun] = await db
@@ -108,9 +108,14 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
         return;
       }
 
+      const workCompleted =
+        result.discoveryLeadsCreated > 0 ||
+        result.crawledCount > 0 ||
+        result.scoredCount > 0 ||
+        result.emailsSent > 0;
       const status =
-        result.failed > 0 && result.discoveryLeadsCreated === 0 && result.crawledCount === 0
-          ? "failed"
+        result.failed > 0
+          ? (workCompleted ? "partial" : "failed")
           : "completed";
 
       const nextRunAt = computeNextRunAt(
@@ -121,11 +126,12 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
 
       await Promise.all([
         db.update(campaignsTable)
-          .set({ lastRunStatus: status === "completed" ? "success" : "failed", lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
+          .set({ lastRunStatus: status === "completed" ? "success" : status, lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
           .where(eq(campaignsTable.id, campaignId)),
         db.update(campaignRunsTable)
           .set({
             status,
+            currentStage: status,
             completedAt: new Date(),
             totalNewLeads: result.discoveryLeadsCreated,
             totalSearches: result.discoverySearchesPerformed,
@@ -170,7 +176,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
           .set({ lastRunStatus: "failed", lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
           .where(eq(campaignsTable.id, campaignId)),
         db.update(campaignRunsTable)
-          .set({ status: "failed", completedAt: new Date(), errorMessage: String(err?.message ?? err) })
+          .set({ status: "failed", currentStage: "failed", completedAt: new Date(), errorMessage: String(err?.message ?? err) })
           .where(eq(campaignRunsTable.id, runId)),
       ]);
     });

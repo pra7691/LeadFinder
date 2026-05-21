@@ -60,6 +60,7 @@ type EnrichedItem = OutreachItem & {
   senderEmail?: string | null;
   listName?: string | null;
   recipientEmailType?: string | null;
+  scoringMethod?: string | null;
 };
 
 const SEVERITY_ICON: Record<string, React.ReactNode> = {
@@ -226,14 +227,19 @@ function ItemRow({
                 {item.campaignName && (
                   <span className="text-muted-foreground/60">· {item.campaignName}</span>
                 )}
-                {item.relevanceScore != null && (
+                {item.relevanceScore != null ? (
                   <span className={cn(
                     "font-medium",
                     (item.relevanceScore as number) >= 70 ? "text-green-600" : (item.relevanceScore as number) >= 40 ? "text-amber-500" : "text-destructive",
                   )}>
                     Score: {item.relevanceScore}
                   </span>
-                )}
+                ) : item.scoringMethod?.startsWith("failed") ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-destructive">
+                    <AlertCircle className="w-3 h-3" />
+                    Scoring failed
+                  </span>
+                ) : null}
               </div>
 
               {/* Row 3: subject */}

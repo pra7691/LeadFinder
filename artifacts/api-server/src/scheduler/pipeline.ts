@@ -20,7 +20,7 @@ import {
   searchResultHistoryTable,
   discoverySourceHistoryTable,
 } from "@workspace/db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, or, sql, desc, isNull, like } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { getSerperApiKey } from "../services/serper-key";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
@@ -69,6 +69,10 @@ export interface PipelineResult {
   failed: number;
   durationMs: number;
   errors: string[];
+}
+
+export interface PipelineOptions {
+  forceDiscoveryRefresh?: boolean;
 }
 
 // ── Hard qualification filter lists ────────────────────────────────────────
@@ -393,12 +397,14 @@ interface DiscoveryStats {
   discoverySourcesSkipped: number;
   duplicatesSkipped: number;
   blockedSkipped: number;
+  missingSerperKey: boolean;
 }
 
 async function runDiscovery(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
   campaignRunId?: number,
+  options: PipelineOptions = {},
 ): Promise<DiscoveryStats> {
   const stats: DiscoveryStats = {
     newLeadsCreated: 0,
@@ -411,10 +417,12 @@ async function runDiscovery(
     discoverySourcesSkipped: 0,
     duplicatesSkipped: 0,
     blockedSkipped: 0,
+    missingSerperKey: false,
   };
 
   const apiKey = await getSerperApiKey();
   if (!apiKey) {
+    stats.missingSerperKey = true;
     errors.push(
       "Serper API key not configured — skipping discovery. Add it in Settings → Search API Settings or set SERPER_API_KEY environment variable.",
     );
@@ -507,7 +515,7 @@ async function runDiscovery(
         ))
         .limit(1);
 
-      if (qhRecord?.nextRefreshAt && qhRecord.nextRefreshAt > now) {
+      if (!options.forceDiscoveryRefresh && qhRecord?.nextRefreshAt && qhRecord.nextRefreshAt > now) {
         stats.searchesSkipped++;
         await schedulerLog(campaign.id, `Query skipped (recently searched): "${query}"`, {
           nextRefreshAt: qhRecord.nextRefreshAt.toISOString(),
@@ -922,7 +930,7 @@ async function runCrawl(
 async function runScore(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
-): Promise<number> {
+): Promise<{ scoredCount: number; failedCount: number }> {
   const unscored = await db
     .select()
     .from(leadsTable)
@@ -930,12 +938,15 @@ async function runScore(
       and(
         eq(leadsTable.campaignId, campaign.id),
         eq(leadsTable.crawlStatus, "crawled"),
-        eq(leadsTable.relevanceScore, 0),
+        or(
+          isNull(leadsTable.scoringMethod),
+          like(leadsTable.scoringMethod, "failed%"),
+        ),
       ),
     )
     .limit(50);
 
-  if (unscored.length === 0) return 0;
+  if (unscored.length === 0) return { scoredCount: 0, failedCount: 0 };
 
   const keywords = await db
     .select({ keyword: campaignKeywordsTable.keyword })
@@ -945,6 +956,7 @@ async function runScore(
   const keywordList = keywords.map((k) => k.keyword);
   await schedulerLog(campaign.id, `Scoring started: ${unscored.length} leads`);
   let scoredCount = 0;
+  let failedCount = 0;
 
   for (const lead of unscored) {
     try {
@@ -957,14 +969,27 @@ async function runScore(
         sourceQuery: lead.sourceQuery ?? null,
       });
 
+      const failed = result.score == null;
       const reviewStatus =
-        result.score < campaign.minRelevanceScore ? "low_relevance" : lead.reviewStatus;
+        !failed && result.score !== null && result.score < campaign.minRelevanceScore
+          ? "low_relevance"
+          : lead.reviewStatus;
 
       await db.update(leadsTable)
-        .set({ relevanceScore: result.score, relevanceReason: result.reason, reviewStatus })
+        .set({
+          relevanceScore: result.score,
+          relevanceReason: result.reason,
+          scoringMethod: result.scoringMethod,
+          reviewStatus,
+        })
         .where(eq(leadsTable.id, lead.id));
 
-      scoredCount++;
+      if (failed) {
+        errors.push(`Score failed ${lead.rootDomain}: ${result.reason}`);
+        failedCount++;
+      } else {
+        scoredCount++;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Score failed ${lead.rootDomain}: ${msg}`);
@@ -972,7 +997,7 @@ async function runScore(
   }
 
   await schedulerLog(campaign.id, `Scoring complete: ${scoredCount} leads scored`);
-  return scoredCount;
+  return { scoredCount, failedCount };
 }
 
 // ── Step 4: Queue & Send Emails ─────────────────────────────────────────────
@@ -1146,7 +1171,11 @@ async function runEmail(
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
 
-export async function runPipeline(campaignId: number, campaignRunId?: number): Promise<PipelineResult> {
+export async function runPipeline(
+  campaignId: number,
+  campaignRunId?: number,
+  options: PipelineOptions = {},
+): Promise<PipelineResult> {
   const startedAt = Date.now();
   const errors: string[] = [];
 
@@ -1200,7 +1229,7 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
   await setStage(campaignRunId, "searching");
 
   try {
-    const discoveryStats = await runDiscovery(campaign, errors, campaignRunId);
+    const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
     result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
     result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
     result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
@@ -1211,6 +1240,9 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
     result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
     result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
     result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
+    if (discoveryStats.missingSerperKey) {
+      result.failed++;
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Discovery failed: ${msg}`);
@@ -1236,7 +1268,9 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
 
   await setStage(campaignRunId, "scoring");
   try {
-    result.scoredCount = await runScore(campaign, errors);
+    const scoreStats = await runScore(campaign, errors);
+    result.scoredCount = scoreStats.scoredCount;
+    result.failed += scoreStats.failedCount;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Scoring failed: ${msg}`);

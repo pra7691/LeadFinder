@@ -100,8 +100,13 @@ async function tick() {
     // Run pipeline in background (don't block the tick)
     runPipeline(campaign.id)
       .then(async (result) => {
-        const status = result.failed > 0 && result.discoveryLeadsCreated === 0
-          ? "failed"
+        const workCompleted =
+          result.discoveryLeadsCreated > 0 ||
+          result.crawledCount > 0 ||
+          result.scoredCount > 0 ||
+          result.emailsSent > 0;
+        const status = result.failed > 0
+          ? (workCompleted ? "partial" : "failed")
           : "success";
 
         const nextRunAt = computeNextRunAt(

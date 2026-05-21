@@ -30,7 +30,7 @@ export const campaignsTable = pgTable("campaigns", {
   scheduleTime: text("schedule_time"), // "09:00" 24h
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }),
-  lastRunStatus: text("last_run_status").notNull().default("idle"), // idle | running | success | failed
+  lastRunStatus: text("last_run_status").notNull().default("idle"), // idle | running | success | partial | failed | cancelled
   isPaused: boolean("is_paused").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

@@ -6,6 +6,33 @@ import { requestCancellation } from "../scheduler/pipeline";
 
 const router = Router();
 
+function normalizeRunStatus<T extends { status: string; currentStage: string | null; errorMessage: string | null; metadataJson: string | null }>(
+  run: T,
+): T {
+  // Older runs could be written with status="completed" even when the run had
+  // step errors (e.g. AI scoring not configured). Normalize for UI consumers.
+  if (run.status !== "completed") return run;
+  const hasErrors = typeof run.errorMessage === "string" && run.errorMessage.trim().length > 0;
+  if (!hasErrors) return run;
+
+  let scoredCount: number | null = null;
+  try {
+    if (typeof run.metadataJson === "string" && run.metadataJson.trim().length > 0) {
+      const parsed = JSON.parse(run.metadataJson) as { scoredCount?: unknown };
+      if (typeof parsed?.scoredCount === "number") scoredCount = parsed.scoredCount;
+    }
+  } catch {
+    // ignore malformed metadataJson
+  }
+
+  const effectiveStatus = scoredCount === 0 ? "failed" : "partial";
+  return {
+    ...run,
+    status: effectiveStatus,
+    currentStage: run.currentStage === "completed" ? run.currentStage : effectiveStatus,
+  };
+}
+
 // List campaign runs (optionally filtered by campaignId)
 router.get("/campaign-runs", async (req, res) => {
   const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
@@ -16,7 +43,7 @@ router.get("/campaign-runs", async (req, res) => {
     .where(campaignId !== undefined ? eq(campaignRunsTable.campaignId, campaignId) : undefined)
     .orderBy(desc(campaignRunsTable.startedAt));
 
-  res.json(runs);
+  res.json(runs.map(normalizeRunStatus));
 });
 
 // Get a single campaign run
@@ -37,7 +64,7 @@ router.get("/campaign-runs/:id", async (req, res) => {
     return;
   }
 
-  res.json(run);
+  res.json(normalizeRunStatus(run));
 });
 
 // Get leads for a campaign run

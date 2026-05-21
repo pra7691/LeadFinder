@@ -4,16 +4,15 @@
  * Strategy:
  *   1. Read AI settings from app_settings.
  *   2. If ai_scoring_enabled = true AND a key is present, call OpenAI for semantic scoring.
- *   3. On any failure, fall back to keyword scoring and record scoringMethod.
+ *   3. If AI is not configured or the OpenAI call fails, return an explicit failure state.
  *
  * ai_scoring_enabled is independent of ai_enabled (which controls email personalization).
  * scoringMethod is returned with every result so callers can persist and display it.
  */
 
-import { db } from "@workspace/db";
-import { appSettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { classifyLeadType, maxRelevanceScore } from "./lead-classifier";
+import { getAISettings } from "./ai-settings";
 
 export interface ScoreInput {
   leadId?: number;
@@ -26,9 +25,9 @@ export interface ScoreInput {
 }
 
 export interface ScoreOutput {
-  score: number;
+  score: number | null;
   reason: string;
-  scoringMethod: "ai" | "keyword_fallback";
+  scoringMethod: "ai" | "keyword_fallback" | "failed_ai_not_configured" | "failed_ai_error";
 }
 
 // ── AI scoring ─────────────────────────────────────────────────────────────
@@ -142,48 +141,51 @@ export function scoreWithKeywords(input: ScoreInput): ScoreOutput {
 // ── Main entry point ───────────────────────────────────────────────────────
 
 export async function scoreLead(input: ScoreInput): Promise<ScoreOutput> {
-  // Read ai_scoring_enabled independently from ai_enabled (email personalization).
-  const rows = await db.select().from(appSettingsTable);
-  const find = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
-  const scoringEnabled = find("ai_scoring_enabled") === "true";
-  const apiKey = find("openai_api_key");
-  const model = find("openai_model") ?? "gpt-4o-mini";
+  const ai = await getAISettings();
 
-  let result: ScoreOutput;
-
-  if (!scoringEnabled || !apiKey) {
-    logger.debug(
-      { leadId: input.leadId, scoringEnabled, hasKey: !!apiKey },
-      "AI scoring skipped (ai_scoring_enabled=false or no key) — using keyword fallback",
-    );
-    result = scoreWithKeywords(input);
-  } else {
-    try {
-      result = await scoreWithAI(input, apiKey, model);
-      logger.debug(
-        { leadId: input.leadId, model, score: result.score },
-        "AI scoring succeeded",
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(
-        { leadId: input.leadId, model, err: msg },
-        "AI scoring failed — using keyword fallback",
-      );
-      result = scoreWithKeywords(input);
-    }
+  if (!ai.scoringEnabled) {
+    return scoreWithKeywords(input);
   }
 
-  // Apply relevance score cap for non-company lead types (directories, events, media, etc.)
-  const leadType = classifyLeadType(input.rootDomain);
-  const cap = maxRelevanceScore(leadType);
-  if (leadType !== "company" && result.score > cap) {
+  if (!ai.apiKey) {
+    const reason = "Scoring failed: AI is not configured in Settings → AI Settings.";
+    logger.warn(
+      { leadId: input.leadId, aiScoringEnabled: ai.scoringEnabled, hasKey: false },
+      "AI scoring skipped because AI is not configured",
+    );
     return {
-      score: cap,
-      reason: `[${leadType}] ${result.reason}`,
-      scoringMethod: result.scoringMethod,
+      score: null,
+      reason,
+      scoringMethod: "failed_ai_not_configured",
     };
   }
 
-  return result;
+  try {
+    const result = await scoreWithAI(input, ai.apiKey, ai.model);
+    logger.debug(
+      { leadId: input.leadId, model: ai.model, score: result.score },
+      "AI scoring succeeded",
+    );
+    const leadType = classifyLeadType(input.rootDomain);
+    const cap = maxRelevanceScore(leadType);
+    if (leadType !== "company" && result.score != null && result.score > cap) {
+      return {
+        score: cap,
+        reason: `[${leadType}] ${result.reason}`,
+        scoringMethod: result.scoringMethod,
+      };
+    }
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(
+      { leadId: input.leadId, model: ai.model, err: msg },
+      "AI scoring failed",
+    );
+    return {
+      score: null,
+      reason: `Scoring failed: ${msg.slice(0, 180)}`,
+      scoringMethod: "failed_ai_error",
+    };
+  }
 }
