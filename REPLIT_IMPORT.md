@@ -13,15 +13,14 @@ the schema is applied. The setup script handles this automatically.
 
 ---
 
-## Quick start (3 commands)
+## Quick start (2 steps)
 
 ```bash
 # 1. Add your secrets first (see Section 2)
 
-# 2. Install and apply schema in one command
+# 2. Click Run — dependencies will auto-install on first start.
+#    If the database schema is missing, run:
 pnpm run setup:replit
-
-# 3. Click Run (or start workflows from the panel)
 ```
 
 That's it. The rest of this document explains each step in detail and covers
@@ -101,6 +100,10 @@ Click **Run** in Replit, or start the individual workflows:
 
 - **API Server** — `pnpm --filter @workspace/api-server run dev`
 - **Frontend (web)** — `pnpm --filter @workspace/leadgen run dev`
+
+Dependencies are **automatically installed** on first run via the preflight script.
+If you see "Dependencies missing. Running pnpm install..." — that is expected
+on a fresh import and resolves itself.
 
 ---
 
@@ -184,6 +187,20 @@ After setup, configure the app in the **Settings** page:
 ---
 
 ## Section 7 — Troubleshooting
+
+### `vite: not found` or `esbuild: not found`
+
+**Cause**: Dependencies have not been installed yet (`node_modules` is missing).
+
+**Fix**: On fresh import, click **Run** — the preflight script will auto-install
+dependencies before starting the app. If it still fails, run manually:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run setup:replit
+```
+
+---
 
 ### `relation "campaigns" does not exist`
 

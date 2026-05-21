@@ -1,0 +1,110 @@
+Add an auto-install preflight script for fresh Replit imports.
+
+Current issue:
+When the repo is imported into a fresh Replit account, node_modules is missing. Replit tries to start the frontend/backend immediately, causing errors like:
+vite: not found
+esbuild: not found
+
+Goal:
+Fresh Replit import should start reliably after clicking Run, or at least fail with clear setup instructions.
+
+Do not change product features.
+Do not rebuild unrelated modules.
+
+PART 1 — CREATE PREFLIGHT SCRIPT
+
+Create:
+
+scripts/preflight-replit.sh
+
+Behavior:
+1. Check if pnpm exists.
+2. Check if node_modules exists.
+3. If node_modules is missing, run:
+   pnpm install --frozen-lockfile
+
+4. Check required env vars:
+   - DATABASE_URL
+   - SESSION_SECRET
+
+If missing:
+print clear message explaining they must be added in Replit Secrets.
+
+5. Check database health if possible:
+   - call or run a local check for schema presence
+   - if tables are missing, print:
+     “Database schema missing. Run: pnpm run db:push”
+
+Do not automatically run db:push on every normal app start unless this script is specifically called in setup mode.
+
+PART 2 — ADD SETUP MODE
+
+Update or create:
+
+pnpm run setup:replit
+
+This should:
+1. run pnpm install if needed
+2. verify secrets
+3. run pnpm run db:push
+4. optionally seed default settings
+5. print success message
+
+This is the command for first-time setup.
+
+PART 3 — UPDATE RUN COMMANDS
+
+Update Replit workflow/run commands so they run preflight before starting.
+
+Example:
+pnpm run preflight:replit && pnpm run dev
+
+The preflight should install dependencies if missing, but should not push DB schema every time.
+
+PART 4 — PACKAGE SCRIPTS
+
+Add root scripts:
+
+preflight:replit
+setup:replit
+db:push
+
+Ensure existing scripts still work.
+
+PART 5 — UPDATE DOCS
+
+Update REPLIT_IMPORT.md:
+
+Fresh import steps:
+1. Import repo from GitHub.
+2. Add Replit Secrets:
+   DATABASE_URL
+   SESSION_SECRET
+3. Click Run.
+
+If database schema is missing, run:
+pnpm run setup:replit
+
+Troubleshooting:
+- vite not found → dependencies missing → preflight should auto-install
+- relation "campaigns" does not exist → schema missing → run pnpm run db:push or pnpm run setup:replit
+
+PART 6 — TESTING
+
+Test:
+1. Simulate missing node_modules.
+2. Click/run configured command.
+3. Confirm pnpm install runs automatically.
+4. Confirm vite/esbuild errors disappear.
+5. Confirm backend starts.
+6. Confirm frontend starts.
+7. Confirm /api/healthz works.
+8. Confirm /api/healthz/deep clearly reports schema status.
+
+Completion report:
+- files changed
+- scripts added
+- workflow/run commands changed
+- docs updated
+- fresh import behavior
+- tests run
