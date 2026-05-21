@@ -43,6 +43,7 @@ import type {
   CampaignInput,
   CampaignPatch,
   CampaignRun,
+  CampaignRunResult,
   CrawlResult,
   DashboardStats,
   DiscoverySummary,
@@ -1134,6 +1135,49 @@ export function useGetCampaignRun<TData = Awaited<ReturnType<typeof getCampaignR
 
 
 
+
+export const getGetCampaignRunResultsUrl = (id: number, params?: { status?: string }) => {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set('status', params.status);
+  const qs = searchParams.toString();
+  return `/api/campaign-runs/${id}/results${qs ? `?${qs}` : ''}`;
+}
+
+export const getCampaignRunResults = async (id: number, params?: { status?: string }, options?: RequestInit): Promise<CampaignRunResult[]> => {
+  return customFetch<CampaignRunResult[]>(getGetCampaignRunResultsUrl(id, params), {
+    ...options,
+    method: 'GET',
+  });
+}
+
+export const getGetCampaignRunResultsQueryKey = (id: number, params?: { status?: string }) => {
+  return [`/api/campaign-runs/${id}/results`, ...(params ? [params] : [])] as const;
+}
+
+export const getGetCampaignRunResultsQueryOptions = <TData = Awaited<ReturnType<typeof getCampaignRunResults>>, TError = ErrorType<void>>(
+  id: number,
+  params?: { status?: string },
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunResults>>, TError, TData>, request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetCampaignRunResultsQueryKey(id, params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCampaignRunResults>>> = ({ signal }) =>
+    getCampaignRunResults(id, params, { signal, ...requestOptions });
+  return { queryKey, queryFn, enabled: !!(id), ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunResults>>, TError, TData> & { queryKey: QueryKey };
+}
+
+export type GetCampaignRunResultsQueryResult = NonNullable<Awaited<ReturnType<typeof getCampaignRunResults>>>
+export type GetCampaignRunResultsQueryError = ErrorType<void>
+
+export function useGetCampaignRunResults<TData = Awaited<ReturnType<typeof getCampaignRunResults>>, TError = ErrorType<void>>(
+  id: number,
+  params?: { status?: string },
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getCampaignRunResults>>, TError, TData>, request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCampaignRunResultsQueryOptions(id, params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getDeleteCampaignRunUrl = (id: number,) => {
 

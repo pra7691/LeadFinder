@@ -15,7 +15,8 @@ export const campaignRunsTable = pgTable("campaign_runs", {
     .references(() => campaignsTable.id, { onDelete: "cascade" }),
   runName: text("run_name"),
   runType: text("run_type").notNull().default("manual"), // manual | scheduled
-  status: text("status").notNull().default("running"),   // running | completed | failed | partial
+  status: text("status").notNull().default("running"),   // running | completed | failed | partial | cancelled
+  currentStage: text("current_stage"),                    // searching | processing_results | creating_leads | crawling | scoring | completed | partial | failed | cancelled
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   totalSearches: integer("total_searches").notNull().default(0),

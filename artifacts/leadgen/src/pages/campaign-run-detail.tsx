@@ -1,6 +1,8 @@
 import {
   useGetCampaignRun,
   useGetCampaignRunLeads,
+  useGetCampaignRunResults,
+  getGetCampaignRunResultsQueryKey,
   useListLeadLists,
   useAddLeadsToList,
   useUpdateLead,
@@ -43,6 +45,9 @@ import {
   Phone,
   Trash2,
   Square,
+  X,
+  Ban,
+  Copy,
 } from "lucide-react";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -121,6 +126,20 @@ export function CampaignRunDetail() {
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [qualFilter, setQualFilter] = useState("all");
+  const [resultFilter, setResultFilter] = useState<null | "blocked" | "duplicate" | "rejected">(null);
+
+  const resultsParams = resultFilter && resultFilter !== "rejected" ? { status: resultFilter } : undefined;
+  const { data: runResults, isLoading: runResultsLoading } = useGetCampaignRunResults(
+    runIdNum,
+    resultsParams,
+    {
+      query: {
+        queryKey: getGetCampaignRunResultsQueryKey(runIdNum, resultsParams),
+        enabled: !!runIdNum && resultFilter !== null && resultFilter !== "rejected",
+        refetchInterval: run?.status === "running" ? 5000 : undefined,
+      },
+    },
+  );
 
   // Delete state
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
@@ -303,11 +322,24 @@ export function CampaignRunDetail() {
       : formatDuration(intervalToDuration({ start: 0, end: durationMs }), { format: ["minutes", "seconds"] })
     : null;
 
-  const stats = [
+  const STAGE_LABELS: Record<string, string> = {
+    searching: "Searching…",
+    processing_results: "Processing results…",
+    creating_leads: "Creating leads…",
+    crawling: "Crawling websites…",
+    scoring: "Scoring leads…",
+    completed: "Completed",
+    partial: "Partial",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  };
+
+  type ResultFilterKey = "blocked" | "duplicate" | "rejected";
+  const stats: { label: string; value: number; icon: React.ReactNode; filterKey?: ResultFilterKey }[] = [
     { label: "New Leads", value: run.totalNewLeads ?? 0, icon: <Users className="w-4 h-4" /> },
     { label: "Searches", value: run.totalSearches ?? 0, icon: <Search className="w-4 h-4" /> },
-    { label: "Duplicates", value: run.totalDuplicates ?? 0, icon: <Globe className="w-4 h-4" /> },
-    { label: "Blocked", value: run.totalBlocked ?? 0, icon: <AlertCircle className="w-4 h-4" /> },
+    { label: "Duplicates", value: run.totalDuplicates ?? 0, icon: <Copy className="w-4 h-4" />, filterKey: "duplicate" },
+    { label: "Blocked", value: run.totalBlocked ?? 0, icon: <Ban className="w-4 h-4" />, filterKey: "blocked" },
   ];
 
   const QUAL_TABS = [
@@ -369,18 +401,131 @@ export function CampaignRunDetail() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map((s) => (
-            <Card key={s.label} className="glass-card">
-              <CardContent className="p-5">
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  {s.icon}
-                  <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
+          {stats.map((s) => {
+            const isActive = s.filterKey ? resultFilter === s.filterKey : false;
+            const isClickable = !!s.filterKey;
+            return isClickable ? (
+              <button
+                key={s.label}
+                onClick={() => setResultFilter(isActive ? null : s.filterKey!)}
+                className={cn(
+                  "text-left rounded-2xl border transition-all focus:outline-none",
+                  isActive
+                    ? "border-primary/50 bg-primary/10 ring-1 ring-primary/30"
+                    : "border-border/50 bg-card hover:border-primary/30 hover:bg-primary/5",
+                )}
+              >
+                <div className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    {s.icon}
+                    <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
+                    {isActive && <X className="w-3 h-3 ml-auto text-primary" />}
+                  </div>
+                  <p className="text-3xl font-semibold">{s.value}</p>
                 </div>
-                <p className="text-3xl font-semibold">{s.value}</p>
-              </CardContent>
-            </Card>
-          ))}
+              </button>
+            ) : (
+              <Card key={s.label} className="glass-card">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    {s.icon}
+                    <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
+                  </div>
+                  <p className="text-3xl font-semibold">{s.value}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
+
+        {/* Results panel (blocked / duplicates) */}
+        {resultFilter !== null && (
+          <Card className="glass-card">
+            <CardHeader className="border-b border-border/30 pb-4">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
+                  {resultFilter === "blocked" && <Ban className="w-4 h-4 text-muted-foreground" />}
+                  {resultFilter === "duplicate" && <Copy className="w-4 h-4 text-muted-foreground" />}
+                  {resultFilter === "rejected" && <XCircle className="w-4 h-4 text-muted-foreground" />}
+                  {resultFilter === "blocked" && "Blocked Results"}
+                  {resultFilter === "duplicate" && "Duplicate Results"}
+                  {resultFilter === "rejected" && "Rejected Leads"}
+                </CardTitle>
+                <button
+                  onClick={() => setResultFilter(null)}
+                  className="p-1 rounded-lg hover:bg-muted/40 text-muted-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {resultFilter === "rejected" ? (
+                (() => {
+                  const rejectedLeads = leads?.filter((l) => l.qualificationStatus === "rejected") ?? [];
+                  return rejectedLeads.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted-foreground">No rejected leads.</div>
+                  ) : (
+                    <div className="divide-y divide-border/30">
+                      {rejectedLeads.map((lead) => (
+                        <div key={lead.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{lead.companyName || lead.rootDomain}</p>
+                            <p className="text-xs text-muted-foreground truncate">{lead.sourceQuery}</p>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">{lead.rootDomain}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              ) : runResultsLoading ? (
+                <div className="divide-y divide-border/30">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 px-5 py-3.5 animate-pulse">
+                      <div className="h-4 w-48 rounded bg-muted/40" />
+                      <div className="h-4 w-32 rounded bg-muted/40 ml-auto" />
+                    </div>
+                  ))}
+                </div>
+              ) : !runResults?.length ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">No results.</div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 px-5 py-2.5 bg-muted/20 border-b border-border/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <span className="flex-1">Title / URL</span>
+                    <span className="w-36 hidden md:block">Domain</span>
+                    <span className="w-48 hidden sm:block">Query</span>
+                    <span className="w-40">Reason</span>
+                  </div>
+                  <div className="divide-y divide-border/30">
+                    {runResults.map((r) => (
+                      <div key={r.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{r.title || r.url || r.rootDomain}</p>
+                          {r.url && (
+                            <a
+                              href={r.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary/70 hover:text-primary truncate block"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {r.url}
+                            </a>
+                          )}
+                        </div>
+                        <span className="w-36 text-xs text-muted-foreground truncate hidden md:block">{r.rootDomain}</span>
+                        <span className="w-48 text-xs text-muted-foreground truncate hidden sm:block">{r.sourceQuery}</span>
+                        <span className="w-40 text-xs text-muted-foreground truncate">{r.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Status pills */}
         <div className="flex flex-wrap gap-3">
@@ -393,7 +538,9 @@ export function CampaignRunDetail() {
           {run.status === "running" && (
             <div className="flex items-center gap-2 text-sm text-blue-500 bg-blue-500/10 border border-blue-500/20 px-4 py-2 rounded-xl">
               <Loader2 className="w-4 h-4 animate-spin" />
-              Campaign is running — leads will appear as they are discovered
+              {run.currentStage && STAGE_LABELS[run.currentStage]
+                ? STAGE_LABELS[run.currentStage]
+                : "Campaign is running — leads will appear as they are discovered"}
             </div>
           )}
           {run.errorMessage && (

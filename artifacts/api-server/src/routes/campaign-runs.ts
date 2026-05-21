@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { campaignRunsTable, campaignsTable, leadsTable, logsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable } from "@workspace/db";
+import { eq, desc, and } from "drizzle-orm";
 import { requestCancellation } from "../scheduler/pipeline";
 
 const router = Router();
@@ -55,6 +55,33 @@ router.get("/campaign-runs/:id/leads", async (req, res) => {
     .orderBy(desc(leadsTable.createdAt));
 
   res.json(leads);
+});
+
+// Get results (blocked / duplicate / lead_created / rejected / skipped_recent) for a run
+router.get("/campaign-runs/:id/results", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+
+  const rows = await db
+    .select()
+    .from(campaignRunResultsTable)
+    .where(
+      status
+        ? and(
+            eq(campaignRunResultsTable.campaignRunId, id),
+            eq(campaignRunResultsTable.resultStatus, status),
+          )
+        : eq(campaignRunResultsTable.campaignRunId, id),
+    )
+    .orderBy(desc(campaignRunResultsTable.createdAt))
+    .limit(500);
+
+  res.json(rows);
 });
 
 // Delete a campaign run — leads are kept, their campaign_run_id is set to null via FK SET NULL.

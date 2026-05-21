@@ -16,3 +16,4 @@ export * from "./app-settings";
 export * from "./search-query-history";
 export * from "./search-result-history";
 export * from "./discovery-source-history";
+export * from "./campaign-run-results";

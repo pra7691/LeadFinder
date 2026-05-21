@@ -9,6 +9,7 @@ import {
   campaignKeywordsTable,
   campaignCountriesTable,
   campaignRunsTable,
+  campaignRunResultsTable,
   leadsTable,
   outreachQueueTable,
   emailAccountsTable,
@@ -330,6 +331,42 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
+/** Update current_stage on the campaign_run row (non-fatal). */
+async function setStage(
+  campaignRunId: number | undefined | null,
+  stage: string,
+): Promise<void> {
+  if (campaignRunId == null) return;
+  try {
+    await db
+      .update(campaignRunsTable)
+      .set({ currentStage: stage })
+      .where(eq(campaignRunsTable.id, campaignRunId));
+  } catch { /* non-fatal */ }
+}
+
+/** Insert a campaign_run_results row (non-fatal, fire-and-forget). */
+function recordResult(
+  campaignRunId: number | undefined | null,
+  campaignId: number,
+  resultStatus: string,
+  fields: { title?: string; url?: string; rootDomain?: string; sourceQuery?: string; reason?: string },
+): void {
+  if (campaignRunId == null) return;
+  db.insert(campaignRunResultsTable)
+    .values({
+      campaignRunId,
+      campaignId,
+      resultStatus,
+      title: fields.title ?? null,
+      url: fields.url ?? null,
+      rootDomain: fields.rootDomain ?? null,
+      sourceQuery: fields.sourceQuery ?? null,
+      reason: fields.reason ?? null,
+    })
+    .catch(() => { /* non-fatal */ });
+}
+
 async function schedulerLog(
   campaignId: number,
   message: string,
@@ -623,6 +660,13 @@ async function runDiscovery(
             `Filtered (blocked): ${rootDomain}`,
             { url: result.link },
           );
+          recordResult(campaignRunId, campaign.id, "blocked", {
+            title: result.title,
+            url: result.link,
+            rootDomain,
+            sourceQuery: query,
+            reason: "Blocked domain or junk content",
+          });
           qBlocked++;
           stats.blockedSkipped++;
           continue;
@@ -713,6 +757,13 @@ async function runDiscovery(
 
         // classification === "direct" — a real company page
         if (existingDomains.has(rootDomain)) {
+          recordResult(campaignRunId, campaign.id, "duplicate", {
+            title: result.title,
+            url: result.link,
+            rootDomain,
+            sourceQuery: query,
+            reason: "Domain already exists in campaign leads",
+          });
           qDups++;
           stats.duplicatesSkipped++;
           continue;
@@ -739,10 +790,23 @@ async function runDiscovery(
             leadType: classifyLeadType(rootDomain, result.title),
           });
           existingDomains.add(rootDomain);
+          recordResult(campaignRunId, campaign.id, "lead_created", {
+            title: result.title,
+            url: result.link,
+            rootDomain,
+            sourceQuery: query,
+          });
           stats.newLeadsCreated++;
           qNewLeads++;
         } catch {
           // unique constraint violation = race condition dupe
+          recordResult(campaignRunId, campaign.id, "duplicate", {
+            title: result.title,
+            url: result.link,
+            rootDomain,
+            sourceQuery: query,
+            reason: "Domain already exists (race condition)",
+          });
           stats.duplicatesSkipped++;
           qDups++;
         }
@@ -1133,6 +1197,7 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
   }
 
   await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"`);
+  await setStage(campaignRunId, "searching");
 
   try {
     const discoveryStats = await runDiscovery(campaign, errors, campaignRunId);
@@ -1159,6 +1224,7 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
     return result;
   }
 
+  await setStage(campaignRunId, "crawling");
   try {
     result.crawledCount = await runCrawl(campaign, errors);
   } catch (err) {
@@ -1168,6 +1234,7 @@ export async function runPipeline(campaignId: number, campaignRunId?: number): P
     logger.error({ err, campaignId }, "Scheduler: crawl step failed");
   }
 
+  await setStage(campaignRunId, "scoring");
   try {
     result.scoredCount = await runScore(campaign, errors);
   } catch (err) {

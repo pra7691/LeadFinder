@@ -685,6 +685,8 @@ export interface CampaignRun {
   runName?: string | null;
   runType: CampaignRunRunType;
   status: CampaignRunStatus;
+  /** @nullable */
+  currentStage?: string | null;
   startedAt: string;
   /** @nullable */
   completedAt?: string | null;
@@ -731,6 +733,24 @@ export interface CampaignRun {
   totalWorkUnits?: number;
   /** Queries completed so far (searched + skipped) */
   completedWorkUnits?: number;
+  createdAt: string;
+}
+
+export interface CampaignRunResult {
+  id: number;
+  campaignRunId: number;
+  campaignId: number;
+  resultStatus: string;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  rootDomain?: string | null;
+  /** @nullable */
+  sourceQuery?: string | null;
+  /** @nullable */
+  reason?: string | null;
   createdAt: string;
 }
 
