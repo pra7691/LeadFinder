@@ -229,10 +229,11 @@ export function Settings() {
   const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const initialized = useRef(false);
+  const settingRows = Array.isArray(settings) ? settings : [];
 
   useEffect(() => {
-    if (settings && !initialized.current) {
-      const find = (key: string) => settings.find((s) => s.key === key)?.value;
+    if (settingRows.length > 0 && !initialized.current) {
+      const find = (key: string) => settingRows.find((s) => s.key === key)?.value;
       const domains = find("blocked_domains");
       if (domains) setBlockedDomains(domains);
       setSerperKey(find("serper_api_key") ?? "");
@@ -242,7 +243,7 @@ export function Settings() {
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
       initialized.current = true;
     }
-  }, [settings]);
+  }, [settingRows]);
 
   const save = (key: string, value: string) =>
     new Promise<void>((resolve, reject) =>

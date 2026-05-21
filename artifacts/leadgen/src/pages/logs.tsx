@@ -85,13 +85,15 @@ export function Logs() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
 
+  const logRows = Array.isArray(logs) ? logs : [];
+
   const allTypes = useMemo(() => {
-    const types = new Set((logs ?? []).map((l) => l.type));
+    const types = new Set(logRows.map((l) => l.type));
     return ["all", ...Array.from(types).sort()];
-  }, [logs]);
+  }, [logRows]);
 
   const filtered = useMemo(() => {
-    let rows = logs ?? [];
+    let rows = logRows;
     if (typeFilter !== "all") rows = rows.filter((l) => l.type === typeFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -102,13 +104,13 @@ export function Logs() {
       );
     }
     return rows;
-  }, [logs, typeFilter, search]);
+  }, [logRows, typeFilter, search]);
 
   const countByType = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const l of logs ?? []) map[l.type] = (map[l.type] ?? 0) + 1;
+    for (const l of logRows) map[l.type] = (map[l.type] ?? 0) + 1;
     return map;
-  }, [logs]);
+  }, [logRows]);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -118,8 +120,8 @@ export function Logs() {
           <h1 className="text-3xl font-semibold tracking-tight">Activity Logs</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Full audit trail
-            {logs && logs.length > 0 && (
-              <span> · {logs.length.toLocaleString()} events</span>
+            {logRows.length > 0 && (
+              <span> · {logRows.length.toLocaleString()} events</span>
             )}
           </p>
         </div>
@@ -140,7 +142,7 @@ export function Logs() {
           {allTypes.map((type) => {
             const cfg = type === "all" ? null : LOG_TYPE_CONFIG[type];
             const count =
-              type === "all" ? (logs?.length ?? 0) : (countByType[type] ?? 0);
+              type === "all" ? logRows.length : (countByType[type] ?? 0);
             return (
               <button
                 key={type}
@@ -231,11 +233,11 @@ export function Logs() {
         {/* Footer count */}
         {!isLoading && filtered.length > 0 && (
           <div className="px-4 py-2 border-t border-border/20 bg-muted/10 text-xs text-muted-foreground flex items-center justify-between">
-            <span>
-              {typeFilter !== "all" || search
-                ? `${filtered.length} of ${logs?.length ?? 0} events`
+              <span>
+                {typeFilter !== "all" || search
+                ? `${filtered.length} of ${logRows.length} events`
                 : `${filtered.length} events`}
-            </span>
+              </span>
             {(typeFilter !== "all" || search) && (
               <button
                 className="text-primary hover:underline"

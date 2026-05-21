@@ -141,7 +141,8 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
   const queryClientCRC = useQueryClient();
   const { toast: toastCRC } = useToast();
 
-  const activeRun = runs?.find((r) => r.status === "running");
+  const runRows = Array.isArray(runs) ? runs : [];
+  const activeRun = runRows.find((r) => r.status === "running");
   const elapsed = useElapsedTicker(activeRun?.startedAt);
 
   if (!activeRun) return null;
@@ -282,13 +283,14 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
     query: {
       queryKey: getListCampaignRunsQueryKey(params),
       refetchInterval: (data) => {
-        const arr = data?.state?.data as CampaignRun[] | undefined;
-        return arr?.some((r) => r.status === "running") ? 3000 : false;
+        const arr = data?.state?.data;
+        return Array.isArray(arr) && arr.some((r) => r.status === "running") ? 3000 : false;
       },
     },
   });
 
-  const completedRuns = runs?.filter((r) => r.status !== "running") ?? [];
+  const runRows = Array.isArray(runs) ? runs : [];
+  const completedRuns = runRows.filter((r) => r.status !== "running");
 
   return (
     <Card className="glass-card">

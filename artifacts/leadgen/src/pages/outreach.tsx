@@ -160,6 +160,7 @@ function SendTestDialog({
 }) {
   const { data: accounts } = useListEmailAccounts();
   const sendTest = useSendTestEmail();
+  const accountRows = Array.isArray(accounts) ? accounts : [];
 
   const [accountId, setAccountId] = useState("");
   const [toEmail, setToEmail] = useState("");
@@ -207,13 +208,13 @@ function SendTestDialog({
         <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label>Sending account</Label>
-            {accounts && accounts.length > 0 ? (
+            {accountRows.length > 0 ? (
               <Select value={accountId} onValueChange={setAccountId}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent>
-                  {accounts.map((a) => (
+                  {accountRows.map((a) => (
                     <SelectItem key={a.id} value={String(a.id)}>
                       {a.smtpUser}
                     </SelectItem>
@@ -301,15 +302,17 @@ function SendTestDialog({
 
 function SendStatsBar() {
   const { data: stats } = useGetSendStats();
+  const campaignStats = Array.isArray(stats?.campaigns) ? stats.campaigns : [];
+  const accountStats = Array.isArray(stats?.accounts) ? stats.accounts : [];
 
-  if (!stats || (stats.campaigns.length === 0 && stats.accounts.length === 0)) {
+  if (!stats || (campaignStats.length === 0 && accountStats.length === 0)) {
     return null;
   }
 
-  const totalSentToday = stats.campaigns.reduce((s, c) => s + c.sentToday, 0);
-  const totalLimit = stats.campaigns.reduce((s, c) => s + c.dailyLimit, 0);
-  const activeCampaigns = stats.campaigns.filter((c) => c.sentToday > 0).length;
-  const accountsAtLimit = stats.accounts.filter((a) => a.sentToday >= a.dailyLimit).length;
+  const totalSentToday = campaignStats.reduce((s, c) => s + c.sentToday, 0);
+  const totalLimit = campaignStats.reduce((s, c) => s + c.dailyLimit, 0);
+  const activeCampaigns = campaignStats.filter((c) => c.sentToday > 0).length;
+  const accountsAtLimit = accountStats.filter((a) => a.sentToday >= a.dailyLimit).length;
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 rounded-xl bg-muted/30 border border-border/40 text-sm">
@@ -333,7 +336,7 @@ function SendStatsBar() {
         </span>
       )}
       <div className="ml-auto flex gap-3 shrink-0">
-        {stats.campaigns.slice(0, 3).map((c) => (
+        {campaignStats.slice(0, 3).map((c) => (
           <div key={c.campaignId} className="flex items-center gap-1.5 text-xs">
             <span className="text-muted-foreground truncate max-w-[100px]">{c.campaignName}</span>
             <span
@@ -549,7 +552,8 @@ export function Outreach() {
   };
 
   const { data: rawItems, isLoading } = useListOutreach(queryParams);
-  const outreachItems = rawItems as OutreachItem[] | undefined;
+  const outreachItems = Array.isArray(rawItems) ? (rawItems as OutreachItem[]) : [];
+  const campaignRows = Array.isArray(campaigns) ? campaigns : [];
 
   const deleteOutreach = useDeleteOutreach();
   const bulkApprove = useBulkApproveOutreach();
@@ -570,7 +574,7 @@ export function Outreach() {
 
   const handleBulkApprove = () => {
     const ids = [...selected].filter((id) => {
-      const item = outreachItems?.find((i) => i.id === id);
+      const item = outreachItems.find((i) => i.id === id);
       return item && (item.status === "draft" || item.status === "queued");
     });
     if (ids.length === 0) return;
@@ -608,22 +612,22 @@ export function Outreach() {
   };
 
   const toggleAll = () => {
-    if (!outreachItems) return;
+    if (!outreachItems.length) return;
     if (selected.size === outreachItems.length) setSelected(new Set());
     else setSelected(new Set(outreachItems.map((i) => i.id)));
   };
 
   const statusCounts = ALL_STATUSES.reduce(
     (acc, s) => {
-      acc[s] = (rawItems ?? []).filter((i) => i.status === s).length;
+      acc[s] = outreachItems.filter((i) => i.status === s).length;
       return acc;
     },
     {} as Record<string, number>,
   );
 
-  const approvedCount = (rawItems ?? []).filter((i) => i.status === "approved").length;
+  const approvedCount = outreachItems.filter((i) => i.status === "approved").length;
   const approvableSelected = [...selected].filter((id) => {
-    const item = outreachItems?.find((i) => i.id === id);
+    const item = outreachItems.find((i) => i.id === id);
     return item && (item.status === "draft" || item.status === "queued");
   }).length;
 
@@ -696,7 +700,7 @@ export function Outreach() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All campaigns</SelectItem>
-              {(campaigns ?? []).map((c) => (
+              {campaignRows.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name}
                 </SelectItem>
@@ -798,7 +802,7 @@ export function Outreach() {
                     <TableCell><div className="h-7 w-16 bg-muted/50 rounded-lg animate-pulse ml-auto" /></TableCell>
                   </TableRow>
                 ))
-              ) : outreachItems?.length === 0 ? (
+              ) : outreachItems.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-40 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -812,7 +816,7 @@ export function Outreach() {
                   </TableCell>
                 </TableRow>
               ) : (
-                outreachItems?.map((item) => (
+                outreachItems.map((item) => (
                   <OutreachRow
                     key={item.id}
                     item={item}
@@ -840,7 +844,7 @@ export function Outreach() {
             </div>
             <PreviewPanel
               key={preview.id}
-              item={outreachItems?.find((i) => i.id === preview.id) ?? preview}
+              item={outreachItems.find((i) => i.id === preview.id) ?? preview}
               onClose={() => setPreview(null)}
               onSaved={() => { invalidate(); }}
             />

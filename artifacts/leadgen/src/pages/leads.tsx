@@ -249,7 +249,7 @@ function ExportDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All campaigns</SelectItem>
-                    {campaigns?.map((c) => (
+                    {campaignRows.map((c) => (
                       <SelectItem key={c.id} value={String(c.id)}>
                         {c.name}
                       </SelectItem>
@@ -453,6 +453,7 @@ export function Leads() {
   const bulkScoreMut = useBulkScore();
   const bulkAction = useBulkLeadAction();
   const queryClient = useQueryClient();
+  const leadRows = Array.isArray(leads) ? leads : [];
 
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<QuickFilter>("all");
@@ -483,6 +484,7 @@ export function Leads() {
     {},
     { query: { staleTime: 30_000, queryKey: getListLeadListsQueryKey({}) } },
   );
+  const listRows = Array.isArray(lists) ? lists : [];
   const addToListMut = useAddLeadsToList();
   const [addToListOpen, setAddToListOpen] = useState(false);
   const [addToListId, setAddToListId] = useState<string>("");
@@ -491,7 +493,7 @@ export function Leads() {
 
   const openAddToList = () => {
     setAddToListOpen(true);
-    setAddToListId(lists?.[0]?.id ? String(lists[0].id) : "");
+    setAddToListId(listRows[0]?.id ? String(listRows[0].id) : "");
     setAddToListState("idle");
     setAddToListResult(null);
   };
@@ -518,6 +520,7 @@ export function Leads() {
 
   // ── Campaign/Run filters ─────────────────────────────────────────────────
   const { data: campaigns } = useListCampaigns();
+  const campaignRows = Array.isArray(campaigns) ? campaigns : [];
   const campaignRunsParams = filterCampaignId ? { campaignId: filterCampaignId } : {};
   const { data: campaignRuns } = useListCampaignRuns(
     campaignRunsParams,
@@ -529,6 +532,7 @@ export function Leads() {
       },
     },
   );
+  const campaignRunRows = Array.isArray(campaignRuns) ? campaignRuns : [];
   const queueLeadMut = useQueueLead();
   const bulkQueueMut = useBulkQueueLeads();
 
@@ -542,7 +546,7 @@ export function Leads() {
   const openQueueDialog = (e: React.MouseEvent, leadId: number) => {
     e.stopPropagation();
     setQueueDialog({ open: true, leadId, bulk: false });
-    setQueueCampaignId(campaigns?.[0]?.id ? String(campaigns[0].id) : "");
+    setQueueCampaignId(campaignRows[0]?.id ? String(campaignRows[0].id) : "");
     setQueueState("idle");
     setQueueResult(null);
   };
@@ -550,7 +554,7 @@ export function Leads() {
   const openBulkQueueDialog = () => {
     if (!selectedIds.length) return;
     setQueueDialog({ open: true, leadId: null, bulk: true });
-    setQueueCampaignId(campaigns?.[0]?.id ? String(campaigns[0].id) : "");
+    setQueueCampaignId(campaignRows[0]?.id ? String(campaignRows[0].id) : "");
     setQueueState("idle");
     setQueueResult(null);
   };
@@ -625,7 +629,7 @@ export function Leads() {
   const selectedIds = [...selected];
 
   const handleBulkCrawl = () => {
-    const ids = selectedIds.length > 0 ? selectedIds : (searchFiltered?.map((l) => l.id) ?? []);
+    const ids = selectedIds.length > 0 ? selectedIds : searchFiltered.map((l) => l.id);
     if (!ids.length) return;
     setBulkCrawlState("running");
     bulkCrawl.mutate(
@@ -638,7 +642,7 @@ export function Leads() {
   };
 
   const handleBulkScore = () => {
-    const ids = selectedIds.length > 0 ? selectedIds : (searchFiltered?.map((l) => l.id) ?? []);
+    const ids = selectedIds.length > 0 ? selectedIds : searchFiltered.map((l) => l.id);
     if (!ids.length) return;
     setBulkScoreState("running");
     bulkScoreMut.mutate(
@@ -675,13 +679,13 @@ export function Leads() {
 
   // ── Filtering ─────────────────────────────────────────────────────────────
 
-  const searchFiltered = leads?.filter(
+  const searchFiltered = leadRows.filter(
     (l) =>
       l.companyName?.toLowerCase().includes(search.toLowerCase()) ||
       l.rootDomain?.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const filteredLeads = searchFiltered?.filter((l) => {
+  const filteredLeads = searchFiltered.filter((l) => {
     switch (activeFilter) {
       case "unqualified":    return l.qualificationStatus === "unqualified";
       case "qualified":      return l.qualificationStatus === "qualified";
@@ -703,7 +707,7 @@ export function Leads() {
     e.stopPropagation();
     allSelected
       ? setSelected(new Set())
-      : setSelected(new Set(filteredLeads?.map((l) => l.id) ?? []));
+      : setSelected(new Set(filteredLeads.map((l) => l.id)));
   };
 
   const countFor = (f: QuickFilter) => {
@@ -745,7 +749,7 @@ export function Leads() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All campaigns</SelectItem>
-              {campaigns?.map((c) => (
+              {campaignRows.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
               ))}
             </SelectContent>
@@ -762,7 +766,7 @@ export function Leads() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All runs</SelectItem>
-                {(campaignRuns ?? []).map((r) => (
+                {campaignRunRows.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
                     {r.runName ?? `Run #${r.id}`}
                   </SelectItem>
@@ -782,13 +786,13 @@ export function Leads() {
             />
           </div>
           <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={handleBulkCrawl}
-            disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0} data-testid="btn-bulk-crawl">
+            disabled={isBulkBusy || filteredLeads.length === 0} data-testid="btn-bulk-crawl">
             {bulkCrawlState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
             {bulkCrawlState === "running" ? "Crawling…" : crawlLabel}
           </Button>
           <Button variant="outline" size="sm"
             className="rounded-xl gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
-            onClick={handleBulkScore} disabled={isBulkBusy || (filteredLeads?.length ?? 0) === 0} data-testid="btn-bulk-score">
+            onClick={handleBulkScore} disabled={isBulkBusy || filteredLeads.length === 0} data-testid="btn-bulk-score">
             {bulkScoreState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {bulkScoreState === "running" ? "Scoring…" : scoreLabel}
           </Button>
@@ -844,7 +848,7 @@ export function Leads() {
           </Button>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
-            disabled={isBulkBusy || !campaigns?.length} onClick={openBulkQueueDialog}>
+            disabled={isBulkBusy || !campaignRows.length} onClick={openBulkQueueDialog}>
             <Send className="w-3 h-3" /> Queue for Outreach
           </Button>
           <Button size="sm" variant="outline"
@@ -854,7 +858,7 @@ export function Leads() {
           </Button>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-violet-500 border-violet-500/30 hover:bg-violet-500/10"
-            disabled={isBulkBusy || !(lists?.length)} onClick={openAddToList}>
+            disabled={isBulkBusy || !listRows.length} onClick={openAddToList}>
             <BookMarked className="w-3 h-3" /> Add to List
           </Button>
           {/* Bulk export */}
@@ -910,7 +914,7 @@ export function Leads() {
               <TableRow>
                 <TableCell colSpan={7} className="h-32 text-center text-muted-foreground animate-pulse">Loading leads…</TableCell>
               </TableRow>
-            ) : filteredLeads?.length === 0 ? (
+            ) : filteredLeads.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-32 text-center">
                   <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -920,7 +924,7 @@ export function Leads() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredLeads?.map((lead) => {
+              filteredLeads.map((lead) => {
                 const crawlRowState = crawlStates[lead.id] ?? "idle";
                 const scoreRowState = scoreStates[lead.id] ?? "idle";
                 const isCrawling = crawlRowState === "crawling";
@@ -1084,7 +1088,7 @@ export function Leads() {
                             <ThumbsDown className="w-3.5 h-3.5" />
                           </Button>
                         )}
-                        {campaigns?.length && lead.qualificationStatus === "qualified" ? (
+                        {campaignRows.length && lead.qualificationStatus === "qualified" ? (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1147,7 +1151,7 @@ export function Leads() {
                     <SelectValue placeholder="Select a campaign" />
                   </SelectTrigger>
                   <SelectContent>
-                    {campaigns?.map((c) => (
+                    {campaignRows.map((c) => (
                       <SelectItem key={c.id} value={String(c.id)}>
                         {c.name}
                       </SelectItem>
@@ -1212,10 +1216,10 @@ export function Leads() {
                   <SelectValue placeholder="Select a list" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(lists ?? []).filter((l) => l.listStatus === "active").map((l) => (
-                    <SelectItem key={l.id} value={String(l.id)}>
-                      {l.name} ({l.leadCount} leads)
-                    </SelectItem>
+                {listRows.filter((l) => l.listStatus === "active").map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.name} ({l.leadCount} leads)
+                  </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1251,7 +1255,7 @@ export function Leads() {
         open={exportOpen}
         onOpenChange={setExportOpen}
         bulkLeadIds={exportBulkIds.length > 0 ? exportBulkIds : undefined}
-        campaigns={campaigns?.map((c) => ({ id: c.id, name: c.name }))}
+        campaigns={campaignRows.map((c) => ({ id: c.id, name: c.name }))}
       />
     </div>
   );

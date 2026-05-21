@@ -63,10 +63,15 @@ export function Dashboard() {
   const { data: schedulerStatus } = useGetSchedulerStatus();
   const triggerPipeline = useTriggerCampaignPipeline();
   const qc = useQueryClient();
+  const logRows = Array.isArray(logs) ? logs : [];
 
-  const scheduledCampaigns = (schedulerStatus as SchedulerRow[] | undefined)?.filter(
+  const schedulerRows: SchedulerRow[] = Array.isArray(schedulerStatus)
+    ? (schedulerStatus as SchedulerRow[])
+    : [];
+
+  const scheduledCampaigns = schedulerRows.filter(
     (c) => c.scheduleType !== "manual" && c.isActive,
-  ) ?? [];
+  );
 
   const runningCount = scheduledCampaigns.filter((c) => c.lastRunStatus === "running").length;
   const pausedCount = scheduledCampaigns.filter((c) => c.isPaused).length;
@@ -254,7 +259,7 @@ export function Dashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {logs?.map((log) => (
+                {logRows.map((log) => (
                   <div key={log.id} className="flex items-start gap-4 text-sm group">
                     <div className="w-28 shrink-0 text-xs font-mono text-muted-foreground pt-0.5 group-hover:text-foreground transition-colors">
                       {format(new Date(log.createdAt), "MM/dd HH:mm")}
@@ -272,7 +277,7 @@ export function Dashboard() {
                     </div>
                   </div>
                 ))}
-                {!logs?.length && (
+                {!logRows.length && (
                   <div className="flex flex-col items-center justify-center h-32 text-muted-foreground space-y-2">
                     <Activity className="w-6 h-6 opacity-20" />
                     <p className="text-sm">No recent activity.</p>

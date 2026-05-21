@@ -202,6 +202,9 @@ export function ListDetail() {
   const { data: emailAccounts } = useListEmailAccounts({
     query: { queryKey: getListEmailAccountsQueryKey(), staleTime: 30_000 },
   });
+  const templateRows = Array.isArray(templates) ? templates : [];
+  const leadRows = Array.isArray(leads) ? leads : [];
+  const emailAccountRows = Array.isArray(emailAccounts) ? emailAccounts : [];
 
   const updateMut = useUpdateLeadList();
   const outreachFromListMut = useOutreachFromList();
@@ -253,7 +256,7 @@ export function ListDetail() {
     );
   };
 
-  const activeTemplates = (templates ?? []).filter((t) => t.isActive);
+  const activeTemplates = templateRows.filter((t) => t.isActive);
 
   if (listLoading) {
     return (
@@ -480,7 +483,7 @@ export function ListDetail() {
               <div key={i} className="h-10 bg-muted rounded-lg" />
             ))}
           </div>
-        ) : (leads ?? []).length === 0 ? (
+        ) : leadRows.length === 0 ? (
           <div className="flex flex-col items-center py-20 text-center">
             <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center mb-3">
               <Users className="w-6 h-6 text-muted-foreground" />
@@ -505,7 +508,7 @@ export function ListDetail() {
                 </tr>
               </thead>
               <tbody>
-                {(leads ?? []).map((lead) => (
+                {leadRows.map((lead) => (
                   <LeadRow
                     key={lead.id}
                     lead={lead}
@@ -579,7 +582,7 @@ export function ListDetail() {
                     <SelectValue placeholder="Assign later in Review Queue" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(emailAccounts ?? []).map((a) => (
+                    {emailAccountRows.map((a) => (
                       <SelectItem key={a.id} value={String(a.id)}>{a.name} ({a.email})</SelectItem>
                     ))}
                   </SelectContent>

@@ -69,8 +69,9 @@ export function Campaigns() {
     query: {
       queryKey: getListCampaignsQueryKey(),
       refetchInterval: (query) => {
-        const arr = query.state.data as Campaign[] | undefined;
-        return arr?.some((c) => c.lastRunStatus === "running") ? 5000 : false;
+        const raw = query.state.data;
+        const arr = Array.isArray(raw) ? (raw as Campaign[]) : [];
+        return arr.some((c) => c.lastRunStatus === "running") ? 5000 : false;
       },
     },
   });
@@ -130,9 +131,11 @@ export function Campaigns() {
     );
   };
 
-  const deletingCampaign = campaigns?.find((c: Campaign) => c.id === deletingId) ?? null;
+  const campaignRows: Campaign[] = Array.isArray(campaigns) ? (campaigns as Campaign[]) : [];
 
-  const filteredCampaigns = (campaigns as Campaign[] | undefined)?.filter((c) =>
+  const deletingCampaign = campaignRows.find((c) => c.id === deletingId) ?? null;
+
+  const filteredCampaigns = campaignRows.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -217,7 +220,7 @@ export function Campaigns() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCampaigns?.map((campaign) => {
+          {filteredCampaigns.map((campaign) => {
             const scheduleType = campaign.scheduleType || "manual";
             const lastRunStatus = campaign.lastRunStatus || "idle";
             const isPaused = Boolean(campaign.isPaused);

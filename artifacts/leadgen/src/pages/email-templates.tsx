@@ -205,6 +205,7 @@ export function EmailTemplates() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EmailTemplate | null>(null);
   const [previewTarget, setPreviewTarget] = useState<EmailTemplate | null>(null);
+  const templateRows = Array.isArray(templates) ? templates : [];
 
   const invalidate = () => qc.invalidateQueries({ queryKey: getListEmailTemplatesQueryKey({ includeInactive: true }) });
 
@@ -275,7 +276,7 @@ export function EmailTemplates() {
             <div key={i} className="h-32 rounded-2xl bg-muted/40 animate-pulse" />
           ))}
         </div>
-      ) : !templates?.length ? (
+      ) : templateRows.length === 0 ? (
         <div className="glass-card rounded-2xl flex flex-col items-center justify-center py-24 gap-4 text-center">
           <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center">
             <FileText className="w-7 h-7 text-muted-foreground" />
@@ -290,7 +291,7 @@ export function EmailTemplates() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {templates.map((tmpl) => (
+          {templateRows.map((tmpl) => (
             <Card key={tmpl.id} className={`glass-card transition-opacity ${tmpl.isActive ? "" : "opacity-60"}`}>
               <CardHeader className="pb-3 flex flex-row items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">

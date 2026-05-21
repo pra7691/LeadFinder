@@ -222,8 +222,10 @@ export function Lists() {
     );
   };
 
-  const activeLists = (lists ?? []).filter((l) => l.listStatus === "active");
-  const archivedLists = (lists ?? []).filter((l) => l.listStatus === "archived");
+  const listRows: LeadList[] = Array.isArray(lists) ? (lists as LeadList[]) : [];
+
+  const activeLists = listRows.filter((l) => l.listStatus === "active");
+  const archivedLists = listRows.filter((l) => l.listStatus === "archived");
 
   return (
     <div className="space-y-6">
@@ -256,7 +258,7 @@ export function Lists() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
-      ) : (lists ?? []).length === 0 ? (
+      ) : listRows.length === 0 ? (
         <EmptyState onNew={() => setNewOpen(true)} />
       ) : (
         <div className="space-y-6">

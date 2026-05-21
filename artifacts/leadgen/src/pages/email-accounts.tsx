@@ -131,8 +131,11 @@ function CampaignAssignment({ account }: { account: EmailAccount }) {
   const [adding, setAdding] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState("");
 
-  const assignedIds = new Set((assigned ?? []).map((a) => a.id));
-  const available = (campaigns ?? []).filter((c) => !assignedIds.has(c.id));
+  const campaignRows = Array.isArray(campaigns) ? campaigns : [];
+  const assignedRows = Array.isArray(assigned) ? assigned : [];
+
+  const assignedIds = new Set(assignedRows.map((a) => a.id));
+  const available = campaignRows.filter((c) => !assignedIds.has(c.id));
 
   const invalidate = () =>
     qc.invalidateQueries({
@@ -210,8 +213,8 @@ function CampaignAssignment({ account }: { account: EmailAccount }) {
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {(assigned ?? []).map((a) => {
-            const camp = (campaigns ?? []).find((c) => c.id === a.id);
+          {assignedRows.map((a) => {
+            const camp = campaignRows.find((c) => c.id === a.id);
             return (
               <Badge key={a.id} variant="secondary" className="text-xs gap-1 pr-1 pl-2">
                 {camp?.name ?? `Campaign #${a.id}`}
@@ -647,9 +650,9 @@ export function EmailAccounts() {
       }
     : EMPTY_FORM;
 
-  const allAccounts = accounts as EmailAccount[] | undefined;
-  const activeCount = (allAccounts ?? []).filter((a) => a.isActive).length;
-  const totalSentToday = (allAccounts ?? []).reduce((s, a) => s + a.sentToday, 0);
+  const allAccounts = Array.isArray(accounts) ? (accounts as EmailAccount[]) : [];
+  const activeCount = allAccounts.filter((a) => a.isActive).length;
+  const totalSentToday = allAccounts.reduce((s, a) => s + a.sentToday, 0);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -720,7 +723,7 @@ export function EmailAccounts() {
               </CardContent>
             </Card>
           ))
-        ) : allAccounts?.length === 0 ? (
+        ) : allAccounts.length === 0 ? (
           <div className="col-span-full flex flex-col items-center justify-center p-14 text-center bg-muted/20 border border-border/50 rounded-2xl border-dashed">
             <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
               <Mail className="w-7 h-7 text-muted-foreground/30" />
@@ -734,7 +737,7 @@ export function EmailAccounts() {
             </Button>
           </div>
         ) : (
-          allAccounts?.map((acc) => (
+          allAccounts.map((acc) => (
             <AccountCard key={acc.id} account={acc} onEdit={openEdit} />
           ))
         )}

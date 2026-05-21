@@ -401,22 +401,24 @@ export function OutreachReview() {
   const enrichedItems = useMemo(() => {
     const typed = items as EnrichedItem[];
     return [...typed].sort((a, b) => {
-      const aErrors = (a.qualityWarnings ?? []).filter((w) => w.severity === "error").length;
-      const bErrors = (b.qualityWarnings ?? []).filter((w) => w.severity === "error").length;
+      const aWarnings = Array.isArray(a.qualityWarnings) ? a.qualityWarnings : [];
+      const bWarnings = Array.isArray(b.qualityWarnings) ? b.qualityWarnings : [];
+      const aErrors = aWarnings.filter((w) => w.severity === "error").length;
+      const bErrors = bWarnings.filter((w) => w.severity === "error").length;
       return bErrors - aErrors;
     });
   }, [items]);
 
   const errorCount = enrichedItems.filter((i) =>
-    (i.qualityWarnings ?? []).some((w) => w.severity === "error"),
+    Array.isArray(i.qualityWarnings) && i.qualityWarnings.some((w) => w.severity === "error"),
   ).length;
   const warningCount = enrichedItems.filter(
     (i) =>
-      !(i.qualityWarnings ?? []).some((w) => w.severity === "error") &&
-      (i.qualityWarnings ?? []).some((w) => w.severity === "warning"),
+      !(Array.isArray(i.qualityWarnings) && i.qualityWarnings.some((w) => w.severity === "error")) &&
+      Array.isArray(i.qualityWarnings) && i.qualityWarnings.some((w) => w.severity === "warning"),
   ).length;
   const cleanCount = enrichedItems.filter(
-    (i) => (i.qualityWarnings ?? []).every((w) => w.severity === "info"),
+    (i) => !Array.isArray(i.qualityWarnings) || i.qualityWarnings.every((w) => w.severity === "info"),
   ).length;
 
   const toggleItem = (id: number) => {

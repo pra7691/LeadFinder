@@ -112,8 +112,10 @@ export function CampaignRunDetail() {
       enabled: !!runIdNum,
     },
   });
+  const leadRows = Array.isArray(leads) ? leads : [];
 
   const { data: lists } = useListLeadLists();
+  const listRows = Array.isArray(lists) ? lists : [];
   const addLeadsToList = useAddLeadsToList();
   const updateLead = useUpdateLead();
   const deleteRun = useDeleteCampaignRun();
@@ -140,6 +142,7 @@ export function CampaignRunDetail() {
       },
     },
   );
+  const runResultRows = Array.isArray(runResults) ? runResults : [];
 
   // Delete state
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
@@ -150,8 +153,7 @@ export function CampaignRunDetail() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const filteredLeads = useMemo(() => {
-    if (!leads) return [];
-    return leads.filter((l) => {
+    return leadRows.filter((l) => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!l.companyName?.toLowerCase().includes(q) && !l.rootDomain?.toLowerCase().includes(q)) return false;
@@ -162,7 +164,7 @@ export function CampaignRunDetail() {
       if (qualFilter === "hasEmail") return !!l.emails;
       return true;
     });
-  }, [leads, searchQuery, qualFilter]);
+  }, [leadRows, searchQuery, qualFilter]);
 
   const toggleLead = (leadId: number) => {
     setSelectedIds((prev) => {
@@ -247,9 +249,9 @@ export function CampaignRunDetail() {
         },
       );
 
-    if (!deleteRunKeepLeads && leads && leads.length > 0) {
+    if (!deleteRunKeepLeads && leadRows.length > 0) {
       bulkDeleteLeads.mutate(
-        { data: { ids: leads.map((l) => l.id) } },
+        { data: { ids: leadRows.map((l) => l.id) } },
         {
           onSuccess: doDeleteRun,
           onError: () => toast({ title: "Failed to delete leads.", variant: "destructive" }),
@@ -462,7 +464,7 @@ export function CampaignRunDetail() {
             <CardContent className="p-0">
               {resultFilter === "rejected" ? (
                 (() => {
-                  const rejectedLeads = leads?.filter((l) => l.qualificationStatus === "rejected") ?? [];
+                  const rejectedLeads = leadRows.filter((l) => l.qualificationStatus === "rejected");
                   return rejectedLeads.length === 0 ? (
                     <div className="py-8 text-center text-sm text-muted-foreground">No rejected leads.</div>
                   ) : (
@@ -488,7 +490,7 @@ export function CampaignRunDetail() {
                     </div>
                   ))}
                 </div>
-              ) : !runResults?.length ? (
+              ) : !runResultRows.length ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">No results.</div>
               ) : (
                 <>
@@ -499,7 +501,7 @@ export function CampaignRunDetail() {
                     <span className="w-40">Reason</span>
                   </div>
                   <div className="divide-y divide-border/30">
-                    {runResults.map((r) => (
+                    {runResultRows.map((r) => (
                       <div key={r.id} className="flex items-center gap-3 px-5 py-3 text-sm">
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{r.title || r.url || r.rootDomain}</p>
@@ -659,7 +661,7 @@ export function CampaignRunDetail() {
               <div className="py-12 text-center">
                 <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">
-                  {!leads?.length
+                  {!leadRows.length
                     ? run.status === "running"
                       ? "Leads will appear here as they are discovered…"
                       : "No leads were discovered in this run."
@@ -777,12 +779,12 @@ export function CampaignRunDetail() {
               <DialogTitle>Add {selectedIds.size} Lead{selectedIds.size !== 1 ? "s" : ""} to List</DialogTitle>
             </DialogHeader>
             <div className="space-y-2 mt-2">
-              {!lists?.length ? (
+              {!listRows.length ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No lists yet — create one in the Lists section first.
                 </p>
               ) : (
-                lists.map((list) => (
+                listRows.map((list) => (
                   <button
                     key={list.id}
                     onClick={() => handleAddToList(list.id)}
