@@ -43,11 +43,11 @@ troubleshooting for common failure cases.
 
 In the left sidebar, click the **lock icon (Secrets)**. Add the following:
 
-| Secret name | Description | Example |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string — Replit creates this automatically when you add a PostgreSQL database via the **Database** tab | `postgresql://user:pass@host:5432/db` |
-| `SESSION_SECRET` | A long random string used to encrypt SMTP passwords at rest. Generate one with: `openssl rand -hex 32` | `a1b2c3d4e5...` (32+ chars) |
-| `SERPER_API_KEY` | Your Serper.dev API key for lead discovery searches | `abc123...` |
+| Secret name | Required | Description | Example |
+|---|---|---|---|
+| `DATABASE_URL` | **Yes** | PostgreSQL connection string — Replit adds this automatically when you provision a database | `postgresql://user:pass@host:5432/db` |
+| `SESSION_SECRET` | **Yes** | Random 32+ char string used to encrypt SMTP passwords. Generate: `openssl rand -hex 32` | `a1b2c3d4e5...` |
+| `SERPER_API_KEY` | Optional | Fallback if the Settings UI key is not set. **Preferred: configure in Settings → Search API Settings after setup.** | `abc123...` |
 
 > **DATABASE_URL**: In Replit, go to **Tools → Database** and add a PostgreSQL
 > database. Replit automatically adds `DATABASE_URL` as a Secret.
@@ -63,8 +63,11 @@ In the left sidebar, click the **lock icon (Secrets)**. Add the following:
 | `PORT` | `8080` | Set automatically by the artifact config — no action needed |
 | `NODE_ENV` | `development` | Set to `production` for deployed environments |
 
-> OpenAI API key and model are configured in **Settings → AI Settings** — do not
-> add them as secrets.
+> **Serper API key**: Configured in **Settings → Search API Settings**. No
+> environment variable needed — the key is stored in the database. The
+> `SERPER_API_KEY` env var still works as a fallback for server/CI deployments.
+
+> **OpenAI API key**: Configured in **Settings → AI Settings**. Do not add as a Secret.
 
 ---
 
@@ -283,7 +286,7 @@ cannot be decrypted with a different secret.
 |---|---|
 | `DATABASE_URL` | Replit → Secrets |
 | `SESSION_SECRET` | Replit → Secrets |
-| `SERPER_API_KEY` | Replit → Secrets |
+| Serper API key | App → **Settings → Search API Settings** (preferred) or `SERPER_API_KEY` Secret (fallback) |
 | OpenAI API key | App → Settings → AI Settings |
 | SMTP account credentials | App → Email Accounts |
 | Blocked domain list | App → Settings → Global Filters |

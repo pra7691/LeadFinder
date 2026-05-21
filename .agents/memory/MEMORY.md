@@ -1,2 +1,2 @@
 - [Fresh import setup](fresh-import-setup.md) — root cause of import failures and reproducibility fix applied
-- [Security: SERPER_API_KEY in .replit](serper-key-in-replit.md) — API key committed in [userenv.shared]; user must be warned before rotating
+- [Serper key resolution](serper-key-resolution.md) — lookup order: app_settings → SERPER_API_KEY env; never hardcoded in repo

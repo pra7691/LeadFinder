@@ -1,0 +1,172 @@
+Change Serper API key handling from hardcoded/env-only to app Settings based configuration.
+
+Do not hardcode any real API key in the repository.
+Do not require Replit Secrets for Serper if the key is already configured in the app Settings.
+Do not break existing environment-variable based deployments.
+
+Goal:
+Make the project portable across different Replit accounts and AI builders.
+
+Correct behavior:
+
+1. User can add Serper API Key from Settings UI.
+2. The key is stored in app_settings table.
+3. Discovery uses the Serper key from app_settings first.
+4. If app_settings key is missing, fallback to process.env.SERPER_API_KEY.
+5. If both are missing, show clear error:
+   “Serper API key is missing. Add it in Settings → Search API Settings.”
+
+==================================================
+PART 1 — ADD SEARCH API SETTINGS UI
+===================================
+
+In Settings page, add a section:
+
+Search API Settings
+
+Fields:
+
+* Serper API Key
+* Test Serper Connection button
+
+Behavior:
+
+* allow user to save Serper API key
+* mask saved key after saving
+* do not expose full key back to frontend
+* show only masked value like sk_****abcd if possible
+* allow replacing key
+
+==================================================
+PART 2 — STORE SERPER KEY IN APP SETTINGS
+=========================================
+
+Store in app_settings table:
+
+key: serper_api_key
+value: encrypted if practical, otherwise stored securely as current app_settings pattern allows
+
+Do not commit real Serper key into:
+
+* .replit
+* source code
+* artifact.toml
+* package.json
+* docs
+* env example files
+
+==================================================
+PART 3 — UPDATE SERPER CLIENT
+=============================
+
+Update Serper service/client:
+
+Current behavior likely:
+process.env.SERPER_API_KEY
+
+New behavior:
+
+1. read serper_api_key from app_settings
+2. if not found, fallback to process.env.SERPER_API_KEY
+3. if still missing, throw clear user-facing error
+
+Do not silently fail.
+
+==================================================
+PART 4 — TEST SERPER CONNECTION
+===============================
+
+Add endpoint:
+
+POST /api/settings/test-serper
+
+It should:
+
+* read key from app_settings or request body
+* make a small safe test request to Serper
+* return success/failure message
+* not consume too much quota
+
+Example test query:
+test
+
+Return:
+{
+"success": true,
+"message": "Serper API connection successful"
+}
+
+On failure:
+return clear error without exposing key.
+
+==================================================
+PART 5 — UPDATE SETUP/IMPORT DOCS
+=================================
+
+Update REPLIT_IMPORT.md and DEPLOYMENT.md.
+
+Change Serper setup instructions:
+
+Old:
+SERPER_API_KEY must be added in Replit Secrets.
+
+New:
+Preferred:
+Add Serper API Key from Settings → Search API Settings.
+
+Optional fallback:
+SERPER_API_KEY can still be added as environment variable for server deployments.
+
+Mention:
+Do not hardcode real API keys in .replit or source code.
+
+==================================================
+PART 6 — UPDATE SETUP SCRIPT
+============================
+
+Update setup-replit script:
+
+* SERPER_API_KEY should no longer be mandatory if the app supports Settings-based key entry.
+* DATABASE_URL and SESSION_SECRET remain required.
+* If SERPER_API_KEY is missing, show warning, not failure:
+  “Serper API key not found in environment. You can add it later from Settings.”
+
+==================================================
+PART 7 — SMOKE TEST UPDATE
+==========================
+
+Smoke test should not fail only because Serper key is missing.
+
+It should warn:
+“Serper key not configured. Discovery will not work until configured in Settings or environment.”
+
+==================================================
+PART 8 — TESTING
+================
+
+Test:
+
+1. Save Serper key from Settings.
+2. Test Serper connection from Settings.
+3. Run campaign discovery using Settings-stored Serper key.
+4. Remove Settings key but keep SERPER_API_KEY env → discovery still works.
+5. Remove both Settings key and env → discovery fails with clear error.
+6. Fresh Replit import without SERPER_API_KEY can still start app.
+7. No real Serper key exists in .replit or committed files.
+8. Full test suite passes.
+9. Typecheck passes.
+
+==================================================
+COMPLETION REPORT
+=================
+
+Report:
+
+* settings UI added
+* app_settings key added
+* Serper client lookup order
+* env fallback behavior
+* setup script changes
+* docs updated
+* tests run
+* whether any hardcoded key remains

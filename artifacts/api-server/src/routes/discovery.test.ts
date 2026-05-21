@@ -143,6 +143,10 @@ describe("POST /api/campaigns/:id/run-discovery", () => {
     await db
       .delete(appSettingsTable)
       .where(eq(appSettingsTable.key, "blocked_domains"));
+    // Remove serper_api_key if any test inserted it
+    await db
+      .delete(appSettingsTable)
+      .where(eq(appSettingsTable.key, "serper_api_key"));
     if (testCampaignId) {
       await cleanupCampaign(testCampaignId);
       testCampaignId = 0;
@@ -151,8 +155,13 @@ describe("POST /api/campaigns/:id/run-discovery", () => {
 
   // ── 1. Guard rails ────────────────────────────────────────────────────────
 
-  it("returns 400 when SERPER_API_KEY is not set", async () => {
+  it("returns 400 when neither env key nor settings key is configured", async () => {
     delete process.env["SERPER_API_KEY"];
+    // Ensure the DB-based key is also absent
+    await db
+      .delete(appSettingsTable)
+      .where(eq(appSettingsTable.key, "serper_api_key"));
+
     const campaign = await createTestCampaign();
     testCampaignId = campaign.id;
 
@@ -160,7 +169,7 @@ describe("POST /api/campaigns/:id/run-discovery", () => {
       .post(`/api/campaigns/${testCampaignId}/run-discovery`)
       .expect(400);
 
-    expect(res.body.error).toMatch(/SERPER_API_KEY/i);
+    expect(res.body.error).toMatch(/serper api key/i);
   });
 
   it("returns 404 when campaign does not exist", async () => {

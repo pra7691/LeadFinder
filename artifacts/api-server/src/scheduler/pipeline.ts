@@ -21,6 +21,7 @@ import {
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
+import { getSerperApiKey } from "../services/serper-key";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
 import { classifyLeadType } from "../services/lead-classifier";
 import { scoreLead } from "../services/scorer";
@@ -375,9 +376,11 @@ async function runDiscovery(
     blockedSkipped: 0,
   };
 
-  const apiKey = process.env["SERPER_API_KEY"];
+  const apiKey = await getSerperApiKey();
   if (!apiKey) {
-    errors.push("SERPER_API_KEY not set — skipping discovery");
+    errors.push(
+      "Serper API key not configured — skipping discovery. Add it in Settings → Search API Settings or set SERPER_API_KEY environment variable.",
+    );
     return stats;
   }
 

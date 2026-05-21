@@ -1,0 +1,327 @@
+Fix Campaign Run lifecycle and add blocked/skipped results visibility.
+
+Current issue:
+When a campaign run receives results from Serper, the run is marked Completed too early. This is wrong.
+
+A Campaign Run should only be marked Completed after the full process is finished:
+1. Serper search completed
+2. results classified
+3. blocked/skipped/duplicate results recorded
+4. valid leads created
+5. website crawling completed
+6. extraction completed
+7. relevance scoring completed
+8. final counters/logs updated
+
+Do not rebuild the app.
+Do not change unrelated modules.
+Preserve existing campaigns, runs, leads, lists, outreach data, and settings.
+
+==================================================
+PART 1 — FIX CAMPAIGN RUN STATUS LIFECYCLE
+==================================================
+
+Update Campaign Run status logic.
+
+Correct lifecycle:
+
+1. When Run Campaign is clicked:
+status = running
+stage = searching
+
+2. While Serper/search is running:
+stage = searching
+
+3. After search results are received:
+do NOT mark completed.
+Move to:
+stage = processing_results
+
+4. While valid leads are being created:
+stage = creating_leads
+
+5. While websites are being crawled:
+stage = crawling
+
+6. While extraction is running:
+stage = extracting
+
+7. While scoring is running:
+stage = scoring
+
+8. Only after all stages finish:
+status = completed
+stage = completed
+completed_at = current timestamp
+duration_seconds calculated
+
+If any stage fails but partial data exists:
+status = partial
+stage = failed_stage_name
+error_message saved
+
+If manually stopped:
+status = cancelled
+stage = cancelled
+
+==================================================
+PART 2 — ADD RUN STAGE FIELD
+==================================================
+
+Add or reuse field on campaign_runs:
+
+current_stage
+
+Allowed values:
+- queued
+- searching
+- processing_results
+- creating_leads
+- crawling
+- extracting
+- scoring
+- completed
+- partial
+- failed
+- cancelled
+
+Show this in:
+- Current Run card
+- Campaign Runs table
+- Run Detail page
+
+Example UI:
+Status: Running
+Stage: Crawling websites
+
+==================================================
+PART 3 — UPDATE LIVE COUNTERS THROUGHOUT ALL STAGES
+==================================================
+
+The run counters should update live during the whole process, not only during search.
+
+Track and update:
+- searches completed
+- raw results found
+- blocked results
+- duplicate results
+- discovery sources found
+- discovery sources mined
+- new leads created
+- leads crawled
+- crawl failed
+- leads scored
+- scoring failed
+
+If columns do not exist, add practical counters or store stage/counter details in metadata_json.
+
+==================================================
+PART 4 — DO NOT COMPLETE BEFORE CRAWL AND SCORING
+==================================================
+
+Audit the code paths:
+- campaign trigger route
+- discovery route
+- pipeline service
+- crawler service
+- scorer service
+- scheduler if present
+
+Find where campaign_runs.status is set to completed.
+
+Fix it so completed is set only after:
+- crawl stage finishes
+- scoring stage finishes
+
+If AI scoring is disabled:
+keyword fallback scoring still counts as scoring completed.
+
+If scoring is intentionally skipped:
+record:
+stage = completed
+scoring_status = skipped
+reason = AI scoring disabled / no scoring configured
+
+==================================================
+PART 5 — ADD BLOCKED/SKIPPED RESULT STORAGE
+==================================================
+
+Currently blocked results are counted but not visible.
+
+Add storage for run-level skipped/blocked results.
+
+Create table if needed:
+
+campaign_run_results
+
+Fields:
+- id
+- campaign_run_id
+- campaign_id
+- result_type
+- result_status
+- title
+- url
+- root_domain
+- source_query
+- source_keyword
+- source_country
+- reason
+- created_at
+
+result_type values:
+- direct_result
+- discovery_source
+- mined_link
+
+result_status values:
+- lead_created
+- blocked
+- duplicate
+- rejected
+- skipped_recent
+- source_mined
+- source_skipped
+
+Reason examples:
+- blocked_domain
+- blocked_subdomain
+- duplicate_domain
+- discovery_source_only
+- same_domain_as_source
+- feed_or_rss
+- invalid_url
+- non_company_lead_type
+- query_skipped_recently
+
+==================================================
+PART 6 — MAKE BLOCKED STATS CLICKABLE
+==================================================
+
+In Run Detail top stats, make these cards clickable if count > 0:
+
+- Blocked
+- Duplicates
+- Rejected
+- Sources Found / Sources Mined if present
+- New Leads
+
+Behavior:
+Click Blocked:
+Show a table/list of blocked results for that run.
+
+Click Duplicates:
+Show duplicate results for that run.
+
+Click Rejected:
+Show rejected/non-company results for that run.
+
+Click New Leads:
+Show leads created from that run.
+
+Do not mix blocked items with valid leads unless filter selected.
+
+==================================================
+PART 7 — RUN DETAIL TABS OR FILTERS
+==================================================
+
+On Run Detail page, add tabs or filters:
+
+- Leads
+- Blocked
+- Duplicates
+- Rejected
+- All Results
+
+Leads tab:
+shows actual leads created.
+
+Blocked tab:
+shows blocked domains/results with reason.
+
+Duplicates tab:
+shows duplicate domains/results.
+
+Rejected tab:
+shows rejected/non-company results.
+
+All Results:
+shows everything from this run.
+
+Each row should show:
+- title
+- url
+- root domain
+- source query
+- status
+- reason
+- created time
+
+==================================================
+PART 8 — LOGGING
+==================================================
+
+Add clear logs for every skipped/blocked/duplicate result.
+
+Log should include:
+- campaign_run_id
+- result URL
+- root domain
+- source query
+- reason skipped
+- stage
+
+==================================================
+PART 9 — UI STATUS FIX
+==================================================
+
+Current UI shows completed too early.
+
+Fix:
+- Campaign list should show Running until crawl + scoring finish.
+- Current Run card should remain visible until all stages finish.
+- Run Detail should show current stage.
+- Campaign Runs history should only show Completed after full process finishes.
+
+If run is in crawling/scoring:
+do not hide Current Run card.
+
+==================================================
+PART 10 — TESTING
+==================================================
+
+Test with a real or mocked campaign run.
+
+Required tests:
+
+1. Run starts with status running and stage searching.
+2. After Serper returns results, status remains running.
+3. During crawling, status remains running and stage = crawling.
+4. During scoring, status remains running and stage = scoring.
+5. Only after scoring finishes, status becomes completed.
+6. If AI scoring is disabled, keyword scoring/fallback still completes the scoring stage.
+7. Blocked results are stored.
+8. Clicking Blocked count shows blocked results.
+9. Duplicate results are stored.
+10. Clicking Duplicates count shows duplicate results.
+11. Run Detail Leads tab only shows created leads.
+12. All Results tab shows leads + blocked + duplicates + rejected.
+13. Campaign list running indicator remains active until full run completion.
+14. Current Run card remains visible until full completion.
+15. Cancelled run stops safely and records partial results.
+
+==================================================
+COMPLETION REPORT
+==================================================
+
+Report:
+- lifecycle changes made
+- stages added
+- database changes
+- blocked/skipped result storage added
+- clickable stat cards added
+- Run Detail tabs/filters added
+- backend routes added/changed
+- tests run
+- before/after behavior
+- remaining limitations

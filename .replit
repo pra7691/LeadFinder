@@ -37,4 +37,3 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-SERPER_API_KEY = "90e604814164355f2a47be44befe112ed5cd9aaf"

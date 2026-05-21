@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // System Health types + fetcher
@@ -215,6 +215,11 @@ export function Settings() {
   // Global filters
   const [blockedDomains, setBlockedDomains] = useState("");
 
+  // Search API settings
+  const [serperKey, setSerperKey] = useState("");
+  const [serperTestResult, setSerperTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [serperTestPending, setSerperTestPending] = useState(false);
+
   // AI settings
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiScoringEnabled, setAiScoringEnabled] = useState(false);
@@ -229,6 +234,7 @@ export function Settings() {
       const find = (key: string) => settings.find((s) => s.key === key)?.value;
       const domains = find("blocked_domains");
       if (domains) setBlockedDomains(domains);
+      setSerperKey(find("serper_api_key") ?? "");
       setAiEnabled(find("ai_enabled") === "true");
       setAiScoringEnabled(find("ai_scoring_enabled") === "true");
       setOpenaiKey(find("openai_api_key") ?? "");
@@ -252,6 +258,31 @@ export function Settings() {
     await save("blocked_domains", blockedDomains);
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "Settings saved." });
+  };
+
+  const handleSaveSerper = async () => {
+    // Don't overwrite a real key with the masked placeholder
+    if (!serperKey.startsWith("••••••••")) {
+      await save("serper_api_key", serperKey);
+      queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
+    }
+    toast({ title: "Search API settings saved." });
+  };
+
+  const handleTestSerper = async () => {
+    setSerperTestResult(null);
+    setSerperTestPending(true);
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/settings/test-serper`, {
+        method: "POST",
+      });
+      const data = (await res.json()) as { success: boolean; message: string };
+      setSerperTestResult({ success: data.success, message: data.message });
+    } catch {
+      setSerperTestResult({ success: false, message: "Request failed. Check server logs." });
+    } finally {
+      setSerperTestPending(false);
+    }
   };
 
   const handleSaveAI = async () => {
@@ -312,6 +343,74 @@ export function Settings() {
 
           {/* System Health */}
           <SystemHealthCard />
+
+          {/* Search API Settings */}
+          <Card className="glass-card">
+            <CardHeader className="border-b border-border/30 pb-4">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-muted-foreground" />
+                <CardTitle className="text-lg font-medium text-foreground">Search API Settings</CardTitle>
+              </div>
+              <CardDescription>
+                Serper API key for lead discovery searches. Stored in the database — no environment variable required.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Serper API Key</Label>
+                <Input
+                  type="password"
+                  value={serperKey}
+                  onChange={(e) => setSerperKey(e.target.value)}
+                  placeholder="Your Serper.dev API key"
+                  className="rounded-xl bg-background/50 font-mono"
+                  data-testid="input-serper-key"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  If you see •••• a key is already stored. Entering a new value will replace it.
+                  Get a key at{" "}
+                  <a href="https://serper.dev" target="_blank" rel="noopener noreferrer" className="underline">
+                    serper.dev
+                  </a>.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  className="rounded-xl gap-2"
+                  onClick={handleTestSerper}
+                  disabled={serperTestPending}
+                  data-testid="button-test-serper"
+                >
+                  {serperTestPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
+                  ) : (
+                    <><Search className="w-4 h-4" /> Test Serper Connection</>
+                  )}
+                </Button>
+                {serperTestResult && (
+                  <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm ${serperTestResult.success ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"}`}>
+                    {serperTestResult.success
+                      ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                    <span>{serperTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-border/30">
+                <Button
+                  onClick={handleSaveSerper}
+                  disabled={upsertSetting.isPending}
+                  className="rounded-xl px-6"
+                  data-testid="button-save-serper"
+                >
+                  {upsertSetting.isPending ? "Saving…" : "Save Search Settings"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* AI Settings */}
           <Card className="glass-card">

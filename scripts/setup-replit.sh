@@ -84,7 +84,17 @@ check_secret() {
 
 check_secret "DATABASE_URL"
 check_secret "SESSION_SECRET"
-check_secret "SERPER_API_KEY"
+
+# SERPER_API_KEY is optional at startup — can be added later via Settings UI
+SERPER_FROM_ENV="${SERPER_API_KEY:-}"
+if [ -n "$SERPER_FROM_ENV" ]; then
+  ok "SERPER_API_KEY present in environment (will be used as fallback)"
+else
+  warn "SERPER_API_KEY not found in environment."
+  warn "  → Preferred: configure in Settings → Search API Settings after setup."
+  warn "  → Alternative: add as a Replit Secret named SERPER_API_KEY."
+  warn "  → Discovery will not work until a Serper key is configured."
+fi
 
 if [ ${#MISSING[@]} -gt 0 ]; then
   nl
@@ -92,15 +102,15 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   warn "Required secrets:"
   warn "  DATABASE_URL    — PostgreSQL connection string"
   warn "  SESSION_SECRET  — Random 32+ char string (used to encrypt SMTP passwords)"
+  warn "Optional (configure in Settings UI or as a secret):"
   warn "  SERPER_API_KEY  — Your Serper.dev API key for lead discovery"
-  warn "Optional secrets (can also be set in Settings UI after setup):"
   warn "  PORT            — API server port (default: 8080)"
   warn "  NODE_ENV        — Set to 'production' in deployed envs"
   nl
   ERRORS=$((ERRORS + ${#MISSING[@]}))
 fi
 
-# ── Bail early if critical deps/secrets are missing ───────────────────────────
+# ── Bail early if critical secrets are missing ────────────────────────────────
 if [ $ERRORS -gt 0 ]; then
   nl
   hr
@@ -155,7 +165,7 @@ if [ $ERRORS -eq 0 ]; then
   echo "         GET /api/healthz        → { \"status\": \"ok\" }"
   echo "    3. Verify the schema is applied:"
   echo "         GET /api/healthz/deep   → { \"status\": \"ok\" | \"warning\" }"
-  echo "    4. Open Settings → configure blocked domains, AI, and SMTP"
+  echo "    4. Open Settings → add your Serper API key, configure blocked domains, AI, and SMTP"
   echo "    5. Create a campaign and run it"
   nl
   echo "  Troubleshooting:"

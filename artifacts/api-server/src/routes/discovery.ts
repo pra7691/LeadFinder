@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
+import { getSerperApiKey } from "../services/serper-key";
 import { classifyLeadType } from "../services/lead-classifier";
 
 const router = Router();
@@ -24,9 +25,12 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
     return;
   }
 
-  const apiKey = process.env["SERPER_API_KEY"];
+  const apiKey = await getSerperApiKey();
   if (!apiKey) {
-    res.status(400).json({ error: "SERPER_API_KEY is not configured" });
+    res.status(400).json({
+      error:
+        "Serper API key is missing. Add it in Settings → Search API Settings or set SERPER_API_KEY environment variable.",
+    });
     return;
   }
 
