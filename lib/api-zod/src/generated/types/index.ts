@@ -93,4 +93,5 @@ export * from './sendTestInput';
 export * from './smtpTestResult';
 export * from './statusHistoryEntry';
 export * from './testAIResult';
+export * from './testSerperResult';
 export * from './triggerResult';

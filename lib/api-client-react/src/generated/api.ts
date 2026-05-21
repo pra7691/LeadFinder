@@ -87,6 +87,7 @@ import type {
   SmtpTestResult,
   StatusHistoryEntry,
   TestAIResult,
+  TestSerperResult,
   TriggerResult
 } from './api.schemas';
 
@@ -5387,6 +5388,76 @@ export function useListLogs<TData = Awaited<ReturnType<typeof listLogs>>, TError
 
 
 
+
+export const getTestSerperConnectionUrl = () => {
+
+
+
+
+  return `/api/settings/test-serper`
+}
+
+/**
+ * @summary Test Serper API connection
+ */
+export const testSerperConnection = async ( options?: RequestInit): Promise<TestSerperResult> => {
+
+  return customFetch<TestSerperResult>(getTestSerperConnectionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestSerperConnectionMutationOptions = <TError = ErrorType<TestSerperResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testSerperConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testSerperConnection>>, TError,void, TContext> => {
+
+const mutationKey = ['testSerperConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testSerperConnection>>, void> = () => {
+
+
+          return  testSerperConnection(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestSerperConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof testSerperConnection>>>
+
+    export type TestSerperConnectionMutationError = ErrorType<TestSerperResult>
+
+    /**
+ * @summary Test Serper API connection
+ */
+export const useTestSerperConnection = <TError = ErrorType<TestSerperResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testSerperConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testSerperConnection>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTestSerperConnectionMutationOptions(options));
+    }
 
 export const getTestAIConnectionUrl = () => {
 

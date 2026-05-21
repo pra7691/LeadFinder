@@ -2,6 +2,7 @@ import {
   useListSettings,
   useUpsertSetting,
   useTestAIConnection,
+  useTestSerperConnection,
   getListSettingsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -208,6 +209,7 @@ const OPENAI_MODELS = [
 export function Settings() {
   const { data: settings, isLoading } = useListSettings({ query: { queryKey: getListSettingsQueryKey(), staleTime: 10_000 } });
   const upsertSetting = useUpsertSetting();
+  const testSerperMut = useTestSerperConnection();
   const testAIMut = useTestAIConnection();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -218,7 +220,6 @@ export function Settings() {
   // Search API settings
   const [serperKey, setSerperKey] = useState("");
   const [serperTestResult, setSerperTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [serperTestPending, setSerperTestPending] = useState(false);
 
   // AI settings
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -269,20 +270,12 @@ export function Settings() {
     toast({ title: "Search API settings saved." });
   };
 
-  const handleTestSerper = async () => {
+  const handleTestSerper = () => {
     setSerperTestResult(null);
-    setSerperTestPending(true);
-    try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/settings/test-serper`, {
-        method: "POST",
-      });
-      const data = (await res.json()) as { success: boolean; message: string };
-      setSerperTestResult({ success: data.success, message: data.message });
-    } catch {
-      setSerperTestResult({ success: false, message: "Request failed. Check server logs." });
-    } finally {
-      setSerperTestPending(false);
-    }
+    testSerperMut.mutate(undefined, {
+      onSuccess: (r) => setSerperTestResult({ success: r.success, message: r.message }),
+      onError: () => setSerperTestResult({ success: false, message: "Request failed. Check server logs." }),
+    });
   };
 
   const handleSaveAI = async () => {
@@ -380,10 +373,10 @@ export function Settings() {
                   variant="outline"
                   className="rounded-xl gap-2"
                   onClick={handleTestSerper}
-                  disabled={serperTestPending}
+                  disabled={testSerperMut.isPending}
                   data-testid="button-test-serper"
                 >
-                  {serperTestPending ? (
+                  {testSerperMut.isPending ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
                   ) : (
                     <><Search className="w-4 h-4" /> Test Serper Connection</>

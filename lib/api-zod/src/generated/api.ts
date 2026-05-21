@@ -1955,6 +1955,15 @@ export const ListLogsResponse = zod.array(ListLogsResponseItem)
 
 
 /**
+ * @summary Test Serper API connection
+ */
+export const TestSerperConnectionResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
  * @summary Test AI (OpenAI) connection
  */
 export const TestAIConnectionResponse = zod.object({

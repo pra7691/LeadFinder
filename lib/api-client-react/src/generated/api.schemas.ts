@@ -957,6 +957,11 @@ export interface PreviewTemplateResult {
   aiUsed?: boolean;
 }
 
+export interface TestSerperResult {
+  success: boolean;
+  message: string;
+}
+
 export interface TestAIResult {
   success: boolean;
   message: string;

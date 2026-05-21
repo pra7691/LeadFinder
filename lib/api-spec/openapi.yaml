@@ -1486,6 +1486,31 @@ paths:
                   $ref: "#/components/schemas/LogEntry"
 
   # ── Settings ─────────────────────────────────────────────────
+  /settings/test-serper:
+    post:
+      operationId: testSerperConnection
+      tags: [settings]
+      summary: Test Serper API connection
+      responses:
+        "200":
+          description: Test result (success or key-missing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSerperResult"
+        "400":
+          description: Serper key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSerperResult"
+        "502":
+          description: Serper API returned an error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSerperResult"
+
   /settings/test-ai:
     post:
       operationId: testAIConnection
@@ -2931,6 +2956,15 @@ components:
           type: string
         aiUsed:
           type: boolean
+
+    TestSerperResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
 
     TestAIResult:
       type: object
