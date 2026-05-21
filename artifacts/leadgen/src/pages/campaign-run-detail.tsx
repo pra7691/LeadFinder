@@ -11,6 +11,7 @@ import {
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
   getListCampaignRunsQueryKey,
+  getGetListHealthQueryKey,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
 import { useParams, Link, useLocation } from "wouter";
@@ -181,6 +182,8 @@ export function CampaignRunDetail() {
           setAddToListOpen(false);
           setSelectedIds(new Set());
           queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+          queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(listId) });
+          queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
         },
         onError: () => {
           toast({ title: "Failed to add leads to list.", variant: "destructive" });

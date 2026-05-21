@@ -15,6 +15,7 @@ import {
   getListLeadListsQueryKey,
   useAddLeadsToList,
   getListOutreachQueryKey,
+  getGetListHealthQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -503,6 +504,9 @@ export function Leads() {
           setAddToListState("done");
           setAddToListResult({ added: r.added, duplicates: r.duplicates });
           setSelected(new Set());
+          queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(Number(addToListId)) });
+          queryClient.invalidateQueries({ queryKey: getGetLeadListQueryKey(Number(addToListId)) });
+          queryClient.invalidateQueries({ queryKey: getGetListLeadsQueryKey(Number(addToListId)) });
           setTimeout(() => { setAddToListOpen(false); setAddToListState("idle"); }, 1500);
         },
         onError: () => setAddToListState("idle"),

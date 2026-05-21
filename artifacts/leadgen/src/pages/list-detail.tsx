@@ -11,6 +11,7 @@ import {
   useListEmailTemplates,
   useListEmailAccounts,
   useGetListHealth,
+  getGetListHealthQueryKey,
   getListEmailAccountsQueryKey,
   getListLeadListsQueryKey,
   getListEmailTemplatesQueryKey,
@@ -213,6 +214,7 @@ export function ListDetail() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getGetLeadListQueryKey(listId) });
     qc.invalidateQueries({ queryKey: getGetListLeadsQueryKey(listId) });
+    qc.invalidateQueries({ queryKey: getGetListHealthQueryKey(listId) });
     qc.invalidateQueries({ queryKey: getListLeadListsQueryKey() });
   };
 

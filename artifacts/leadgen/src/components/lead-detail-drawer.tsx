@@ -4,6 +4,7 @@ import {
   useListLeadLists,
   useAddLeadsToList,
   getGetLeadQueryKey,
+  getGetListHealthQueryKey,
 } from "@workspace/api-client-react";
 import {
   Sheet,
@@ -129,6 +130,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
         onSuccess: (result) => {
           toast({ title: `Added to list (${result.added} new).` });
           setAddToListOpen(false);
+          queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(listId) });
         },
         onError: () => toast({ title: "Failed to add to list.", variant: "destructive" }),
       },
