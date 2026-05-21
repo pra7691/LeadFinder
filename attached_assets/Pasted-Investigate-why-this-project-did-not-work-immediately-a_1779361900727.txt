@@ -1,0 +1,221 @@
+Investigate why this project did not work immediately after importing/pulling from Git into a new Replit account, and make the setup reproducible so this does not happen again.
+
+Do not add new product features.
+Do not rebuild the app.
+Focus only on import/setup/reproducibility.
+
+Goal:
+When this repository is imported into a fresh Replit account and the required secrets are added, the project should install, build, apply schema, and run without manual debugging.
+
+==================================================
+PART 1 — IDENTIFY WHAT WAS FIXED BY REPLIT
+==========================================
+
+Find out exactly what changed when Replit “made it work”.
+
+Check:
+
+* Git diff
+* uncommitted files
+* modified config files
+* generated files
+* package lock changes
+* .replit changes
+* artifact.toml changes
+* workflow config changes
+* build/run command changes
+* database schema push
+* dependency installation
+* generated API client/Zod files
+* environment/secrets assumptions
+* Node/pnpm version setup
+
+Run:
+
+git status
+git diff
+git diff --staged
+
+Also inspect:
+
+* .replit
+* replit.nix if present
+* package.json
+* pnpm-workspace.yaml
+* pnpm-lock.yaml
+* artifacts/api-server/.replit-artifact/artifact.toml
+* artifacts/leadgen/.replit-artifact/artifact.toml
+* lib/db/drizzle config
+* deployment docs
+* scripts folder
+
+Report exactly:
+
+1. What was missing after import.
+2. What Replit changed automatically.
+3. Which changes are committed vs uncommitted.
+4. Which changes must be added to Git.
+5. Which setup steps are account-specific and cannot be committed, such as Secrets.
+
+==================================================
+PART 2 — CHECK REQUIRED REPLIT SETUP
+====================================
+
+Verify a fresh Replit import needs:
+
+* correct Node.js version
+* pnpm installed/enforced
+* pnpm install
+* generated packages/codegen if required
+* database schema push
+* required secrets
+* correct run command
+* correct build command
+* frontend/backend serving config
+* health check working
+
+Required secrets should be documented:
+
+* DATABASE_URL
+* PORT
+* SESSION_SECRET
+* SERPER_API_KEY
+* NODE_ENV
+* any other currently required secrets
+
+OpenAI and SMTP should remain UI-configured unless current code requires otherwise.
+
+==================================================
+PART 3 — CREATE A REPRODUCIBLE SETUP SCRIPT
+===========================================
+
+Add a setup script if missing.
+
+Create:
+
+scripts/setup-replit.ts
+
+or
+
+scripts/setup-replit.sh
+
+It should perform the safe setup steps needed after fresh import:
+
+1. verify Node version
+2. verify pnpm exists
+3. run pnpm install if needed
+4. run generated code/build prep if needed
+5. verify required environment variables/secrets
+6. push database schema:
+   pnpm --filter @workspace/db run push
+7. seed default settings if seed script exists
+8. run deep health check or local diagnostic where possible
+9. print clear success/failure messages
+
+Do not expose secret values.
+
+==================================================
+PART 4 — ADD PACKAGE COMMANDS
+=============================
+
+Add root package.json scripts if missing:
+
+setup:replit
+db:push
+seed:settings
+smoke:test
+health:deep if practical
+
+Example:
+pnpm run setup:replit
+
+This should be the one command a developer runs after importing the repo into a fresh Replit.
+
+==================================================
+PART 5 — FIX REPLIT RUN/BUILD CONFIG
+====================================
+
+Ensure Replit can find run/build commands.
+
+Check and fix:
+
+* .replit
+* artifact.toml files
+* deployment configuration
+
+The app should not show:
+“Could not find run command”
+
+Ensure:
+
+* frontend build command is correct
+* backend build command is correct
+* backend run command is correct
+* health endpoint points to /api/healthz
+
+==================================================
+PART 6 — ADD FRESH IMPORT GUIDE
+===============================
+
+Update DEPLOYMENT.md or create REPLIT_IMPORT.md.
+
+Add a section:
+
+“Fresh Replit Import Setup”
+
+Include:
+
+1. Import repo from GitHub.
+2. Add required Replit Secrets.
+3. Run:
+   pnpm install
+   pnpm run setup:replit
+4. Confirm:
+   /api/healthz
+   /api/healthz/deep
+5. Create test campaign.
+6. Run campaign.
+7. Export leads.
+
+Also add troubleshooting for:
+
+* relation "campaigns" does not exist
+* missing DATABASE_URL
+* could not find run command
+* frontend loads but API fails
+* schema not pushed
+* missing blocked_domains setting
+
+==================================================
+PART 7 — TEST FRESH SETUP FLOW
+==============================
+
+After fixes:
+
+1. Stop the app.
+2. Run setup command from clean state as much as possible.
+3. Run backend.
+4. Open frontend.
+5. Check /api/healthz.
+6. Check /api/healthz/deep.
+7. Create a test campaign.
+8. Run a small test campaign.
+9. Confirm no setup-related errors.
+
+==================================================
+PART 8 — COMMIT-READY REPORT
+============================
+
+Provide a report:
+
+* root cause
+* what Replit changed automatically
+* files changed by this task
+* commands added
+* fresh import instructions
+* secrets required
+* tests run
+* what must be committed to Git
+* what must be manually configured in every Replit account
+
+Do not leave important setup fixes only in local/uncommitted state.

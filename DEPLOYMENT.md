@@ -1,5 +1,9 @@
 # Lead Intelligence Platform — Production Deployment Guide
 
+> **Importing into a fresh Replit account?** See **[REPLIT_IMPORT.md](./REPLIT_IMPORT.md)**
+> for the step-by-step first-time setup guide, including all required secrets,
+> the one-command setup (`pnpm run setup:replit`), and troubleshooting.
+
 ---
 
 ## CRITICAL: First-Time Database Setup
