@@ -1,0 +1,132 @@
+Fix fresh Replit import dependency setup issue.
+
+Current error on new Replit account:
+
+@workspace/leadgen@0.0.0 dev
+vite --config vite.config.ts --host 0.0.0.0
+
+sh: 1: vite: not found
+ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+WARN Local package.json exists, but node_modules missing, did you mean to install?
+
+Root issue:
+Fresh Replit import is trying to run the frontend before dependencies are installed. Vite is installed through pnpm dependencies, but node_modules does not exist yet.
+
+Goal:
+Make fresh Replit import work smoothly so this error does not appear again.
+
+Do not rebuild the app.
+Do not change product features.
+Only fix setup/run/import reliability.
+
+Tasks:
+
+1. Inspect current Replit run configuration:
+
+* .replit
+* replit.nix if present
+* package.json scripts
+* pnpm-workspace.yaml
+* scripts/setup-replit.sh
+* artifact.toml files
+* workflow/run commands
+
+2. Ensure fresh import has a clear first-run setup path:
+
+* pnpm install must run before any dev/start command
+* pnpm run setup:replit should be documented and reliable
+* setup:replit should detect missing node_modules and install dependencies automatically
+
+3. Update setup-replit script:
+   If node_modules is missing:
+
+* run pnpm install
+* print clear message: “Dependencies missing. Running pnpm install...”
+
+If pnpm is missing:
+
+* print clear installation instruction or install if appropriate in Replit environment.
+
+4. Add or fix root package scripts:
+   Ensure these exist and work:
+
+* setup:replit
+* db:push
+* dev
+* build
+* start if applicable
+
+5. Fix Replit run behavior:
+   The Replit Run button should not fail with vite not found on fresh import.
+
+Preferred behavior:
+
+* Run command should either call a script that ensures dependencies exist before starting
+  OR
+* REPLIT_IMPORT.md must clearly say to run pnpm run setup:replit before pressing Run.
+
+If practical, create a safe command like:
+
+pnpm run setup:replit && pnpm run dev
+
+But do not make every normal dev run unnecessarily push schema if that is risky.
+
+6. Add a lightweight preflight script if useful:
+   scripts/preflight-dev.sh
+
+It should check:
+
+* node_modules exists
+* pnpm is available
+* required workspace packages installed
+* DATABASE_URL exists
+* SESSION_SECRET exists
+
+It should fail with clear human-readable messages.
+
+7. Update REPLIT_IMPORT.md:
+   Add a very prominent Fresh Import section:
+
+After importing from GitHub into a new Replit account:
+
+1. Add required Secrets:
+   DATABASE_URL
+   SESSION_SECRET
+2. Run:
+   pnpm run setup:replit
+3. Then click Run.
+
+Also add troubleshooting:
+
+Error:
+vite: not found
+
+Cause:
+Dependencies not installed.
+
+Fix:
+pnpm install
+pnpm run setup:replit
+
+8. Test fresh-import simulation:
+
+* delete node_modules or simulate missing dependencies
+* run the configured setup command
+* verify pnpm install runs
+* verify vite becomes available
+* verify frontend starts
+* verify backend starts
+* verify /api/healthz works
+* verify /api/healthz/deep works after db push
+
+9. Completion report:
+   Provide:
+
+* root cause
+* files changed
+* run command changes
+* setup script changes
+* docs updated
+* exact command a new Replit account user must run
+* test results
+* confirmation that vite not found will not happen after setup
