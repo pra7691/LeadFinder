@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -90,6 +91,8 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState("");
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsForm, setDetailsForm] = useState<Record<string, string>>({});
   const [addToListOpen, setAddToListOpen] = useState(false);
 
   const handleQualify = (status: "qualified" | "rejected") => {
@@ -119,6 +122,64 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
           toast({ title: "Notes saved." });
         },
         onError: () => toast({ title: "Failed to save notes.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const openDetailsEditor = () => {
+    if (!lead) return;
+    setDetailsForm({
+      companyName: lead.companyName ?? "",
+      rootDomain: lead.rootDomain ?? "",
+      websiteUrl: lead.websiteUrl ?? "",
+      country: lead.country ?? "",
+      emails: lead.emails ?? "",
+      phoneNumbers: lead.phoneNumbers ?? "",
+      address: lead.address ?? "",
+      linkedinUrl: lead.linkedinUrl ?? "",
+      leadType: lead.leadType ?? "",
+      sourceKeyword: lead.sourceKeyword ?? "",
+      sourceCountry: lead.sourceCountry ?? "",
+      sourceQuery: lead.sourceQuery ?? "",
+      notes: lead.notes ?? "",
+    });
+    setEditingDetails(true);
+  };
+
+  const nullable = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  const handleSaveDetails = () => {
+    if (!lead) return;
+    updateLead.mutate(
+      {
+        id: lead.id,
+        data: {
+          companyName: detailsForm.companyName?.trim() || "",
+          rootDomain: detailsForm.rootDomain?.trim() || lead.rootDomain,
+          websiteUrl: detailsForm.websiteUrl?.trim() || lead.websiteUrl,
+          country: detailsForm.country?.trim() || "",
+          emails: nullable(detailsForm.emails ?? ""),
+          phoneNumbers: nullable(detailsForm.phoneNumbers ?? ""),
+          address: nullable(detailsForm.address ?? ""),
+          linkedinUrl: nullable(detailsForm.linkedinUrl ?? ""),
+          leadType: nullable(detailsForm.leadType ?? ""),
+          sourceKeyword: nullable(detailsForm.sourceKeyword ?? ""),
+          sourceCountry: nullable(detailsForm.sourceCountry ?? ""),
+          sourceQuery: nullable(detailsForm.sourceQuery ?? ""),
+          notes: nullable(detailsForm.notes ?? ""),
+        } as never,
+      },
+      {
+        onSuccess: () => {
+          setEditingDetails(false);
+          queryClient.invalidateQueries();
+          onLeadUpdate?.();
+          toast({ title: "Lead details saved." });
+        },
+        onError: () => toast({ title: "Failed to save lead details.", variant: "destructive" }),
       },
     );
   };
@@ -209,10 +270,64 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                 >
                   <Plus className="w-3.5 h-3.5" /> Add to List
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl gap-1.5 h-8 text-xs ml-auto"
+                  onClick={openDetailsEditor}
+                  disabled={updateLead.isPending}
+                >
+                  Edit Details
+                </Button>
               </div>
 
               {/* Detail fields */}
               <div className="px-6 py-5 space-y-5">
+                {editingDetails && (
+                  <section className="space-y-4 rounded-xl border border-border/40 bg-muted/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Edit Details</h4>
+                      <Button size="sm" variant="ghost" className="h-7 rounded-lg text-xs" onClick={() => setEditingDetails(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                    {[
+                      { key: "companyName", label: "Company name" },
+                      { key: "rootDomain", label: "Root domain" },
+                      { key: "websiteUrl", label: "Website URL" },
+                      { key: "country", label: "Country" },
+                      { key: "emails", label: "Emails" },
+                      { key: "phoneNumbers", label: "Phone numbers" },
+                      { key: "address", label: "Address" },
+                      { key: "linkedinUrl", label: "LinkedIn URL" },
+                      { key: "leadType", label: "Lead type" },
+                      { key: "sourceKeyword", label: "Source keyword" },
+                      { key: "sourceCountry", label: "Source country" },
+                      { key: "sourceQuery", label: "Source query" },
+                    ].map((field) => (
+                      <div key={field.key} className="space-y-1.5">
+                        <Label className="text-xs font-medium text-muted-foreground">{field.label}</Label>
+                        <Input
+                          value={detailsForm[field.key] ?? ""}
+                          onChange={(e) => setDetailsForm((form) => ({ ...form, [field.key]: e.target.value }))}
+                          className="rounded-xl bg-background/50 text-sm"
+                        />
+                      </div>
+                    ))}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-muted-foreground">Notes</Label>
+                      <Textarea
+                        value={detailsForm.notes ?? ""}
+                        onChange={(e) => setDetailsForm((form) => ({ ...form, notes: e.target.value }))}
+                        className="rounded-xl bg-background/50 min-h-[90px] text-sm resize-none"
+                      />
+                    </div>
+                    <Button size="sm" className="rounded-xl gap-1.5" onClick={handleSaveDetails} disabled={updateLead.isPending}>
+                      {updateLead.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save details"}
+                    </Button>
+                  </section>
+                )}
+
                 {/* Contact info */}
                 <section className="space-y-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact</h4>

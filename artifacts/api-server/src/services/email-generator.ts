@@ -2,6 +2,8 @@ import type { EmailTemplate } from "@workspace/db";
 import type { Lead } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { getAISettings } from "./ai-settings";
+import { isHtmlEmailBody } from "./email-html";
+import { parseLeadEmails } from "./lead-emails";
 
 interface GeneratedEmail {
   subject: string;
@@ -28,8 +30,7 @@ export async function generatePersonalizedEmail(
   template: Pick<EmailTemplate, "subject" | "body" | "personalizationPrompt">,
   context: { campaignName?: string; listName?: string } = {},
 ): Promise<GeneratedEmail> {
-  let emailList: string[] = [];
-  try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
+  const emailList = parseLeadEmails(lead.emails);
 
   const vars: Partial<TemplateVars> & Record<string, string> = {
     company_name: lead.companyName,
@@ -58,12 +59,17 @@ export async function generatePersonalizedEmail(
       ? `${template.personalizationPrompt}\n\n`
       : "";
 
+    const bodyFormatInstruction = isHtmlEmailBody(renderedBody)
+      ? "Preserve valid HTML formatting in the body. Do not return markdown or plain-text-only formatting."
+      : "Preserve the original plain-text line breaks in the body.";
+
     const systemPrompt = `You are a professional B2B email writer. Personalize the given email template for a specific company. 
 Rules:
 - Keep it concise and professional
 - Do not invent facts or make claims not supported by the data
 - Use only the information provided
 - Preserve the overall structure and intent of the template
+- ${bodyFormatInstruction}
 - Return JSON with "subject" and "body" fields only`;
 
     const userPrompt = `${prompt}Personalize this email for:

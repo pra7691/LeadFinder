@@ -3,6 +3,7 @@ import {
   useUpdateOutreach,
   useDeleteOutreach,
   useApproveOutreach,
+  useRejectOutreach,
   useBulkApproveOutreach,
   useListCampaigns,
   useListEmailAccounts,
@@ -11,6 +12,7 @@ import {
   useSendOutreachBatch,
   useSendTestEmail,
   useGetSendStats,
+  useRegenerateOutreach,
   getListOutreachQueryKey,
   getGetSendStatsQueryKey,
 } from "@workspace/api-client-react";
@@ -63,6 +65,9 @@ import {
   FlaskConical,
   TrendingUp,
   Ban,
+  AlertTriangle,
+  Info,
+  CheckCircle2,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -71,23 +76,40 @@ import { cn } from "@/lib/utils";
 
 type OutreachItem = {
   id: number;
-  campaignId: number;
+  campaignId: number | null;
   leadId: number;
   emailAccountId?: number | null;
+  emailTemplateId?: number | null;
+  listId?: number | null;
   recipientEmail: string;
   subject: string;
   body: string;
   status: string;
+  aiPersonalized?: boolean | null;
   failureReason?: string | null;
   retryCount: number;
   approvedAt?: string | null;
+  rejectedAt?: string | null;
   scheduledAt?: string | null;
   sentAt?: string | null;
   bouncedAt?: string | null;
   companyName?: string | null;
   campaignName?: string | null;
+  templateName?: string | null;
+  senderEmail?: string | null;
+  listName?: string | null;
+  relevanceScore?: number | null;
+  qualificationStatus?: string | null;
+  recipientEmailType?: string | null;
+  qualityWarnings?: QualityWarning[];
   createdAt: string;
   updatedAt: string;
+};
+
+type QualityWarning = {
+  code: string;
+  severity: "error" | "warning" | "info";
+  message: string;
 };
 
 // ── Status config ──────────────────────────────────────────────────────────
@@ -96,6 +118,11 @@ const STATUS_CONFIG: Record<
   string,
   { label: string; color: string; icon: React.ReactNode }
 > = {
+  pending_review: {
+    label: "Needs Review",
+    color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    icon: <AlertCircle className="w-3 h-3" />,
+  },
   draft: {
     label: "Draft",
     color: "bg-muted text-muted-foreground border-border",
@@ -126,9 +153,26 @@ const STATUS_CONFIG: Record<
     color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
     icon: <Ban className="w-3 h-3" />,
   },
+  rejected: {
+    label: "Rejected",
+    color: "bg-destructive/10 text-destructive border-destructive/20",
+    icon: <X className="w-3 h-3" />,
+  },
 };
 
-const ALL_STATUSES = ["draft", "queued", "approved", "sent", "failed", "bounced"];
+const ALL_STATUSES = ["pending_review", "approved", "sent", "failed", "bounced", "rejected", "draft", "queued"];
+
+const SEVERITY_ICON: Record<QualityWarning["severity"], React.ReactNode> = {
+  error: <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0" />,
+  warning: <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />,
+  info: <Info className="w-3.5 h-3.5 text-blue-400 shrink-0" />,
+};
+
+const SEVERITY_COLOR: Record<QualityWarning["severity"], string> = {
+  error: "text-destructive",
+  warning: "text-amber-500",
+  info: "text-blue-400",
+};
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? {
@@ -146,6 +190,60 @@ function StatusBadge({ status }: { status: string }) {
       {cfg.icon}
       {cfg.label}
     </span>
+  );
+}
+
+function WarningBadge({ warnings = [] }: { warnings?: QualityWarning[] }) {
+  const errors = warnings.filter((w) => w.severity === "error").length;
+  const warningCount = warnings.filter((w) => w.severity === "warning").length;
+
+  if (errors > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
+        <AlertCircle className="w-3 h-3" />
+        {errors} error{errors !== 1 ? "s" : ""}
+      </span>
+    );
+  }
+
+  if (warningCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+        <AlertTriangle className="w-3 h-3" />
+        {warningCount} warning{warningCount !== 1 ? "s" : ""}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/5 px-2 py-0.5 text-[10px] font-medium text-green-600">
+      <CheckCircle2 className="w-3 h-3" />
+      Clean
+    </span>
+  );
+}
+
+function QualityPanel({ warnings = [] }: { warnings?: QualityWarning[] }) {
+  if (warnings.length === 0) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-green-600">
+        <CheckCircle2 className="w-4 h-4" />
+        No quality issues detected
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {warnings.map((warning) => (
+        <div key={warning.code} className="flex items-start gap-2 text-xs">
+          {SEVERITY_ICON[warning.severity]}
+          <span className={cn("leading-relaxed", SEVERITY_COLOR[warning.severity])}>
+            {warning.message}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -373,8 +471,8 @@ function PreviewPanel({
   const [subject, setSubject] = useState(item.subject);
   const [body, setBody] = useState(item.body);
 
-  const canApprove = item.status === "draft" || item.status === "queued";
-  const canEdit = item.status === "draft" || item.status === "queued" || item.status === "approved";
+  const canApprove = item.status === "pending_review" || item.status === "draft" || item.status === "queued";
+  const canEdit = item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved";
   const canSend = item.status === "approved";
   const canRetry = item.status === "failed" || item.status === "bounced";
 
@@ -422,6 +520,26 @@ function PreviewPanel({
             Tried {item.retryCount} time{item.retryCount !== 1 ? "s" : ""}
           </p>
         )}
+        <div className="flex items-center gap-2 pt-2 flex-wrap">
+          {item.relevanceScore != null && (
+            <span className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+              item.relevanceScore >= 70
+                ? "border-green-500/30 bg-green-500/5 text-green-600"
+                : item.relevanceScore >= 40
+                  ? "border-amber-500/30 bg-amber-500/5 text-amber-600"
+                  : "border-destructive/30 bg-destructive/5 text-destructive",
+            )}>
+              Score: {item.relevanceScore}
+            </span>
+          )}
+          {item.recipientEmailType && item.recipientEmailType !== "personal" && (
+            <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[10px] font-medium capitalize text-amber-600">
+              {item.recipientEmailType}
+            </span>
+          )}
+          <WarningBadge warnings={item.qualityWarnings} />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4 space-y-4">
@@ -459,6 +577,15 @@ function PreviewPanel({
         {item.failureReason && !editing && (
           <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-xs text-destructive leading-relaxed">
             <span className="font-semibold">Error: </span>{item.failureReason}
+          </div>
+        )}
+
+        {!editing && (
+          <div className="border border-border/40 rounded-xl p-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+              Quality Analysis
+            </p>
+            <QualityPanel warnings={item.qualityWarnings} />
           </div>
         )}
 
@@ -542,7 +669,8 @@ export function Outreach() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
 
   // Batch send state
-  const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number; stopped?: boolean } | null>(null);
+  const [stoppingBatch, setStoppingBatch] = useState(false);
 
   const { data: campaigns } = useListCampaigns();
 
@@ -575,7 +703,7 @@ export function Outreach() {
   const handleBulkApprove = () => {
     const ids = [...selected].filter((id) => {
       const item = outreachItems.find((i) => i.id === id);
-      return item && (item.status === "draft" || item.status === "queued");
+      return item && (item.status === "pending_review" || item.status === "draft" || item.status === "queued");
     });
     if (ids.length === 0) return;
     bulkApprove.mutate(
@@ -594,12 +722,28 @@ export function Outreach() {
 
   const handleSendBatch = () => {
     setBatchResult(null);
+    setStoppingBatch(false);
     sendBatch.mutate(undefined, {
       onSuccess: (r) => {
-        setBatchResult({ sent: r.sent, failed: r.failed, skipped: r.skipped });
+        const result = r as { sent: number; failed: number; skipped: number; stopped?: boolean };
+        setBatchResult({ sent: result.sent, failed: result.failed, skipped: result.skipped, stopped: result.stopped });
+        setStoppingBatch(false);
         invalidate();
       },
+      onError: () => {
+        setStoppingBatch(false);
+        setBatchResult({ sent: 0, failed: 1, skipped: 0 });
+      },
     });
+  };
+
+  const handleStopBatch = async () => {
+    setStoppingBatch(true);
+    try {
+      await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch/cancel`, { method: "POST" });
+    } catch {
+      setStoppingBatch(false);
+    }
   };
 
   const toggleRow = (id: number) => {
@@ -626,9 +770,20 @@ export function Outreach() {
   );
 
   const approvedCount = outreachItems.filter((i) => i.status === "approved").length;
+  const errorCount = outreachItems.filter((item) =>
+    (item.qualityWarnings ?? []).some((warning) => warning.severity === "error"),
+  ).length;
+  const warningCount = outreachItems.filter((item) => {
+    const warnings = item.qualityWarnings ?? [];
+    return !warnings.some((warning) => warning.severity === "error") && warnings.some((warning) => warning.severity === "warning");
+  }).length;
+  const cleanCount = outreachItems.filter((item) => {
+    const warnings = item.qualityWarnings ?? [];
+    return warnings.length === 0 || warnings.every((warning) => warning.severity === "info");
+  }).length;
   const approvableSelected = [...selected].filter((id) => {
     const item = outreachItems.find((i) => i.id === id);
-    return item && (item.status === "draft" || item.status === "queued");
+    return item && (item.status === "pending_review" || item.status === "draft" || item.status === "queued");
   }).length;
 
   return (
@@ -650,33 +805,76 @@ export function Outreach() {
           >
             <FlaskConical className="w-4 h-4" /> Send Test
           </Button>
-          <Button
-            size="sm"
-            className="rounded-xl gap-1.5"
-            onClick={handleSendBatch}
-            disabled={sendBatch.isPending || approvedCount === 0}
-          >
-            {sendBatch.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
+          {sendBatch.isPending ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10"
+              onClick={handleStopBatch}
+              disabled={stoppingBatch}
+            >
+              {stoppingBatch ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+              {stoppingBatch ? "Stopping…" : "Stop Sending"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="rounded-xl gap-1.5"
+              onClick={handleSendBatch}
+              disabled={approvedCount === 0}
+            >
               <Zap className="w-4 h-4" />
-            )}
-            {sendBatch.isPending
-              ? "Sending…"
-              : `Send Batch${approvedCount > 0 ? ` (${approvedCount})` : ""}`}
-          </Button>
+              {`Send Batch${approvedCount > 0 ? ` (${approvedCount})` : ""}`}
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Send stats bar */}
       <SendStatsBar />
 
+      {/* Review summary */}
+      {outreachItems.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+            <AlertCircle className="w-5 h-5 text-destructive" />
+            <div>
+              <p className="text-lg font-semibold text-destructive leading-none">{errorCount}</p>
+              <p className="text-xs text-muted-foreground mt-1">Has errors</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+            <div>
+              <p className="text-lg font-semibold text-amber-500 leading-none">{warningCount}</p>
+              <p className="text-xs text-muted-foreground mt-1">Has warnings</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3">
+            <CheckCircle2 className="w-5 h-5 text-green-500" />
+            <div>
+              <p className="text-lg font-semibold text-green-500 leading-none">{cleanCount}</p>
+              <p className="text-xs text-muted-foreground mt-1">Clean</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Batch send result banner */}
       {batchResult && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm">
-          <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-          <span className="text-green-700 dark:text-green-400 font-medium">
-            Batch complete:
+        <div className={cn(
+          "flex items-center gap-3 px-4 py-3 rounded-xl border text-sm",
+          batchResult.stopped
+            ? "bg-amber-500/10 border-amber-500/20"
+            : "bg-green-500/10 border-green-500/20",
+        )}>
+          {batchResult.stopped ? (
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          ) : (
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+          )}
+          <span className={cn("font-medium", batchResult.stopped ? "text-amber-600" : "text-green-700 dark:text-green-400")}>
+            {batchResult.stopped ? "Batch stopped:" : "Batch complete:"}
           </span>
           <span className="text-foreground">
             {batchResult.sent} sent · {batchResult.failed} failed · {batchResult.skipped} skipped
@@ -780,9 +978,10 @@ export function Outreach() {
                 </TableHead>
                 <TableHead>Recipient</TableHead>
                 <TableHead>Subject</TableHead>
+                <TableHead className="w-[150px]">Quality</TableHead>
                 <TableHead className="w-[120px]">Status</TableHead>
                 <TableHead className="w-[140px]">Date</TableHead>
-                <TableHead className="w-[120px] text-right pr-4">Actions</TableHead>
+                <TableHead className="w-[160px] text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -797,6 +996,7 @@ export function Outreach() {
                       </div>
                     </TableCell>
                     <TableCell><div className="h-4 bg-muted/50 rounded animate-pulse" style={{ width: `${55 + i * 7}%` }} /></TableCell>
+                    <TableCell><div className="h-5 w-24 bg-muted/50 rounded-full animate-pulse" /></TableCell>
                     <TableCell><div className="h-5 w-20 bg-muted/50 rounded-full animate-pulse" /></TableCell>
                     <TableCell><div className="h-4 w-24 bg-muted/50 rounded animate-pulse" /></TableCell>
                     <TableCell><div className="h-7 w-16 bg-muted/50 rounded-lg animate-pulse ml-auto" /></TableCell>
@@ -804,7 +1004,7 @@ export function Outreach() {
                 ))
               ) : outreachItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-40 text-center">
+                  <TableCell colSpan={7} className="h-40 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <MailOpen className="w-8 h-8 opacity-20" />
                       <p className="text-sm">
@@ -879,10 +1079,16 @@ function OutreachRow({
 }) {
   const sendItem = useSendOutreachItem();
   const retryItem = useRetryOutreachItem();
+  const approveOutreach = useApproveOutreach();
+  const rejectOutreach = useRejectOutreach();
+  const regenerateOutreach = useRegenerateOutreach();
 
   const canSend = item.status === "approved";
   const canRetry = item.status === "failed" || item.status === "bounced";
-  const isBusy = sendItem.isPending || retryItem.isPending;
+  const canApprove = item.status === "pending_review" || item.status === "draft" || item.status === "queued";
+  const canRegenerate = item.status === "pending_review" || item.status === "rejected" || item.status === "draft" || item.status === "queued";
+  const isBusy = sendItem.isPending || retryItem.isPending || approveOutreach.isPending || rejectOutreach.isPending || regenerateOutreach.isPending;
+  const warnings = item.qualityWarnings ?? [];
 
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -892,6 +1098,21 @@ function OutreachRow({
   const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
     retryItem.mutate({ id: item.id }, { onSuccess: onRefresh });
+  };
+
+  const handleApprove = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    approveOutreach.mutate({ id: item.id }, { onSuccess: onRefresh });
+  };
+
+  const handleReject = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    rejectOutreach.mutate({ id: item.id, data: {} }, { onSuccess: onRefresh });
+  };
+
+  const handleRegenerate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    regenerateOutreach.mutate({ id: item.id, data: { forceAi: false } }, { onSuccess: onRefresh });
   };
 
   return (
@@ -909,18 +1130,41 @@ function OutreachRow({
 
       <TableCell className="font-medium max-w-[170px]">
         <div className="truncate text-sm">{item.companyName ?? item.recipientEmail}</div>
-        <div className="text-xs text-muted-foreground truncate">
+        <div className="text-xs text-muted-foreground truncate font-mono">
           {item.companyName ? item.recipientEmail : (item.campaignName ?? "")}
         </div>
+        {item.listName && <div className="text-[10px] text-muted-foreground/70 truncate">List: {item.listName}</div>}
       </TableCell>
 
       <TableCell className="max-w-[220px]">
         <p className="truncate text-sm">{item.subject}</p>
-        {item.retryCount > 0 && (
-          <span className="text-[10px] text-muted-foreground">
-            {item.retryCount} attempt{item.retryCount !== 1 ? "s" : ""}
-          </span>
-        )}
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {item.aiPersonalized && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-blue-500">
+              <Zap className="w-3 h-3" /> AI
+            </span>
+          )}
+          {item.templateName && <span className="text-[10px] text-muted-foreground truncate">{item.templateName}</span>}
+          {item.retryCount > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              {item.retryCount} attempt{item.retryCount !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+      </TableCell>
+
+      <TableCell>
+        <div className="space-y-1">
+          <WarningBadge warnings={warnings} />
+          {item.relevanceScore != null && (
+            <div className={cn(
+              "text-[11px] font-medium",
+              item.relevanceScore >= 70 ? "text-green-600" : item.relevanceScore >= 40 ? "text-amber-500" : "text-destructive",
+            )}>
+              Score: {item.relevanceScore}
+            </div>
+          )}
+        </div>
       </TableCell>
 
       <TableCell><StatusBadge status={item.status} /></TableCell>
@@ -934,7 +1178,13 @@ function OutreachRow({
       </TableCell>
 
       <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center justify-end gap-1">
+          {canApprove && (
+            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-green-600 hover:bg-green-500/10"
+              onClick={handleApprove} disabled={isBusy} title="Approve">
+              {approveOutreach.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsUp className="w-3.5 h-3.5" />}
+            </Button>
+          )}
           {canSend && (
             <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-primary hover:bg-primary/10"
               onClick={handleSend} disabled={isBusy} title="Send now">
@@ -945,6 +1195,18 @@ function OutreachRow({
             <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-amber-600 hover:bg-amber-500/10"
               onClick={handleRetry} disabled={isBusy} title="Retry">
               {retryItem.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            </Button>
+          )}
+          {canRegenerate && (
+            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-amber-600 hover:bg-amber-500/10"
+              onClick={handleRegenerate} disabled={isBusy} title="Regenerate">
+              {regenerateOutreach.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            </Button>
+          )}
+          {canApprove && (
+            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10"
+              onClick={handleReject} disabled={isBusy} title="Reject">
+              <X className="w-3.5 h-3.5" />
             </Button>
           )}
           <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg"

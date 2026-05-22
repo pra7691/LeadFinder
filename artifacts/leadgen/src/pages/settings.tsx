@@ -13,9 +13,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
+import { useLocation, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle } from "lucide-react";
+import { EmailAccounts } from "@/pages/email-accounts";
+import { EmailTemplates } from "@/pages/email-templates";
 
 // ---------------------------------------------------------------------------
 // System Health types + fetcher
@@ -206,7 +210,25 @@ const OPENAI_MODELS = [
   { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
 ];
 
+const SETTINGS_TABS = [
+  { value: "domains", path: "/settings/domains", label: "Domains", icon: Shield },
+  { value: "ai", path: "/settings/ai", label: "AI", icon: BrainCircuit },
+  { value: "serp", path: "/settings/serp", label: "SERP", icon: Search },
+  { value: "email-templates", path: "/settings/email-templates", label: "Email Templates", icon: FileText },
+  { value: "email-accounts", path: "/settings/email-accounts", label: "Email Accounts", icon: Mail },
+  { value: "help", path: "/settings/help", label: "Help", icon: HelpCircle },
+] as const;
+
+type SettingsTab = typeof SETTINGS_TABS[number]["value"];
+
+function normalizeSettingsTab(section: string | undefined): SettingsTab {
+  return SETTINGS_TABS.some((tab) => tab.value === section) ? (section as SettingsTab) : "domains";
+}
+
 export function Settings() {
+  const params = useParams<{ section?: string }>();
+  const activeTab = normalizeSettingsTab(params.section);
+  const [, navigate] = useLocation();
   const { data: settings, isLoading } = useListSettings({ query: { queryKey: getListSettingsQueryKey(), staleTime: 10_000 } });
   const upsertSetting = useUpsertSetting();
   const testSerperMut = useTestSerperConnection();
@@ -299,216 +321,212 @@ export function Settings() {
   };
 
   return (
-    <div className="space-y-8 max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 max-w-6xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div>
         <h1 className="text-3xl font-semibold tracking-tight">System Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Configuration, sending setup, templates, and health checks.</p>
       </div>
 
-      {isLoading ? (
-        <div className="text-sm text-muted-foreground animate-pulse">Loading settings…</div>
-      ) : (
-        <>
-          {/* Global Filters */}
-          <Card className="glass-card">
-            <CardHeader className="border-b border-border/30 pb-4">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-lg font-medium text-foreground">Global Filters</CardTitle>
-              </div>
-              <CardDescription>Configure system-wide rules for discovery and extraction.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Blocked Domains</Label>
-                <p className="text-xs text-muted-foreground">Leads matching these domains will be automatically rejected. Enter one domain per line.</p>
-                <Textarea
-                  value={blockedDomains}
-                  onChange={(e) => setBlockedDomains(e.target.value)}
-                  className="rounded-xl bg-background/50 min-h-[200px] font-mono text-sm leading-relaxed"
-                  placeholder={"ibm.com\nmicrosoft.com\napple.com"}
-                  data-testid="textarea-blocked-domains"
-                />
-              </div>
-              <div className="flex justify-end pt-4 border-t border-border/30">
-                <Button onClick={handleSaveFilters} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-settings">
-                  {upsertSetting.isPending ? "Saving…" : "Save Settings"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          const tab = SETTINGS_TABS.find((item) => item.value === value);
+          if (tab) navigate(tab.path);
+        }}
+        className="space-y-6"
+      >
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="h-auto flex w-max min-w-full justify-start rounded-xl bg-muted/50 p-1">
+            {SETTINGS_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value} className="gap-2 rounded-lg px-3 py-2">
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
-          {/* System Health */}
+        <TabsContent value="domains" className="mt-0 max-w-3xl">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground animate-pulse">Loading settings…</div>
+          ) : (
+            <Card className="glass-card">
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Blocked Domains</Label>
+                  <p className="text-xs text-muted-foreground">Leads matching these domains will be automatically rejected. Enter one domain per line.</p>
+                  <Textarea
+                    value={blockedDomains}
+                    onChange={(e) => setBlockedDomains(e.target.value)}
+                    className="rounded-xl bg-background/50 min-h-[260px] font-mono text-sm leading-relaxed"
+                    placeholder={"ibm.com\nmicrosoft.com\napple.com"}
+                    data-testid="textarea-blocked-domains"
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t border-border/30">
+                  <Button onClick={handleSaveFilters} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-settings">
+                    {upsertSetting.isPending ? "Saving…" : "Save Domains"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="ai" className="mt-0 max-w-3xl">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground animate-pulse">Loading settings…</div>
+          ) : (
+            <Card className="glass-card">
+              <CardHeader className="border-b border-border/30 pb-4">
+                <div className="flex items-center gap-2">
+                  <BrainCircuit className="w-4 h-4 text-violet-500" />
+                  <CardTitle className="text-lg font-medium text-foreground">AI Settings</CardTitle>
+                </div>
+                <CardDescription>Configure OpenAI for scoring and email personalization. The API key is stored encrypted and never shown in full after saving.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Enable AI Personalization</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">When enabled, emails are personalized using OpenAI during outreach queuing.</p>
+                  </div>
+                  <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} data-testid="toggle-ai-enabled" />
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">AI Scoring Enabled</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">When enabled, lead relevance scoring uses OpenAI. When disabled, scoring uses rule-based keyword fallback.</p>
+                  </div>
+                  <Switch checked={aiScoringEnabled} onCheckedChange={setAiScoringEnabled} data-testid="toggle-ai-scoring-enabled" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">OpenAI API Key</Label>
+                  <Input
+                    type="password"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    placeholder="sk-…"
+                    className="rounded-xl bg-background/50 font-mono"
+                    data-testid="input-openai-key"
+                  />
+                  <p className="text-[11px] text-muted-foreground">If you see •••• it means a key is already stored. Entering a new value will replace it.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">OpenAI Model</Label>
+                  <Select value={openaiModel} onValueChange={setOpenaiModel}>
+                    <SelectTrigger className="rounded-xl bg-background/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OPENAI_MODELS.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-3">
+                  <Button variant="outline" className="rounded-xl gap-2" onClick={handleTestAI} disabled={testAIMut.isPending} data-testid="button-test-ai">
+                    {testAIMut.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
+                    ) : (
+                      <><BrainCircuit className="w-4 h-4" /> Test OpenAI Connection</>
+                    )}
+                  </Button>
+                  {aiTestResult && (
+                    <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm ${aiTestResult.success ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"}`}>
+                      {aiTestResult.success
+                        ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                      <span>{aiTestResult.message}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-border/30">
+                  <Button onClick={handleSaveAI} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-ai">
+                    {upsertSetting.isPending ? "Saving…" : "Save AI Settings"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="serp" className="mt-0 max-w-3xl">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground animate-pulse">Loading settings…</div>
+          ) : (
+            <Card className="glass-card">
+              <CardHeader className="border-b border-border/30 pb-4">
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-lg font-medium text-foreground">SERP Settings</CardTitle>
+                </div>
+                <CardDescription>Serper API key for lead discovery searches. Stored in the database, no environment variable required.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Serper API Key</Label>
+                  <Input
+                    type="password"
+                    value={serperKey}
+                    onChange={(e) => setSerperKey(e.target.value)}
+                    placeholder="Your Serper.dev API key"
+                    className="rounded-xl bg-background/50 font-mono"
+                    data-testid="input-serper-key"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    If you see •••• a key is already stored. Entering a new value will replace it.
+                    Get a key at{" "}
+                    <a href="https://serper.dev" target="_blank" rel="noopener noreferrer" className="underline">serper.dev</a>.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Button variant="outline" className="rounded-xl gap-2" onClick={handleTestSerper} disabled={testSerperMut.isPending} data-testid="button-test-serper">
+                    {testSerperMut.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
+                    ) : (
+                      <><Search className="w-4 h-4" /> Test Serper Connection</>
+                    )}
+                  </Button>
+                  {serperTestResult && (
+                    <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm ${serperTestResult.success ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"}`}>
+                      {serperTestResult.success
+                        ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                      <span>{serperTestResult.message}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-border/30">
+                  <Button onClick={handleSaveSerper} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-serper">
+                    {upsertSetting.isPending ? "Saving…" : "Save SERP Settings"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="email-templates" className="mt-0">
+          <EmailTemplates basePath="/settings/email-templates" />
+        </TabsContent>
+
+        <TabsContent value="email-accounts" className="mt-0">
+          <EmailAccounts />
+        </TabsContent>
+
+        <TabsContent value="help" className="mt-0 max-w-3xl">
           <SystemHealthCard />
-
-          {/* Search API Settings */}
-          <Card className="glass-card">
-            <CardHeader className="border-b border-border/30 pb-4">
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-lg font-medium text-foreground">Search API Settings</CardTitle>
-              </div>
-              <CardDescription>
-                Serper API key for lead discovery searches. Stored in the database — no environment variable required.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Serper API Key</Label>
-                <Input
-                  type="password"
-                  value={serperKey}
-                  onChange={(e) => setSerperKey(e.target.value)}
-                  placeholder="Your Serper.dev API key"
-                  className="rounded-xl bg-background/50 font-mono"
-                  data-testid="input-serper-key"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  If you see •••• a key is already stored. Entering a new value will replace it.
-                  Get a key at{" "}
-                  <a href="https://serper.dev" target="_blank" rel="noopener noreferrer" className="underline">
-                    serper.dev
-                  </a>.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  className="rounded-xl gap-2"
-                  onClick={handleTestSerper}
-                  disabled={testSerperMut.isPending}
-                  data-testid="button-test-serper"
-                >
-                  {testSerperMut.isPending ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
-                  ) : (
-                    <><Search className="w-4 h-4" /> Test Serper Connection</>
-                  )}
-                </Button>
-                {serperTestResult && (
-                  <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm ${serperTestResult.success ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"}`}>
-                    {serperTestResult.success
-                      ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                      : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                    <span>{serperTestResult.message}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-border/30">
-                <Button
-                  onClick={handleSaveSerper}
-                  disabled={upsertSetting.isPending}
-                  className="rounded-xl px-6"
-                  data-testid="button-save-serper"
-                >
-                  {upsertSetting.isPending ? "Saving…" : "Save Search Settings"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* AI Settings */}
-          <Card className="glass-card">
-            <CardHeader className="border-b border-border/30 pb-4">
-              <div className="flex items-center gap-2">
-                <BrainCircuit className="w-4 h-4 text-violet-500" />
-                <CardTitle className="text-lg font-medium text-foreground">AI Settings</CardTitle>
-              </div>
-              <CardDescription>Configure OpenAI for AI-powered email personalization. The API key is stored encrypted and never shown in full after saving.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              {/* Enable AI Personalization toggle */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-medium">Enable AI Personalization</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">When enabled, emails are personalized using OpenAI during outreach queuing.</p>
-                </div>
-                <Switch
-                  checked={aiEnabled}
-                  onCheckedChange={setAiEnabled}
-                  data-testid="toggle-ai-enabled"
-                />
-              </div>
-
-              {/* Enable AI Scoring toggle */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-medium">AI Scoring Enabled</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">When enabled, lead relevance scoring uses OpenAI. When disabled, scoring uses rule-based keyword fallback.</p>
-                </div>
-                <Switch
-                  checked={aiScoringEnabled}
-                  onCheckedChange={setAiScoringEnabled}
-                  data-testid="toggle-ai-scoring-enabled"
-                />
-              </div>
-
-              {/* API Key */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">OpenAI API Key</Label>
-                <Input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-…"
-                  className="rounded-xl bg-background/50 font-mono"
-                  data-testid="input-openai-key"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  If you see •••• it means a key is already stored. Entering a new value will replace it.
-                </p>
-              </div>
-
-              {/* Model */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">OpenAI Model</Label>
-                <Select value={openaiModel} onValueChange={setOpenaiModel}>
-                  <SelectTrigger className="rounded-xl bg-background/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OPENAI_MODELS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Test connection */}
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  className="rounded-xl gap-2"
-                  onClick={handleTestAI}
-                  disabled={testAIMut.isPending}
-                  data-testid="button-test-ai"
-                >
-                  {testAIMut.isPending ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Testing…</>
-                  ) : (
-                    <><BrainCircuit className="w-4 h-4" /> Test OpenAI Connection</>
-                  )}
-                </Button>
-                {aiTestResult && (
-                  <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm ${aiTestResult.success ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"}`}>
-                    {aiTestResult.success
-                      ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                      : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                    <span>{aiTestResult.message}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-border/30">
-                <Button onClick={handleSaveAI} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-ai">
-                  {upsertSetting.isPending ? "Saving…" : "Save AI Settings"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

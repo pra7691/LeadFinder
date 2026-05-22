@@ -10,7 +10,7 @@ import {
   leadListItemsTable,
   emailAccountsTable,
 } from "@workspace/db";
-import { eq, and, inArray, or, isNull } from "drizzle-orm";
+import { eq, and, inArray, or, isNull, desc } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
 import {
   ListOutreachQueryParams,
@@ -27,12 +27,12 @@ import {
 } from "@workspace/api-zod";
 import { generatePersonalizedEmail } from "../services/email-generator";
 import { analyzeQuality } from "../services/quality-analyzer";
+import { getPrimaryLeadEmail, parseLeadEmails } from "../services/lead-emails";
 
 const router = Router();
 
 async function getTemplateVars(lead: typeof leadsTable.$inferSelect, campaignName?: string, listName?: string) {
-  let emailList: string[] = [];
-  try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
+  const emailList = parseLeadEmails(lead.emails);
   return {
     company_name: lead.companyName,
     website_url: lead.websiteUrl ?? lead.rootDomain ?? "",
@@ -202,8 +202,8 @@ router.get("/outreach", async (req, res) => {
   if (params.campaignId !== undefined) conditions.push(eq(outreachQueueTable.campaignId, params.campaignId));
   if (params.status !== undefined) conditions.push(eq(outreachQueueTable.status, params.status));
   const items = conditions.length > 0
-    ? await db.select().from(outreachQueueTable).where(and(...conditions))
-    : await db.select().from(outreachQueueTable);
+    ? await db.select().from(outreachQueueTable).where(and(...conditions)).orderBy(desc(outreachQueueTable.createdAt))
+    : await db.select().from(outreachQueueTable).orderBy(desc(outreachQueueTable.createdAt));
   res.json(await enrichItems(items));
 });
 
@@ -213,9 +213,7 @@ router.post("/outreach", async (req, res) => {
   const [lead] = await db.select().from(leadsTable).where(eq(leadsTable.id, body.leadId));
   if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
 
-  let emailList: string[] = [];
-  try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
-  const recipientEmail = body.recipientEmail ?? emailList[0] ?? "";
+  const recipientEmail = body.recipientEmail ?? getPrimaryLeadEmail(lead.emails) ?? "";
   if (!recipientEmail) { res.status(400).json({ error: "No email address for this lead" }); return; }
 
   // Duplicate protection: reject if same recipient already queued for same campaign/list
@@ -293,9 +291,7 @@ router.post("/outreach/from-list", async (req, res) => {
   const alreadyQueued = new Set(existingForList.map((r) => r.recipientEmail.toLowerCase()));
 
   for (const lead of leads) {
-    let leadEmails: string[] = [];
-    try { leadEmails = lead.emails ? JSON.parse(lead.emails) : []; } catch { leadEmails = []; }
-    const recipientEmail = leadEmails[0] ?? "";
+    const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
     // Duplicate protection
@@ -344,9 +340,7 @@ router.post("/outreach/bulk-queue", async (req, res) => {
   const items: (typeof outreachQueueTable.$inferSelect)[] = [];
 
   for (const lead of leads) {
-    let leadEmails: string[] = [];
-    try { leadEmails = lead.emails ? JSON.parse(lead.emails) : []; } catch { leadEmails = []; }
-    const recipientEmail = leadEmails[0] ?? "";
+    const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
     const { subject, body: emailBody } = await resolveEmailContent(

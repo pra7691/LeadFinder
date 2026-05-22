@@ -12,6 +12,7 @@ import {
   GetEmailTemplateParams,
 } from "@workspace/api-zod";
 import { renderTemplate } from "../services/email-generator";
+import { parseLeadEmails } from "../services/lead-emails";
 
 const router = Router();
 
@@ -94,8 +95,7 @@ router.post("/email-templates/:id/preview", async (req, res) => {
       .from(leadsTable)
       .where(eq(leadsTable.id, input.leadId));
     if (lead) {
-      let emailList: string[] = [];
-      try { emailList = lead.emails ? JSON.parse(lead.emails) : []; } catch { emailList = []; }
+      const emailList = parseLeadEmails(lead.emails);
       vars = {
         ...vars,
         company_name: lead.companyName,

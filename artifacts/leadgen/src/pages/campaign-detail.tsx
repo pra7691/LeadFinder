@@ -453,6 +453,7 @@ export function CampaignDetail() {
         id: campaignId,
         data: {
           ...formData,
+          resultsPerSearch: Math.min(50, Math.max(1, formData.resultsPerSearch || 10)),
           keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
           countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
           scheduleDays: selectedDays.join(","),
@@ -673,21 +674,17 @@ export function CampaignDetail() {
               ))}
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">Results Per Search</Label>
-                <Select
-                  value={String(formData.resultsPerSearch)}
-                  onValueChange={(v) => setFormData({ ...formData, resultsPerSearch: Number(v) })}
-                >
-                  <SelectTrigger className="rounded-xl bg-background/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[10, 20, 30, 50].map((n) => (
-                      <SelectItem key={n} value={String(n)}>{n}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={formData.resultsPerSearch}
+                  onChange={(e) => setFormData({ ...formData, resultsPerSearch: Number(e.target.value) })}
+                  placeholder="10"
+                  className="rounded-xl bg-background/50"
+                />
                 <p className="text-[11px] text-muted-foreground/70">
-                  Serper results per keyword-country query
+                  Serper results per keyword-country query. Maximum is 50.
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -732,7 +729,7 @@ export function CampaignDetail() {
             <div className="pt-1 border-t border-border/30">
               <p className="text-xs text-muted-foreground">
                 Email templates are managed in the{" "}
-                <a href="/email-templates" className="text-primary hover:underline">Email Templates</a>{" "}
+                <a href="/settings/email-templates" className="text-primary hover:underline">Email Templates</a>{" "}
                 section.
               </p>
             </div>

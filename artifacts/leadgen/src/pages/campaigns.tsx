@@ -84,6 +84,7 @@ export function Campaigns() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [objective, setObjective] = useState("");
+  const [resultsPerSearch, setResultsPerSearch] = useState(10);
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -94,12 +95,13 @@ export function Campaigns() {
 
   const handleCreate = () => {
     createCampaign.mutate(
-      { data: { name, objective, isActive: true } },
+      { data: { name, objective, isActive: true, resultsPerSearch: Math.min(50, Math.max(1, resultsPerSearch || 10)) } },
       {
         onSuccess: () => {
           setOpen(false);
           setName("");
           setObjective("");
+          setResultsPerSearch(10);
           invalidate();
         },
       },
@@ -186,6 +188,22 @@ export function Campaigns() {
                     className="rounded-xl"
                     data-testid="input-campaign-objective"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label>Results Per Search</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={resultsPerSearch}
+                    onChange={(e) => setResultsPerSearch(Number(e.target.value))}
+                    placeholder="10"
+                    className="rounded-xl"
+                    data-testid="input-campaign-results-per-search"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Maximum is 50 results per keyword-country search.
+                  </p>
                 </div>
                 <Button
                   onClick={handleCreate}

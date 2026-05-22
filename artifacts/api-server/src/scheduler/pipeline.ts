@@ -29,6 +29,7 @@ import { scoreLead } from "../services/scorer";
 import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
+import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 
 // ── Cancellation registry ─────────────────────────────────────────────────
 
@@ -46,6 +47,12 @@ export function clearCancellation(runId: number | undefined | null): void {
 
 function isCancelled(runId: number | undefined | null): boolean {
   return runId != null && cancelledRuns.has(runId);
+}
+
+function fromHeader(account: typeof emailAccountsTable.$inferSelect): string {
+  const address = account.email || account.smtpUser;
+  const displayName = account.senderName?.trim() || address;
+  return `"${displayName.replace(/"/g, '\\"')}" <${address}>`;
 }
 
 // ── Pipeline result ────────────────────────────────────────────────────────
@@ -224,6 +231,7 @@ interface MineArgs {
   sourceQuery: string;
   blockedDomains: Set<string>;
   existingDomains: Set<string>;
+  maxNewLeads?: number;
 }
 
 interface MineResult {
@@ -247,6 +255,7 @@ async function mineDiscoverySource({
   sourceQuery,
   blockedDomains,
   existingDomains,
+  maxNewLeads,
 }: MineArgs): Promise<MineResult> {
   let links: { href: string; rootDomain: string; anchorText: string }[];
   try {
@@ -261,6 +270,7 @@ async function mineDiscoverySource({
 
   for (const { href, rootDomain, anchorText } of links) {
     if (isCancelled(campaignRunId)) break;
+    if (maxNewLeads != null && mined >= maxNewLeads) break;
     if (existingDomains.has(rootDomain)) {
       duplicates++;
       continue;
@@ -296,6 +306,13 @@ async function mineDiscoverySource({
         leadType: classifyLeadType(rootDomain),
       });
       existingDomains.add(rootDomain);
+      recordResult(campaignRunId, campaign.id, "lead_created", {
+        title: anchorText,
+        url: href,
+        rootDomain,
+        sourceQuery,
+        reason: `Mined from ${sourceRootDomain}`,
+      });
       mined++;
     } catch {
       // unique constraint violation = race dupe — skip
@@ -616,8 +633,13 @@ async function runDiscovery(
       let qDups = 0;
       let qBlocked = 0;
       let qSources = 0;
+      const maxNewLeadsForQuery = Math.max(1, campaign.resultsPerSearch ?? 10);
 
       for (const result of results) {
+        if (qNewLeads >= maxNewLeadsForQuery) {
+          break;
+        }
+
         const rootDomain = extractRootDomain(result.link);
         if (!rootDomain) continue;
 
@@ -719,6 +741,7 @@ async function runDiscovery(
             sourceQuery: query,
             blockedDomains,
             existingDomains,
+            maxNewLeads: Math.max(0, maxNewLeadsForQuery - qNewLeads),
           });
 
           stats.newLeadsCreated += mineResult.mined;
@@ -1102,9 +1125,7 @@ async function runEmail(
       .replace(/\{\{country\}\}/g, lead.sourceCountry || "")
       .replace(/\{\{campaign_name\}\}/g, campaign.name);
 
-    const fullBody = campaign.unsubscribeFooter
-      ? `${body}\n\n---\n${campaign.unsubscribeFooter}`
-      : body;
+    const fullBody = appendUnsubscribeFooter(body, campaign.unsubscribeFooter);
 
     // Insert as approved to outreach queue
     const [queued] = await db.insert(outreachQueueTable).values({
@@ -1123,11 +1144,11 @@ async function runEmail(
     // Auto-send
     try {
       await transporter.sendMail({
-        from: `"${account.smtpUser}" <${account.smtpUser}>`,
+        from: fromHeader(account),
         to: recipientEmail,
         subject,
-        text: fullBody,
-        html: fullBody.replace(/\n/g, "<br>"),
+        text: toTextEmail(fullBody),
+        html: toHtmlEmail(fullBody),
       });
 
       const now = new Date();

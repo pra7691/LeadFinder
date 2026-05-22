@@ -230,6 +230,9 @@ export function LeadDrawer({ leadId, onClose }: Props) {
     if (!lead) return;
     setEditForm({
       companyName: lead.companyName ?? "",
+      rootDomain: lead.rootDomain ?? "",
+      websiteUrl: lead.websiteUrl ?? "",
+      country: lead.country ?? "",
       emails: lead.emails ?? "",
       phoneNumbers: lead.phoneNumbers ?? "",
       address: lead.address ?? "",
@@ -618,6 +621,9 @@ export function LeadDrawer({ leadId, onClose }: Props) {
                 <div className="py-4 space-y-4">
                   {[
                     { key: "companyName", label: "Company name", type: "input" },
+                    { key: "rootDomain", label: "Root domain", type: "input" },
+                    { key: "websiteUrl", label: "Website URL", type: "input" },
+                    { key: "country", label: "Country", type: "input" },
                     { key: "emails", label: "Emails (comma-separated)", type: "input" },
                     { key: "phoneNumbers", label: "Phone numbers (comma-separated)", type: "input" },
                     { key: "linkedinUrl", label: "LinkedIn URL", type: "input" },

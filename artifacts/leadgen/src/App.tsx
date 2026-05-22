@@ -16,9 +16,9 @@ import { Leads } from "@/pages/leads";
 import { Lists } from "@/pages/lists";
 import { ListDetail } from "@/pages/list-detail";
 import { EmailAccounts } from "@/pages/email-accounts";
+import { EmailTemplateEditor } from "@/pages/email-template-editor";
 import { EmailTemplates } from "@/pages/email-templates";
 import { Outreach } from "@/pages/outreach";
-import { OutreachReview } from "@/pages/outreach-review";
 import { Logs } from "@/pages/logs";
 import { Settings } from "@/pages/settings";
 
@@ -30,6 +30,10 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function EmailTemplatesRoute() {
+  return <EmailTemplates />;
+}
 
 function Router() {
   return (
@@ -44,10 +48,15 @@ function Router() {
           <Route path="/lists/:id" component={ListDetail} />
           <Route path="/lists" component={Lists} />
           <Route path="/email-accounts" component={EmailAccounts} />
-          <Route path="/email-templates" component={EmailTemplates} />
+          <Route path="/email-templates/new" component={EmailTemplateEditor} />
+          <Route path="/email-templates/:id/edit" component={EmailTemplateEditor} />
+          <Route path="/email-templates" component={EmailTemplatesRoute} />
           <Route path="/outreach" component={Outreach} />
-          <Route path="/outreach-review" component={OutreachReview} />
+          <Route path="/outreach-review" component={Outreach} />
           <Route path="/logs" component={Logs} />
+          <Route path="/settings/email-templates/new" component={EmailTemplateEditor} />
+          <Route path="/settings/email-templates/:id/edit" component={EmailTemplateEditor} />
+          <Route path="/settings/:section" component={Settings} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />
         </Switch>

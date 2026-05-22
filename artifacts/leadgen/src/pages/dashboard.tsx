@@ -106,11 +106,11 @@ export function Dashboard() {
         <CardHeader className="border-b border-border/30 pb-4">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-primary" /> Outreach Review
+              <ShieldCheck className="w-4 h-4 text-primary" /> Outreach
             </CardTitle>
-            <Link href="/outreach-review">
+            <Link href="/outreach">
               <Button variant="ghost" size="sm" className="rounded-xl text-xs h-7 text-primary hover:bg-primary/5">
-                Open Review Queue →
+                Open Outreach →
               </Button>
             </Link>
           </div>

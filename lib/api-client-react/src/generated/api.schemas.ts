@@ -51,7 +51,7 @@ export interface Campaign {
   maxSearchesPerDay: number;
   maxLeadsPerDay: number;
   maxEmailsPerDay: number;
-  /** Number of Serper search results requested per keyword-country query (10/20/30/50) */
+  /** Number of Serper search results requested per keyword-country query (1-50) */
   resultsPerSearch: number;
   /** Days before the same keyword-country query is searched again */
   queryRefreshDays: number;
@@ -99,7 +99,7 @@ export interface CampaignInput {
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
   /**
-     * Number of Serper search results requested per keyword-country query (10/20/30/50)
+     * Number of Serper search results requested per keyword-country query (1-50)
      * @minimum 1
      * @maximum 50
      */
@@ -143,7 +143,7 @@ export interface CampaignPatch {
   maxLeadsPerDay?: number;
   maxEmailsPerDay?: number;
   /**
-     * Number of Serper search results requested per keyword-country query (10/20/30/50)
+     * Number of Serper search results requested per keyword-country query (1-50)
      * @minimum 1
      * @maximum 50
      */

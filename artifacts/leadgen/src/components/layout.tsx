@@ -4,16 +4,13 @@ import {
   Activity,
   BarChart,
   Briefcase,
-  Mail,
   Send,
   Settings,
   BookMarked,
-  FileText,
   Moon,
   Sun,
   Menu,
   X,
-  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
@@ -23,11 +20,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: BarChart },
   { href: "/campaigns", label: "Campaigns", icon: Briefcase },
   { href: "/lists", label: "Lists", icon: BookMarked },
-  { href: "/email-accounts", label: "Accounts", icon: Mail },
-  { href: "/email-templates", label: "Email Templates", icon: FileText },
   { href: "/outreach", label: "Outreach", icon: Send },
-  { href: "/outreach-review", label: "Review Queue", icon: ShieldCheck },
-  { href: "/logs", label: "Activity Logs", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -114,7 +107,28 @@ export function Layout({ children }: { children: ReactNode }) {
           })}
         </div>
 
-        <div className="p-4 mt-auto">
+        <div className="p-4 mt-auto space-y-3">
+          <Link
+            href="/logs"
+            data-testid="nav-activity logs"
+            onClick={closeSidebar}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
+              location === "/logs" || location.startsWith("/logs/")
+                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <Activity
+              className={cn(
+                "w-4 h-4",
+                location === "/logs" || location.startsWith("/logs/")
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            Activity Logs
+          </Link>
           <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border/50">
             <div className="flex flex-col">
               <span className="text-xs font-medium">Operator</span>

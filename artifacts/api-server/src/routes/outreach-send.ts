@@ -15,6 +15,7 @@ import {
   RetryOutreachItemParams,
   SendTestEmailBody,
 } from "@workspace/api-zod";
+import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 
 const router = Router();
 
@@ -24,8 +25,34 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function randomDelay(minMs = 2000, maxMs = 8000) {
-  return delay(Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs);
+let batchSendRunning = false;
+let batchSendCancelRequested = false;
+
+function resetBatchSendState() {
+  batchSendRunning = false;
+  batchSendCancelRequested = false;
+}
+
+function interruptibleDelay(ms: number) {
+  return new Promise<"done" | "cancelled">((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      if (batchSendCancelRequested) {
+        resolve("cancelled");
+        return;
+      }
+      if (Date.now() - startedAt >= ms) {
+        resolve("done");
+        return;
+      }
+      setTimeout(tick, Math.min(250, ms - (Date.now() - startedAt)));
+    };
+    tick();
+  });
+}
+
+async function randomInterruptibleDelay(minMs = 2000, maxMs = 8000) {
+  return interruptibleDelay(Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs);
 }
 
 function isSameDay(a: Date, b: Date) {
@@ -36,9 +63,10 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
-function buildEmailBody(body: string, unsubscribeFooter: string | null): string {
-  if (!unsubscribeFooter) return body;
-  return `${body}\n\n---\n${unsubscribeFooter}`;
+function fromHeader(account: typeof emailAccountsTable.$inferSelect): string {
+  const address = account.email || account.smtpUser;
+  const displayName = account.senderName?.trim() || address;
+  return `"${displayName.replace(/"/g, '\\"')}" <${address}>`;
 }
 
 async function getTransporter(account: typeof emailAccountsTable.$inferSelect) {
@@ -126,16 +154,16 @@ async function doSend(
   account: typeof emailAccountsTable.$inferSelect,
   campaign?: typeof campaignsTable.$inferSelect,
 ): Promise<boolean> {
-  const fullBody = buildEmailBody(item.body, campaign?.unsubscribeFooter ?? null);
+  const fullBody = appendUnsubscribeFooter(item.body, campaign?.unsubscribeFooter);
 
   try {
     const transporter = await getTransporter(account);
     await transporter.sendMail({
-      from: `"${account.smtpUser}" <${account.smtpUser}>`,
+      from: fromHeader(account),
       to: item.recipientEmail,
       subject: item.subject,
-      text: fullBody,
-      html: fullBody.replace(/\n/g, "<br>"),
+      text: toTextEmail(fullBody),
+      html: toHtmlEmail(fullBody),
     });
 
     const now = new Date();
@@ -229,12 +257,21 @@ async function antiSpamCheck(
 // ── POST /outreach/send-batch ───────────────────────────────────────────────
 
 router.post("/outreach/send-batch", async (req, res) => {
+  if (batchSendRunning) {
+    res.status(409).json({ error: "A batch send is already running" });
+    return;
+  }
+
+  batchSendRunning = true;
+  batchSendCancelRequested = false;
+
   const approved = await db
     .select()
     .from(outreachQueueTable)
     .where(eq(outreachQueueTable.status, "approved"));
 
   if (approved.length === 0) {
+    resetBatchSendState();
     res.json({ sent: 0, failed: 0, skipped: 0, items: [] });
     return;
   }
@@ -242,6 +279,7 @@ router.post("/outreach/send-batch", async (req, res) => {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  let stopped = false;
   const resultItems: (typeof outreachQueueTable.$inferSelect)[] = [];
 
   // Cache campaigns and accounts
@@ -250,7 +288,19 @@ router.post("/outreach/send-batch", async (req, res) => {
   const campaignSentToday = new Map<number, number>();
   const accountSentToday = new Map<number, number>();
 
+  try {
   for (const item of approved) {
+    if (batchSendCancelRequested) {
+      stopped = true;
+      await logSend(null, "send_skip", "Batch sending stopped by user", {
+        sent,
+        failed,
+        skipped,
+        remaining: approved.length - (sent + failed + skipped),
+      });
+      break;
+    }
+
     // Anti-spam checks
     const spamCheck = await antiSpamCheck(item);
     if (!spamCheck.ok) {
@@ -313,7 +363,22 @@ router.post("/outreach/send-batch", async (req, res) => {
 
     // Randomized delay between sends (skip delay before first send)
     if (sent + failed > 0) {
-      await randomDelay(2000, 8000);
+      const delayResult = await randomInterruptibleDelay(2000, 8000);
+      if (delayResult === "cancelled") {
+        stopped = true;
+        await logSend(null, "send_skip", "Batch sending stopped by user during send delay", {
+          sent,
+          failed,
+          skipped,
+          remaining: approved.length - (sent + failed + skipped),
+        });
+        break;
+      }
+    }
+
+    if (batchSendCancelRequested) {
+      stopped = true;
+      break;
     }
 
     const success = await doSend(item, account, campaign);
@@ -337,7 +402,22 @@ router.post("/outreach/send-batch", async (req, res) => {
     if (updated) resultItems.push(updated);
   }
 
-  res.json({ sent, failed, skipped, items: resultItems });
+  res.json({ sent, failed, skipped, stopped, items: resultItems });
+  } finally {
+    resetBatchSendState();
+  }
+});
+
+// ── POST /outreach/send-batch/cancel ───────────────────────────────────────
+
+router.post("/outreach/send-batch/cancel", async (_req, res) => {
+  if (!batchSendRunning) {
+    res.json({ ok: true, running: false, message: "No batch send is currently running." });
+    return;
+  }
+
+  batchSendCancelRequested = true;
+  res.json({ ok: true, running: true, message: "Batch send stop requested. The current email will finish, then sending will stop." });
 });
 
 // ── POST /outreach/send-test ────────────────────────────────────────────────
@@ -361,11 +441,11 @@ router.post("/outreach/send-test", async (req, res) => {
   try {
     const transporter = await getTransporter(account);
     await transporter.sendMail({
-      from: `"${account.smtpUser}" <${account.smtpUser}>`,
+      from: fromHeader(account),
       to: body.toEmail,
       subject,
-      text: emailBody,
-      html: emailBody.replace(/\n/g, "<br>"),
+      text: toTextEmail(emailBody),
+      html: toHtmlEmail(emailBody),
     });
 
     await logSend(null, "send_test", `Test email sent to ${body.toEmail} via ${account.smtpUser}`, {

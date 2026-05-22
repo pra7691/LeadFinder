@@ -9,33 +9,9 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
+import { parseLeadEmails } from "../services/lead-emails";
 
 const router = Router();
-
-/**
- * Parse the emails column which may be stored as:
- *   - JSON string: '["a@b.com","c@d.com"]'
- *   - comma string: 'a@b.com, c@d.com'
- *   - semicolon string: 'a@b.com; c@d.com'
- *   - null / empty
- */
-function parseLeadEmails(emails: string | null): string[] {
-  if (!emails) return [];
-  const trimmed = emails.trim();
-  if (!trimmed) return [];
-  // Try JSON array first
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((e): e is string => typeof e === "string" && e.trim() !== "");
-    }
-  } catch { /* not JSON */ }
-  // Split by comma or semicolon and keep only valid-looking emails
-  return trimmed
-    .split(/[,;]/)
-    .map((e) => e.trim())
-    .filter((e) => e.length > 0 && e.includes("@"));
-}
 
 // List all lead lists (with lead count + campaign name)
 router.get("/lists", async (req, res) => {

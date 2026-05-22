@@ -548,8 +548,8 @@ export function ListDetail() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Review and approve them in the{" "}
-                  <Link href="/outreach-review" className="text-primary hover:underline">Review Queue</Link>.
+                  Review and approve them in{" "}
+                  <Link href="/outreach" className="text-primary hover:underline">Outreach</Link>.
                 </p>
               </div>
               <DialogFooter>
@@ -562,7 +562,7 @@ export function ListDetail() {
                 <Label className="text-sm font-medium">Email Template *</Label>
                 {activeTemplates.length === 0 ? (
                   <p className="text-sm text-muted-foreground rounded-xl border border-border/50 px-4 py-3">
-                    No active templates. <a href="/email-templates" className="text-primary hover:underline">Create one first.</a>
+                    No active templates. <a href="/settings/email-templates" className="text-primary hover:underline">Create one first.</a>
                   </p>
                 ) : (
                   <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
@@ -582,7 +582,7 @@ export function ListDetail() {
                 <Label className="text-sm font-medium">Sending Account <span className="text-muted-foreground font-normal">(optional)</span></Label>
                 <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
                   <SelectTrigger className="rounded-xl" data-testid="select-account">
-                    <SelectValue placeholder="Assign later in Review Queue" />
+                    <SelectValue placeholder="Assign later in Outreach" />
                   </SelectTrigger>
                   <SelectContent>
                     {emailAccountRows.map((a) => (
