@@ -24,7 +24,13 @@ export function ensureOutreachTrackingColumns(): Promise<void> {
       db.execute(sql`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS last_opened_at timestamptz`),
       db.execute(sql`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS last_clicked_at timestamptz`),
       db.execute(sql`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS batch_id text`),
-    ]).then(() => undefined);
+    ])
+      .then(() => undefined)
+      .catch((err) => {
+        // Reset so the next caller retries rather than getting a stale rejection.
+        outreachTrackingColumnsPromise = null;
+        throw err;
+      });
   }
 
   return outreachTrackingColumnsPromise;

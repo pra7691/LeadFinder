@@ -24,13 +24,11 @@ import { ensureOutreachTrackingColumns } from "../lib/schema-guards";
 
 const router: IRouter = Router();
 
-router.use(async (_req, _res, next) => {
-  try {
-    await ensureOutreachTrackingColumns();
-    next();
-  } catch (err) {
-    next(err);
-  }
+// Run once at module load — fire-and-forget so a transient DB hiccup
+// never blocks every subsequent request.  The promise resets itself on
+// failure (see schema-guards.ts) so the next request retries automatically.
+ensureOutreachTrackingColumns().catch(() => {
+  // Columns will be retried on the next request that needs them.
 });
 
 router.use(healthRouter);
