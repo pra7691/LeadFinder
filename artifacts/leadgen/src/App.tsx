@@ -20,6 +20,7 @@ import { EmailTemplateEditor } from "@/pages/email-template-editor";
 import { EmailTemplates } from "@/pages/email-templates";
 import { Outreach } from "@/pages/outreach";
 import { Logs } from "@/pages/logs";
+import { FailedLogs } from "@/pages/failed-logs";
 import { Settings } from "@/pages/settings";
 
 const queryClient = new QueryClient({
@@ -53,6 +54,8 @@ function Router() {
           <Route path="/email-templates" component={EmailTemplatesRoute} />
           <Route path="/outreach" component={Outreach} />
           <Route path="/outreach-review" component={Outreach} />
+          <Route path="/failed-logs/runs/:runId" component={FailedLogs} />
+          <Route path="/failed-logs" component={FailedLogs} />
           <Route path="/logs" component={Logs} />
           <Route path="/settings/email-templates/new" component={EmailTemplateEditor} />
           <Route path="/settings/email-templates/:id/edit" component={EmailTemplateEditor} />

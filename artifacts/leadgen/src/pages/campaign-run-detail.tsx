@@ -1,7 +1,9 @@
 import {
+  useGetCampaign,
   useGetCampaignRun,
   useGetCampaignRunLeads,
   useGetCampaignRunResults,
+  getGetCampaignQueryKey,
   getGetCampaignRunResultsQueryKey,
   useListLeadLists,
   useAddLeadsToList,
@@ -53,6 +55,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
+import { saveExportToServer, saveTextExportToServer } from "@/lib/export-files";
 import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -61,6 +64,7 @@ function RunStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
     running: { label: "Running", cls: "bg-blue-500/10 text-blue-500", icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     completed: { label: "Completed", cls: "bg-emerald-500/10 text-emerald-500", icon: <CheckCircle2 className="w-3 h-3" /> },
+    partial: { label: "Partial", cls: "bg-amber-500/10 text-amber-600", icon: <AlertCircle className="w-3 h-3" /> },
     failed: { label: "Failed", cls: "bg-red-500/10 text-red-400", icon: <XCircle className="w-3 h-3" /> },
     cancelled: { label: "Cancelled", cls: "bg-amber-500/10 text-amber-500", icon: <AlertCircle className="w-3 h-3" /> },
   };
@@ -86,6 +90,76 @@ function QualBadge({ status }: { status: string | null | undefined }) {
   );
 }
 
+type BlockReasonFilter = "all" | "settings" | "blog_page" | "platform" | "gov_edu" | "research_docs" | "junk_title" | "other";
+type BlockReasonCategory = { key: Exclude<BlockReasonFilter, "all">; label: string };
+
+const BLOCK_REASON_LABELS: Record<Exclude<BlockReasonFilter, "all">, string> = {
+  settings: "Domain blocked in settings",
+  blog_page: "Blog / article page",
+  platform: "Platform / news / social domain",
+  gov_edu: "Government / education domain",
+  research_docs: "Research / docs / dataset page",
+  junk_title: "Junk title/content signal",
+  other: "Other blocked reason",
+};
+
+const PLATFORM_DOMAINS = [
+  "linkedin.com", "github.com", "indeed.com", "medium.com", "youtube.com", "facebook.com",
+  "twitter.com", "x.com", "reddit.com", "quora.com", "wikipedia.org", "forbes.com",
+  "techcrunch.com", "venturebeat.com", "wired.com", "bloomberg.com", "reuters.com",
+  "theverge.com", "sites.google.com",
+];
+
+function csvEscape(value: unknown): string {
+  const text = value == null ? "" : String(value);
+  if (text.includes(",") || text.includes('"') || text.includes("\n") || text.includes("\r")) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function blockReasonCategory(result: { reason?: string | null; url?: string | null; rootDomain?: string | null; title?: string | null }): BlockReasonCategory {
+  const reason = (result.reason ?? "").toLowerCase();
+  const domain = (result.rootDomain ?? "").toLowerCase();
+  const title = (result.title ?? "").toLowerCase();
+  let pathname = "";
+  try {
+    pathname = result.url ? new URL(result.url).pathname.toLowerCase() : "";
+  } catch {
+    pathname = "";
+  }
+
+  if (reason.includes("settings")) return { key: "settings", label: BLOCK_REASON_LABELS.settings };
+  if (/\.(gov|edu|ac\.uk|ac\.jp|edu\.au|gov\.uk|gov\.au|ac\.nz|edu\.nz|gc\.ca)$/i.test(domain) || reason.includes("government") || reason.includes("education")) {
+    return { key: "gov_edu", label: BLOCK_REASON_LABELS.gov_edu };
+  }
+  if (
+    reason.includes("docs") ||
+    reason.includes("dataset") ||
+    /\/(docs|documentation|paper|research-paper|dataset|datasets)\b/i.test(pathname) ||
+    /(dataset|datasets|research paper|publication|conference paper|preprint|arxiv|documentation|github repo|open source)/i.test(title)
+  ) {
+    return { key: "research_docs", label: BLOCK_REASON_LABELS.research_docs };
+  }
+  if (
+    reason.includes("blog") ||
+    /\/(blog|blogs|article|articles|news|post|tag|category|topics|tutorial|tutorials|community|forum)\b/i.test(pathname)
+  ) {
+    return { key: "blog_page", label: BLOCK_REASON_LABELS.blog_page };
+  }
+  if (
+    reason.includes("platform") ||
+    reason.includes("social") ||
+    PLATFORM_DOMAINS.some((blockedDomain) => domain === blockedDomain || domain.endsWith(`.${blockedDomain}`))
+  ) {
+    return { key: "platform", label: BLOCK_REASON_LABELS.platform };
+  }
+  if (reason.includes("junk") || /(tutorial|blog post|community forum)/i.test(title)) {
+    return { key: "junk_title", label: BLOCK_REASON_LABELS.junk_title };
+  }
+  return { key: "other", label: BLOCK_REASON_LABELS.other };
+}
+
 export function CampaignRunDetail() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const campaignId = Number(id);
@@ -93,6 +167,13 @@ export function CampaignRunDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
+
+  const { data: campaign } = useGetCampaign(campaignId, {
+    query: {
+      queryKey: getGetCampaignQueryKey(campaignId),
+      enabled: !!campaignId,
+    },
+  });
 
   const { data: run, isLoading: runLoading } = useGetCampaignRun(runIdNum, {
     query: {
@@ -116,6 +197,7 @@ export function CampaignRunDetail() {
 
   const { data: lists } = useListLeadLists();
   const listRows = Array.isArray(lists) ? lists : [];
+  const minRelevanceScore = campaign?.minRelevanceScore ?? 50;
   const addLeadsToList = useAddLeadsToList();
   const updateLead = useUpdateLead();
   const deleteRun = useDeleteCampaignRun();
@@ -127,8 +209,14 @@ export function CampaignRunDetail() {
   const [addToListOpen, setAddToListOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [qualFilter, setQualFilter] = useState("all");
+  type StatusFilter = "all" | "unreviewed" | "qualified" | "rejected";
+  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore";
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
   const [resultFilter, setResultFilter] = useState<null | "blocked" | "duplicate" | "rejected">(null);
+  const [blockReasonFilter, setBlockReasonFilter] = useState<BlockReasonFilter>("all");
+  const [resultSearchQuery, setResultSearchQuery] = useState("");
+  const [selectedBlockedResultIds, setSelectedBlockedResultIds] = useState<Set<number>>(new Set());
 
   const resultsParams = resultFilter && resultFilter !== "rejected" ? { status: resultFilter } : undefined;
   const { data: runResults, isLoading: runResultsLoading } = useGetCampaignRunResults(
@@ -143,6 +231,38 @@ export function CampaignRunDetail() {
     },
   );
   const runResultRows = Array.isArray(runResults) ? runResults : [];
+  const blockedReasonOptions = useMemo(() => {
+    const counts = new Map<BlockReasonFilter, number>();
+    for (const row of runResultRows) {
+      if (row.resultStatus !== "blocked") continue;
+      const category = blockReasonCategory(row);
+      counts.set(category.key, (counts.get(category.key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({ key, count, label: key === "all" ? "All reasons" : BLOCK_REASON_LABELS[key] }))
+      .sort((a, b) => b.count - a.count);
+  }, [runResultRows]);
+  const filteredRunResultRows = useMemo(() => {
+    let rows = runResultRows;
+    if (resultFilter === "blocked" && blockReasonFilter !== "all") {
+      rows = rows.filter((row) => blockReasonCategory(row).key === blockReasonFilter);
+    }
+    if (resultFilter === "blocked" && resultSearchQuery.trim()) {
+      const query = resultSearchQuery.trim().toLowerCase();
+      rows = rows.filter((row) => {
+        const haystack = [
+          row.title,
+          row.url,
+          row.rootDomain,
+          row.sourceQuery,
+          row.reason,
+          blockReasonCategory(row).label,
+        ].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    return rows;
+  }, [blockReasonFilter, resultFilter, resultSearchQuery, runResultRows]);
 
   // Delete state
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
@@ -151,6 +271,8 @@ export function CampaignRunDetail() {
   const [cancelRunOpen, setCancelRunOpen] = useState(false);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [unblockingResultId, setUnblockingResultId] = useState<number | null>(null);
+  const [bulkUnblockingResults, setBulkUnblockingResults] = useState(false);
 
   const filteredLeads = useMemo(() => {
     return leadRows.filter((l) => {
@@ -158,13 +280,36 @@ export function CampaignRunDetail() {
         const q = searchQuery.toLowerCase();
         if (!l.companyName?.toLowerCase().includes(q) && !l.rootDomain?.toLowerCase().includes(q)) return false;
       }
-      if (qualFilter === "qualified") return l.qualificationStatus === "qualified";
-      if (qualFilter === "rejected") return l.qualificationStatus === "rejected";
-      if (qualFilter === "unreviewed") return l.qualificationStatus !== "qualified" && l.qualificationStatus !== "rejected";
-      if (qualFilter === "hasEmail") return !!l.emails;
+      if (statusFilter === "qualified" && l.qualificationStatus !== "qualified") return false;
+      if (statusFilter === "rejected" && l.qualificationStatus !== "rejected") return false;
+      if (statusFilter === "unreviewed" && (l.qualificationStatus === "qualified" || l.qualificationStatus === "rejected")) return false;
+      if (leadFilters.has("hasEmail") && !l.emails) return false;
+      if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
+      if (leadFilters.has("aboveMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore < minRelevanceScore)) return false;
       return true;
     });
-  }, [leadRows, searchQuery, qualFilter]);
+  }, [leadRows, searchQuery, statusFilter, leadFilters, minRelevanceScore]);
+
+  const crawlSummary = useMemo(() => {
+    const total = leadRows.length;
+    const crawled = leadRows.filter((l) => l.crawlStatus === "crawled").length;
+    const failed = leadRows.filter((l) => l.crawlStatus === "failed").length;
+    const crawling = leadRows.filter((l) => l.crawlStatus === "crawling").length;
+    const pending = leadRows.filter((l) => !l.crawlStatus || l.crawlStatus === "pending").length;
+    const finished = crawled + failed;
+    const progress = total > 0 ? Math.round((finished / total) * 100) : 0;
+    return { total, crawled, failed, crawling, pending, finished, progress };
+  }, [leadRows]);
+
+  const toggleLeadFilter = (filter: LeadFilter) => {
+    setLeadFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(filter)) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+    setSelectedIds(new Set());
+  };
 
   const toggleLead = (leadId: number) => {
     setSelectedIds((prev) => {
@@ -178,6 +323,33 @@ export function CampaignRunDetail() {
   const toggleAll = () => {
     if (selectedIds.size === filteredLeads.length) setSelectedIds(new Set());
     else setSelectedIds(new Set(filteredLeads.map((l) => l.id)));
+  };
+
+  const visibleBlockedResultIds = filteredRunResultRows
+    .filter((row) => row.resultStatus === "blocked")
+    .map((row) => row.id);
+  const selectedVisibleBlockedCount = visibleBlockedResultIds.filter((id) => selectedBlockedResultIds.has(id)).length;
+  const allVisibleBlockedSelected = visibleBlockedResultIds.length > 0 && selectedVisibleBlockedCount === visibleBlockedResultIds.length;
+
+  const toggleBlockedResult = (resultId: number) => {
+    setSelectedBlockedResultIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(resultId)) next.delete(resultId);
+      else next.add(resultId);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleBlockedResults = () => {
+    setSelectedBlockedResultIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleBlockedSelected) {
+        visibleBlockedResultIds.forEach((id) => next.delete(id));
+      } else {
+        visibleBlockedResultIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
   };
 
   const handleQualify = (leadId: number, status: "qualified" | "rejected") => {
@@ -213,10 +385,47 @@ export function CampaignRunDetail() {
     );
   };
 
-  const handleExport = (format: "csv" | "xlsx" = "csv") => {
+  const handleExport = async (format: "csv" | "xlsx" = "csv") => {
     if (!filteredLeads.length) return;
     const ids = filteredLeads.map((l) => l.id).join(",");
-    window.open(`/api/leads/export?format=${format}&leadIds=${ids}`, "_blank");
+    try {
+      const saved = await saveExportToServer(`/api/leads/export?format=${format}&leadIds=${ids}`);
+      toast({ title: `Export saved to ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    }
+  };
+
+  const handleExportResults = async () => {
+    if (!resultFilter || resultFilter === "rejected") return;
+    const rows = [
+      ["Result ID", "Campaign ID", "Campaign Run ID", "Status", "Reason Category", "Saved Reason", "Title", "URL", "Root Domain", "Source Query", "Created At"],
+      ...filteredRunResultRows.map((row) => [
+        row.id,
+        row.campaignId,
+        row.campaignRunId,
+        row.resultStatus,
+        row.resultStatus === "blocked" ? blockReasonCategory(row).label : "",
+        row.reason ?? "",
+        row.title ?? "",
+        row.url ?? "",
+        row.rootDomain ?? "",
+        row.sourceQuery ?? "",
+        row.createdAt ?? "",
+      ]),
+    ];
+    const csv = `${rows.map((row) => row.map(csvEscape).join(",")).join("\r\n")}\r\n`;
+    try {
+      const saved = await saveTextExportToServer(
+        `campaign-run-${runIdNum}-${resultFilter}-${new Date().toISOString().slice(0, 10)}.csv`,
+        csv,
+      );
+      toast({ title: `Export saved to ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    }
   };
 
   const handleCancelRun = () => {
@@ -293,6 +502,64 @@ export function CampaignRunDetail() {
     );
   };
 
+  const handleUnblockResult = async (resultId: number) => {
+    setUnblockingResultId(resultId);
+    try {
+      const response = await fetch(`/api/campaign-run-results/${resultId}/unblock`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || "Failed to mark result as non-blocked");
+      }
+      toast({ title: "Result marked as non-blocked and added as a lead." });
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunResultsQueryKey(runIdNum, resultsParams) });
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
+      setSelectedBlockedResultIds((prev) => {
+        const next = new Set(prev);
+        next.delete(resultId);
+        return next;
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to mark result as non-blocked";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setUnblockingResultId(null);
+    }
+  };
+
+  const handleBulkUnblockResults = async () => {
+    const resultIds = Array.from(selectedBlockedResultIds);
+    if (resultIds.length === 0) return;
+
+    setBulkUnblockingResults(true);
+    try {
+      const response = await fetch("/api/campaign-run-results/unblock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resultIds }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || "Failed to mark selected results as non-blocked");
+      }
+      const body = await response.json() as { created?: number; duplicates?: number; skipped?: number };
+      toast({
+        title: `${body.created ?? 0} new lead${body.created === 1 ? "" : "s"} added, ${body.duplicates ?? 0} duplicate${body.duplicates === 1 ? "" : "s"} moved.`,
+      });
+      setSelectedBlockedResultIds(new Set());
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunResultsQueryKey(runIdNum, resultsParams) });
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to mark selected results as non-blocked";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setBulkUnblockingResults(false);
+    }
+  };
+
   if (runLoading) {
     return (
       <div className="space-y-6 max-w-5xl animate-in fade-in">
@@ -323,6 +590,18 @@ export function CampaignRunDetail() {
       ? `${Math.round(durationMs / 1000)}s`
       : formatDuration(intervalToDuration({ start: 0, end: durationMs }), { format: ["minutes", "seconds"] })
     : null;
+  let metadata: { crawlFailedCount?: number; pendingCrawlCount?: number; pendingScoreCount?: number } = {};
+  try {
+    metadata = run.metadataJson ? JSON.parse(run.metadataJson) : {};
+  } catch {
+    metadata = {};
+  }
+  const crawlFailedCount = metadata.crawlFailedCount ?? crawlSummary.failed;
+  const runErrorSummary = run.errorMessage
+    ? crawlFailedCount > 0
+      ? `${crawlFailedCount} website${crawlFailedCount !== 1 ? "s" : ""} failed to crawl. Review the detailed failure list in Failed Logs.`
+      : run.errorMessage
+    : null;
 
   const STAGE_LABELS: Record<string, string> = {
     searching: "Searching…",
@@ -344,12 +623,16 @@ export function CampaignRunDetail() {
     { label: "Blocked", value: run.totalBlocked ?? 0, icon: <Ban className="w-4 h-4" />, filterKey: "blocked" },
   ];
 
-  const QUAL_TABS = [
+  const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: "all", label: "All" },
     { key: "unreviewed", label: "Unreviewed" },
     { key: "qualified", label: "Qualified" },
     { key: "rejected", label: "Rejected" },
+  ];
+  const LEAD_FILTER_TABS: { key: LeadFilter; label: string }[] = [
     { key: "hasEmail", label: "Has Email" },
+    { key: "hasPhone", label: "Has Phone" },
+    { key: "aboveMinScore", label: `Above ${minRelevanceScore}` },
   ];
 
   return (
@@ -409,7 +692,12 @@ export function CampaignRunDetail() {
             return isClickable ? (
               <button
                 key={s.label}
-                onClick={() => setResultFilter(isActive ? null : s.filterKey!)}
+                onClick={() => {
+                  setResultFilter(isActive ? null : s.filterKey!);
+                  setBlockReasonFilter("all");
+                  setResultSearchQuery("");
+                  setSelectedBlockedResultIds(new Set());
+                }}
                 className={cn(
                   "text-left rounded-2xl border transition-all focus:outline-none",
                   isActive
@@ -440,6 +728,51 @@ export function CampaignRunDetail() {
           })}
         </div>
 
+        {leadRows.length > 0 && (
+          <Card className="glass-card">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Globe className="w-4 h-4 text-muted-foreground" />
+                    Crawl Progress
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {crawlSummary.finished} of {crawlSummary.total} websites finished crawling.
+                  </p>
+                </div>
+                <span className="text-sm font-semibold tabular-nums">{crawlSummary.progress}%</span>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${crawlSummary.progress}%` }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Crawled</p>
+                  <p className="mt-1 text-xl font-semibold">{crawlSummary.crawled}</p>
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Currently Crawling</p>
+                  <p className="mt-1 text-xl font-semibold">{crawlSummary.crawling}</p>
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Pending</p>
+                  <p className="mt-1 text-xl font-semibold">{crawlSummary.pending}</p>
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Failed</p>
+                  <p className="mt-1 text-xl font-semibold">{crawlSummary.failed}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Results panel (blocked / duplicates) */}
         {resultFilter !== null && (
           <Card className="glass-card">
@@ -453,12 +786,44 @@ export function CampaignRunDetail() {
                   {resultFilter === "duplicate" && "Duplicate Results"}
                   {resultFilter === "rejected" && "Rejected Leads"}
                 </CardTitle>
-                <button
-                  onClick={() => setResultFilter(null)}
-                  className="p-1 rounded-lg hover:bg-muted/40 text-muted-foreground transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {resultFilter === "blocked" && selectedBlockedResultIds.size > 0 && (
+                    <Button
+                      size="sm"
+                      className="h-8 rounded-lg gap-1.5 text-xs"
+                      disabled={bulkUnblockingResults}
+                      onClick={handleBulkUnblockResults}
+                    >
+                      {bulkUnblockingResults ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                      )}
+                      Non-block selected ({selectedBlockedResultIds.size})
+                    </Button>
+                  )}
+                  {resultFilter !== "rejected" && filteredRunResultRows.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-lg gap-1.5 text-xs"
+                      onClick={handleExportResults}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export CSV
+                    </Button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setResultFilter(null);
+                      setResultSearchQuery("");
+                      setSelectedBlockedResultIds(new Set());
+                    }}
+                    className="p-1 rounded-lg hover:bg-muted/40 text-muted-foreground transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -490,19 +855,92 @@ export function CampaignRunDetail() {
                     </div>
                   ))}
                 </div>
-              ) : !runResultRows.length ? (
+              ) : !filteredRunResultRows.length ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">No results.</div>
               ) : (
                 <>
+                  {resultFilter === "blocked" && (
+                    <div className="px-5 py-3 border-b border-border/30 bg-muted/10">
+                      <div className="flex flex-col gap-3">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search blocked title, domain, URL, query, or reason..."
+                            value={resultSearchQuery}
+                            onChange={(e) => {
+                              setResultSearchQuery(e.target.value);
+                              setSelectedBlockedResultIds(new Set());
+                            }}
+                            className="pl-9 h-10 rounded-xl bg-background/60"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground mr-1">Reason:</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBlockReasonFilter("all");
+                              setSelectedBlockedResultIds(new Set());
+                            }}
+                            className={cn(
+                              "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                              blockReasonFilter === "all"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted/40 text-muted-foreground hover:bg-muted/60",
+                            )}
+                          >
+                            All ({runResultRows.length})
+                          </button>
+                          {blockedReasonOptions.map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => {
+                                setBlockReasonFilter(option.key);
+                                setSelectedBlockedResultIds(new Set());
+                              }}
+                              className={cn(
+                                "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                                blockReasonFilter === option.key
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60",
+                              )}
+                            >
+                              {option.label} ({option.count})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-3 px-5 py-2.5 bg-muted/20 border-b border-border/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {resultFilter === "blocked" && (
+                      <input
+                        type="checkbox"
+                        checked={allVisibleBlockedSelected}
+                        onChange={toggleAllVisibleBlockedResults}
+                        className="h-4 w-4 rounded border-border"
+                        aria-label="Select all visible blocked results"
+                      />
+                    )}
                     <span className="flex-1">Title / URL</span>
                     <span className="w-36 hidden md:block">Domain</span>
                     <span className="w-48 hidden sm:block">Query</span>
-                    <span className="w-40">Reason</span>
+                    <span className="w-48">Reason</span>
+                    {resultFilter === "blocked" && <span className="w-36 text-right">Action</span>}
                   </div>
                   <div className="divide-y divide-border/30">
-                    {runResultRows.map((r) => (
+                    {filteredRunResultRows.map((r) => (
                       <div key={r.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+                        {resultFilter === "blocked" && (
+                          <input
+                            type="checkbox"
+                            checked={selectedBlockedResultIds.has(r.id)}
+                            onChange={() => toggleBlockedResult(r.id)}
+                            className="h-4 w-4 rounded border-border"
+                            aria-label={`Select ${r.rootDomain ?? r.title ?? "blocked result"}`}
+                          />
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{r.title || r.url || r.rootDomain}</p>
                           {r.url && (
@@ -519,7 +957,34 @@ export function CampaignRunDetail() {
                         </div>
                         <span className="w-36 text-xs text-muted-foreground truncate hidden md:block">{r.rootDomain}</span>
                         <span className="w-48 text-xs text-muted-foreground truncate hidden sm:block">{r.sourceQuery}</span>
-                        <span className="w-40 text-xs text-muted-foreground truncate">{r.reason}</span>
+                        <span className="w-48 text-xs text-muted-foreground">
+                          {resultFilter === "blocked" ? (
+                            <span className="space-y-0.5 block">
+                              <span className="block font-medium text-foreground/80 truncate">{blockReasonCategory(r).label}</span>
+                              <span className="block truncate">{r.reason}</span>
+                            </span>
+                          ) : (
+                            <span className="truncate block">{r.reason}</span>
+                          )}
+                        </span>
+                        {resultFilter === "blocked" && (
+                          <div className="w-36 flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-lg text-xs"
+                              disabled={unblockingResultId === r.id}
+                              onClick={() => handleUnblockResult(r.id)}
+                            >
+                              {unblockingResultId === r.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <ThumbsUp className="w-3.5 h-3.5" />
+                              )}
+                              Non-block
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -545,10 +1010,18 @@ export function CampaignRunDetail() {
                 : "Campaign is running — leads will appear as they are discovered"}
             </div>
           )}
-          {run.errorMessage && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-2 rounded-xl">
-              <AlertCircle className="w-4 h-4" />
-              {run.errorMessage}
+          {runErrorSummary && (
+            <div className="flex items-center gap-3 text-sm text-amber-700 bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-xl">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span className="min-w-0">{runErrorSummary}</span>
+              {crawlFailedCount > 0 && (
+                <Link
+                  href="/failed-logs"
+                  className="ml-auto shrink-0 rounded-lg border border-amber-500/30 px-2.5 py-1 text-xs font-medium hover:bg-amber-500/10"
+                >
+                  View Failed Logs
+                </Link>
+              )}
             </div>
           )}
         </div>
@@ -627,13 +1100,31 @@ export function CampaignRunDetail() {
                 />
               </div>
               <div className="flex gap-1.5 flex-wrap">
-                {QUAL_TABS.map((tab) => (
+                {STATUS_TABS.map((tab) => (
                   <button
                     key={tab.key}
-                    onClick={() => { setQualFilter(tab.key); setSelectedIds(new Set()); }}
+                    onClick={() => {
+                      setStatusFilter(tab.key);
+                      if (tab.key === "all") setLeadFilters(new Set());
+                      setSelectedIds(new Set());
+                    }}
                     className={cn(
                       "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                      qualFilter === tab.key
+                      statusFilter === tab.key
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/40 text-muted-foreground hover:bg-muted/60",
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+                {LEAD_FILTER_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => toggleLeadFilter(tab.key)}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                      leadFilters.has(tab.key)
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted/40 text-muted-foreground hover:bg-muted/60",
                     )}
@@ -707,9 +1198,23 @@ export function CampaignRunDetail() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                          {lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-xs">Pending crawl</span>}
+                          {lead.companyName || (
+                            <span className="italic text-muted-foreground/60 font-normal text-xs">
+                              {lead.crawlStatus === "failed" ? "Company unavailable" : "Pending crawl"}
+                            </span>
+                          )}
                         </p>
                         <div className="flex items-center gap-2 flex-wrap">
+                          {lead.crawlStatus === "failed" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 font-medium">
+                              Crawl failed
+                            </span>
+                          )}
+                          {lead.crawlStatus === "pending" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-medium">
+                              Pending crawl
+                            </span>
+                          )}
                           {lead.sourceCountry && (
                             <p className="text-xs text-muted-foreground truncate">{lead.sourceCountry}</p>
                           )}

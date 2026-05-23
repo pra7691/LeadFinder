@@ -939,6 +939,8 @@ export interface EmailTemplate {
   body: string;
   /** @nullable */
   personalizationPrompt?: string | null;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -952,6 +954,8 @@ export interface EmailTemplateInput {
   /** @minLength 1 */
   body: string;
   personalizationPrompt?: string;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive?: boolean;
 }
 
@@ -961,6 +965,8 @@ export interface EmailTemplatePatch {
   body?: string;
   /** @nullable */
   personalizationPrompt?: string | null;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive?: boolean;
 }
 
@@ -1035,4 +1041,3 @@ campaignId?: number;
 type?: string;
 limit?: number;
 };
-

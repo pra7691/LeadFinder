@@ -9,6 +9,7 @@ import ExcelJS from "exceljs";
 import { db } from "@workspace/db";
 import { leadsTable, logsTable, campaignsTable, campaignRunsTable } from "@workspace/db";
 import { and, eq, gte, inArray, type SQL } from "drizzle-orm";
+import { saveExportFile } from "../services/export-files";
 
 const router = Router();
 
@@ -93,6 +94,52 @@ function csvEscape(v: string): string {
   return v;
 }
 
+function buildLeadsCsv(rows: ExportRow[]) {
+  const lines = [COLUMNS.map((c) => csvEscape(c.header)).join(",")];
+  for (const row of rows) {
+    lines.push(COLUMNS.map((c) => csvEscape(formatValue(row[c.key], c))).join(","));
+  }
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+function buildLeadsWorkbook(rows: ExportRow[]) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "LeadGen";
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet("Leads");
+
+  ws.columns = COLUMNS.map((c) => ({
+    header: c.header,
+    key: c.key,
+    width: c.wide ? 40 : 22,
+  }));
+
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+  headerRow.alignment = { vertical: "middle" };
+  headerRow.height = 20;
+
+  for (const row of rows) {
+    const rowData: Record<string, unknown> = {};
+    for (const col of COLUMNS) {
+      rowData[col.key] = formatValue(row[col.key], col);
+    }
+    ws.addRow(rowData);
+  }
+
+  for (let r = 2; r <= rows.length + 1; r++) {
+    if (r % 2 === 0) {
+      ws.getRow(r).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5FF" } };
+    }
+  }
+
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUMNS.length } };
+
+  return wb;
+}
+
 // ── Route ──────────────────────────────────────────────────────────────────
 
 router.get("/leads/export", async (req, res) => {
@@ -102,6 +149,7 @@ router.get("/leads/export", async (req, res) => {
   const minScore = req.query.minScore ? Number(req.query.minScore) : undefined;
   const country = req.query.country as string | undefined;
   const leadIdsRaw = req.query.leadIds as string | undefined;
+  const saveToFile = req.query.save === "1" || req.query.save === "true";
   const leadIds = leadIdsRaw
     ? leadIdsRaw.split(",").map((s) => Number(s.trim())).filter((n) => !isNaN(n) && n > 0)
     : undefined;
@@ -188,52 +236,27 @@ router.get("/leads/export", async (req, res) => {
 
   // ── CSV ──────────────────────────────────────────────────────────────────
   if (format === "csv") {
+    const csv = buildLeadsCsv(rows);
+    if (saveToFile) {
+      const saved = await saveExportFile(`${filename}.csv`, csv);
+      res.json({ saved: true, ...saved, rows: rows.length });
+      return;
+    }
+
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
-
-    res.write(COLUMNS.map((c) => csvEscape(c.header)).join(",") + "\r\n");
-    for (const row of rows) {
-      const line = COLUMNS.map((c) => csvEscape(formatValue(row[c.key], c))).join(",");
-      res.write(line + "\r\n");
-    }
-    res.end();
+    res.send(csv);
     return;
   }
 
   // ── XLSX ─────────────────────────────────────────────────────────────────
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "LeadGen";
-  wb.created = new Date();
-
-  const ws = wb.addWorksheet("Leads");
-
-  ws.columns = COLUMNS.map((c) => ({
-    header: c.header,
-    key: c.key,
-    width: c.wide ? 40 : 22,
-  }));
-
-  const headerRow = ws.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
-  headerRow.alignment = { vertical: "middle" };
-  headerRow.height = 20;
-
-  for (const row of rows) {
-    const rowData: Record<string, unknown> = {};
-    for (const col of COLUMNS) {
-      rowData[col.key] = formatValue(row[col.key], col);
-    }
-    ws.addRow(rowData);
+  const wb = buildLeadsWorkbook(rows);
+  if (saveToFile) {
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+    const saved = await saveExportFile(`${filename}.xlsx`, buffer);
+    res.json({ saved: true, ...saved, rows: rows.length });
+    return;
   }
-
-  for (let r = 2; r <= rows.length + 1; r++) {
-    if (r % 2 === 0) {
-      ws.getRow(r).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5FF" } };
-    }
-  }
-
-  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUMNS.length } };
 
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}.xlsx"`);

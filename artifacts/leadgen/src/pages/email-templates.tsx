@@ -30,7 +30,20 @@ import {
   ToggleRight,
   Loader2,
   FileText,
+  Paperclip,
 } from "lucide-react";
+
+function getAttachmentCount(template: EmailTemplate) {
+  if (!template.attachmentsJson) return 0;
+  try {
+    const parsed = JSON.parse(template.attachmentsJson);
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => String(item?.filename ?? "").trim() && (String(item?.url ?? "").trim() || String(item?.storageKey ?? "").trim())).length
+      : 0;
+  } catch {
+    return 0;
+  }
+}
 
 function PreviewDialog({ template, open, onClose }: { template: EmailTemplate | null; open: boolean; onClose: () => void }) {
   const previewMut = usePreviewEmailTemplate();
@@ -172,6 +185,12 @@ export function EmailTemplates({ basePath = "/email-templates" }: { basePath?: s
                     {tmpl.personalizationPrompt && (
                       <Badge variant="outline" className="text-xs px-2 py-0 text-violet-500 border-violet-500/30">
                         AI-enhanced
+                      </Badge>
+                    )}
+                    {getAttachmentCount(tmpl) > 0 && (
+                      <Badge variant="outline" className="text-xs px-2 py-0 gap-1">
+                        <Paperclip className="w-3 h-3" />
+                        {getAttachmentCount(tmpl)} attachment{getAttachmentCount(tmpl) === 1 ? "" : "s"}
                       </Badge>
                     )}
                   </div>

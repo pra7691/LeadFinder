@@ -14,5 +14,7 @@ export interface EmailTemplateInput {
   /** @minLength 1 */
   body: string;
   personalizationPrompt?: string;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive?: boolean;
 }

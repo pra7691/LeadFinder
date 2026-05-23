@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import {
   outreachQueueTable,
   emailAccountsTable,
+  emailTemplatesTable,
   campaignsTable,
   leadsTable,
   logsTable,
@@ -16,6 +17,8 @@ import {
   SendTestEmailBody,
 } from "@workspace/api-zod";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
+import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
+import { toNodemailerAttachments } from "../services/email-template-attachments";
 
 const router = Router();
 
@@ -145,6 +148,18 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
   };
 }
 
+async function getTemplateAttachments(templateId: number | null) {
+  if (!templateId) return [];
+
+  await ensureEmailTemplateAttachmentColumn();
+  const [template] = await db
+    .select({ attachmentsJson: emailTemplatesTable.attachmentsJson })
+    .from(emailTemplatesTable)
+    .where(eq(emailTemplatesTable.id, templateId));
+
+  return toNodemailerAttachments(template?.attachmentsJson);
+}
+
 /**
  * Core send function. Returns true on success, false on failure.
  * Updates item status in DB and logs the result.
@@ -157,6 +172,7 @@ async function doSend(
   const fullBody = appendUnsubscribeFooter(item.body, campaign?.unsubscribeFooter);
 
   try {
+    const attachments = await getTemplateAttachments(item.emailTemplateId);
     const transporter = await getTransporter(account);
     await transporter.sendMail({
       from: fromHeader(account),
@@ -164,6 +180,7 @@ async function doSend(
       subject: item.subject,
       text: toTextEmail(fullBody),
       html: toHtmlEmail(fullBody),
+      attachments: attachments.length ? attachments : undefined,
     });
 
     const now = new Date();

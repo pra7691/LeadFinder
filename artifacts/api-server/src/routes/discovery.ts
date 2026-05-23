@@ -15,6 +15,7 @@ import { eq, and, sql, desc } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { getSerperApiKey } from "../services/serper-key";
 import { classifyLeadType } from "../services/lead-classifier";
+import { domainMatchesBlockedList, normalizeDomainToken, parseBlockedDomains } from "../services/domain-blocklist";
 
 const router = Router();
 
@@ -61,18 +62,23 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
     .from(campaignCountriesTable)
     .where(eq(campaignCountriesTable.campaignId, campaignId));
 
+  if (keywords.length === 0) {
+    res.status(400).json({ error: "At least one keyword is required" });
+    return;
+  }
+
+  const countryTargets = countries.length > 0 ? countries : [{ country: "" }];
+  const searchScopeLabel = countries.length > 0
+    ? `${keywords.length} keywords × ${countries.length} countries`
+    : `${keywords.length} keyword${keywords.length !== 1 ? "s" : ""} without country targeting`;
+
   // Load blocked domains
   const [blockedSetting] = await db
     .select()
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "blocked_domains"));
 
-  const blockedDomains = new Set(
-    (blockedSetting?.value ?? "")
-      .split(/[\n,]/)
-      .map((d) => d.trim().toLowerCase().replace(/^www\./, ""))
-      .filter(Boolean),
-  );
+  const blockedDomains = parseBlockedDomains(blockedSetting?.value);
 
   // Load existing campaign domains for dedup
   const existingLeads = await db
@@ -80,7 +86,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
     .from(leadsTable)
     .where(eq(leadsTable.campaignId, campaignId));
 
-  const existingDomains = new Set(existingLeads.map((l) => l.rootDomain));
+  const existingDomains = new Set(existingLeads.map((l) => normalizeDomainToken(l.rootDomain)).filter(Boolean));
 
   // ── Create a campaign_run record ──────────────────────────────
   const [campaignRun] = await db
@@ -99,12 +105,12 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
   await db.insert(logsTable).values({
     campaignId,
     type: "discovery",
-    message: `Discovery run started for campaign "${campaign.name}" (${keywords.length} keywords × ${countries.length} countries)`,
+    message: `Discovery run started for campaign "${campaign.name}" (${searchScopeLabel})`,
     metadataJson: JSON.stringify({ keywords: keywords.length, countries: countries.length, runId: campaignRun.id }),
   });
 
   // ── Work unit tracking setup ──────────────────────────────────────────────
-  const totalWorkUnits = Math.min(keywords.length * countries.length, campaign.maxSearchesPerDay);
+  const totalWorkUnits = Math.min(keywords.length * countryTargets.length, campaign.maxSearchesPerDay);
   const discoveryStartedAt = Date.now();
 
   try {
@@ -146,12 +152,12 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
   const now = new Date();
   const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
 
-  // Build query pairs: keyword × country
+  // Build query pairs. If no countries are configured, search by keyword only.
   outer: for (const kw of keywords) {
-    for (const co of countries) {
+    for (const co of countryTargets) {
       if (searchCount >= maxSearches) break outer;
 
-      const query = `${kw.keyword} ${co.country}`;
+      const query = [kw.keyword, co.country].filter(Boolean).join(" ");
       summary.queries.push(query);
 
       // ── Query history skip check ──────────────────────────────────────────
@@ -284,9 +290,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
         if (!rootDomain) continue;
 
         const isDuplicate = existingDomains.has(rootDomain);
-        const isBlocked = [...blockedDomains].some(
-          (b) => rootDomain === b || rootDomain.endsWith(`.${b}`)
-        );
+        const isBlocked = domainMatchesBlockedList(rootDomain, blockedDomains);
         const resultType = isBlocked ? "blocked" : isDuplicate ? "duplicate" : "direct";
 
         // ── Track result URL in history ───────────────────────────────────

@@ -30,6 +30,7 @@ import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
+import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
 
 // ── Cancellation registry ─────────────────────────────────────────────────
 
@@ -71,6 +72,10 @@ export interface PipelineResult {
   discoveryBlockedSkipped: number;
   crawledCount: number;
   scoredCount: number;
+  pendingCrawlCount: number;
+  crawlFailedCount: number;
+  pendingScoreCount: number;
+  autoBlockedLowScoreCount: number;
   emailsSent: number;
   skipped: number;
   failed: number;
@@ -152,6 +157,7 @@ const LISTICLE_URL_PATTERNS = [
 ];
 
 type ResultClass = "direct" | "discovery_source" | "blocked";
+type ResultClassification = { cls: ResultClass; reason?: string };
 
 /**
  * Classifies a search result into:
@@ -165,38 +171,61 @@ function classifySearchResult(
   title: string,
   blockedDomains: Set<string>,
 ): ResultClass {
+  return classifySearchResultDetailed(rootDomain, url, title, blockedDomains).cls;
+}
+
+function classifySearchResultDetailed(
+  rootDomain: string,
+  url: string,
+  title: string,
+  blockedDomains: Set<string>,
+): ResultClassification {
   const domainLower = rootDomain.toLowerCase();
   const titleLower = title.toLowerCase();
 
   // User-configured blocked domains
-  for (const blocked of blockedDomains) {
-    if (domainLower === blocked || domainLower.endsWith(`.${blocked}`)) return "blocked";
+  if (domainMatchesBlockedList(domainLower, blockedDomains)) {
+    return { cls: "blocked", reason: "Domain blocked in Settings" };
   }
 
   // Hard-coded junk/social/news domains
-  if (JUNK_DOMAINS.has(domainLower)) return "blocked";
+  if (JUNK_DOMAINS.has(domainLower)) {
+    return { cls: "blocked", reason: "Known platform/news/social domain" };
+  }
   for (const junk of JUNK_DOMAINS) {
-    if (domainLower.endsWith(`.${junk}`)) return "blocked";
+    if (domainLower.endsWith(`.${junk}`)) {
+      return { cls: "blocked", reason: "Known platform/news/social domain" };
+    }
   }
 
   // Government / education TLDs
-  if (JUNK_TLD_PATTERN.test(domainLower)) return "blocked";
+  if (JUNK_TLD_PATTERN.test(domainLower)) {
+    return { cls: "blocked", reason: "Government or education domain" };
+  }
 
   // Known directory/listing domains → treat as discovery sources to mine
-  if (DIRECTORY_DOMAINS.has(domainLower)) return "discovery_source";
+  if (DIRECTORY_DOMAINS.has(domainLower)) {
+    return { cls: "discovery_source", reason: "Directory/listing discovery source" };
+  }
   for (const dir of DIRECTORY_DOMAINS) {
-    if (domainLower.endsWith(`.${dir}`)) return "discovery_source";
+    if (domainLower.endsWith(`.${dir}`)) {
+      return { cls: "discovery_source", reason: "Directory/listing discovery source" };
+    }
   }
 
   // URL path patterns that flag junk content (blog, docs, dataset…)
   try {
     const { pathname } = new URL(url);
     for (const pat of JUNK_PATH_PATTERNS) {
-      if (pat.test(pathname)) return "blocked";
+      if (pat.test(pathname)) {
+        return { cls: "blocked", reason: "Blog/article/docs/dataset page" };
+      }
     }
     // URL patterns that indicate a listicle article (on any domain) → mine it
     for (const pat of LISTICLE_URL_PATTERNS) {
-      if (pat.test(pathname)) return "discovery_source";
+      if (pat.test(pathname)) {
+        return { cls: "discovery_source", reason: "Listicle/ranking discovery source" };
+      }
     }
   } catch {
     // invalid URL
@@ -204,15 +233,19 @@ function classifySearchResult(
 
   // Title words that strongly indicate a listicle → mine it
   for (const word of LISTICLE_TITLE_WORDS) {
-    if (titleLower.includes(word)) return "discovery_source";
+    if (titleLower.includes(word)) {
+      return { cls: "discovery_source", reason: "Listicle/ranking discovery source" };
+    }
   }
 
   // Title words that indicate pure junk → block
   for (const word of JUNK_TITLE_WORDS) {
-    if (titleLower.includes(word)) return "blocked";
+    if (titleLower.includes(word)) {
+      return { cls: "blocked", reason: "Junk title/content signal" };
+    }
   }
 
-  return "direct";
+  return { cls: "direct" };
 }
 
 /** Format a root domain into a readable placeholder company name. */
@@ -456,8 +489,8 @@ async function runDiscovery(
     .from(campaignCountriesTable)
     .where(eq(campaignCountriesTable.campaignId, campaign.id));
 
-  if (keywords.length === 0 || countries.length === 0) {
-    await schedulerLog(campaign.id, "Discovery skipped: no keywords or countries configured");
+  if (keywords.length === 0) {
+    await schedulerLog(campaign.id, "Discovery skipped: no keywords configured");
     return stats;
   }
 
@@ -466,19 +499,15 @@ async function runDiscovery(
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "blocked_domains"));
 
-  const blockedDomains = new Set(
-    (blockedSetting?.value ?? "")
-      .split(/[\n,]/)
-      .map((d) => d.trim().toLowerCase().replace(/^www\./, ""))
-      .filter(Boolean),
-  );
+  const blockedDomains = parseBlockedDomains(blockedSetting?.value);
 
   const existingLeads = await db
     .select({ rootDomain: leadsTable.rootDomain })
     .from(leadsTable)
     .where(eq(leadsTable.campaignId, campaign.id));
 
-  const existingDomains = new Set(existingLeads.map((l) => l.rootDomain));
+  const existingDomains = new Set(existingLeads.map((l) => normalizeDomainToken(l.rootDomain)).filter(Boolean));
+  const blockedResultDomains = new Set<string>();
 
   let searchCount = 0;
   const maxSearches = campaign.maxSearchesPerDay;
@@ -486,10 +515,15 @@ async function runDiscovery(
   const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
   const sourceRefreshMs = (campaign.discoverySourceRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
 
-  await schedulerLog(campaign.id, `Discovery started: ${keywords.length} keywords × ${countries.length} countries`);
+  const countryTargets = countries.length > 0 ? countries : [{ country: "" }];
+  const searchScopeLabel = countries.length > 0
+    ? `${keywords.length} keywords × ${countries.length} countries`
+    : `${keywords.length} keyword${keywords.length !== 1 ? "s" : ""} without country targeting`;
+
+  await schedulerLog(campaign.id, `Discovery started: ${searchScopeLabel}`);
 
   // ── Work unit tracking setup ──────────────────────────────────────────────
-  const totalWorkUnits = Math.min(keywords.length * countries.length, maxSearches);
+  const totalWorkUnits = Math.min(keywords.length * countryTargets.length, maxSearches);
   const discoveryStartedAt = Date.now();
 
   // Historical avg seconds-per-unit for better time estimation
@@ -517,10 +551,10 @@ async function runDiscovery(
   }
 
   outer: for (const kw of keywords) {
-    for (const co of countries) {
+    for (const co of countryTargets) {
       if (searchCount >= maxSearches) break outer;
 
-      const query = `${kw.keyword} ${co.country}`;
+      const query = [kw.keyword, co.country].filter(Boolean).join(" ");
 
       // ── Query history skip check ──────────────────────────────────────────
       const [qhRecord] = await db
@@ -643,9 +677,10 @@ async function runDiscovery(
         const rootDomain = extractRootDomain(result.link);
         if (!rootDomain) continue;
 
-        const classification = classifySearchResult(
+        const classificationResult = classifySearchResultDetailed(
           rootDomain, result.link, result.title, blockedDomains,
         );
+        const classification = classificationResult.cls;
 
         // ── Track result URL in history ───────────────────────────────────
         const resultType =
@@ -685,6 +720,19 @@ async function runDiscovery(
         } catch { /* non-fatal */ }
 
         if (classification === "blocked") {
+          if (blockedResultDomains.has(rootDomain)) {
+            recordResult(campaignRunId, campaign.id, "duplicate", {
+              title: result.title,
+              url: result.link,
+              rootDomain,
+              sourceQuery: query,
+              reason: "Duplicate blocked domain already shown in blocked results",
+            });
+            qDups++;
+            stats.duplicatesSkipped++;
+            continue;
+          }
+          blockedResultDomains.add(rootDomain);
           await schedulerLog(
             campaign.id,
             `Filtered (blocked): ${rootDomain}`,
@@ -695,7 +743,7 @@ async function runDiscovery(
             url: result.link,
             rootDomain,
             sourceQuery: query,
-            reason: "Blocked domain or junk content",
+            reason: classificationResult.reason ?? "Blocked domain or junk content",
           });
           qBlocked++;
           stats.blockedSkipped++;
@@ -898,53 +946,84 @@ async function runDiscovery(
 async function runCrawl(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
+  campaignRunId?: number,
 ): Promise<number> {
-  const uncrawled = await db
-    .select()
-    .from(leadsTable)
-    .where(
-      and(
-        eq(leadsTable.campaignId, campaign.id),
-        eq(leadsTable.crawlStatus, "pending"),
-      ),
-    )
-    .limit(campaign.maxLeadsPerDay);
-
-  if (uncrawled.length === 0) return 0;
-
-  await schedulerLog(campaign.id, `Crawl started: ${uncrawled.length} leads to crawl`);
   let crawledCount = 0;
+  const batchSize = Math.max(1, campaign.maxLeadsPerDay ?? 50);
 
-  for (const lead of uncrawled) {
-    try {
-      const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
-      const ok = data.pagesSucceeded > 0;
-      const updates: Record<string, unknown> = {
-        crawlStatus: ok ? "crawled" : "failed",
-        crawlError: ok ? null : "No pages returned content",
-        rawText: data.rawText || null,
-      };
-      if (ok) {
-        if (data.companyName) updates.companyName = data.companyName;
-        if (data.emails) updates.emails = data.emails;
-        if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
-        if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
-        if (data.address) updates.address = data.address;
-        if (data.country) updates.country = data.country;
-        if (data.linkedinUrl) updates.linkedinUrl = data.linkedinUrl;
-      }
-      await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
-      if (ok) crawledCount++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Crawl failed ${lead.rootDomain}: ${msg}`);
-      await db.update(leadsTable)
-        .set({ crawlStatus: "failed", crawlError: msg.slice(0, 500) })
-        .where(eq(leadsTable.id, lead.id));
+  while (true) {
+    const conditions = [
+      eq(leadsTable.campaignId, campaign.id),
+      or(eq(leadsTable.crawlStatus, "pending"), eq(leadsTable.crawlStatus, "crawling")),
+    ];
+    if (campaignRunId != null) {
+      conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
     }
+
+    const uncrawled = await db
+      .select()
+      .from(leadsTable)
+      .where(and(...conditions))
+      .limit(batchSize);
+
+    if (uncrawled.length === 0) break;
+
+    await schedulerLog(campaign.id, `Crawl started: ${uncrawled.length} leads to crawl`);
+
+    for (const lead of uncrawled) {
+      try {
+        await db.update(leadsTable)
+          .set({ crawlStatus: "crawling", crawlError: null })
+          .where(eq(leadsTable.id, lead.id));
+
+        const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
+        const ok = data.pagesSucceeded > 0;
+        const updates: Record<string, unknown> = {
+          crawlStatus: ok ? "crawled" : "failed",
+          crawlError: ok ? null : "No pages returned content",
+          rawText: data.rawText || null,
+        };
+        if (ok) {
+          if (data.companyName) updates.companyName = data.companyName;
+          if (data.emails) updates.emails = data.emails;
+          if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
+          if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
+          if (data.address) updates.address = data.address;
+          if (data.country) updates.country = data.country;
+          if (data.linkedinUrl) updates.linkedinUrl = data.linkedinUrl;
+        }
+        await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
+        if (ok) crawledCount++;
+        else {
+          const message = `Crawl failed ${lead.rootDomain}: No pages returned content`;
+          errors.push(message);
+          await schedulerLog(campaign.id, message, {
+            campaignRunId,
+            leadId: lead.id,
+            rootDomain: lead.rootDomain,
+            websiteUrl: lead.websiteUrl,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const message = `Crawl failed ${lead.rootDomain}: ${msg}`;
+        errors.push(message);
+        await db.update(leadsTable)
+          .set({ crawlStatus: "failed", crawlError: msg.slice(0, 500) })
+          .where(eq(leadsTable.id, lead.id));
+        await schedulerLog(campaign.id, message, {
+          campaignRunId,
+          leadId: lead.id,
+          rootDomain: lead.rootDomain,
+          websiteUrl: lead.websiteUrl,
+        });
+      }
+    }
+
+    if (campaignRunId == null) break;
   }
 
-  await schedulerLog(campaign.id, `Crawl complete: ${crawledCount}/${uncrawled.length} succeeded`);
+  await schedulerLog(campaign.id, `Crawl complete: ${crawledCount} succeeded`);
   return crawledCount;
 }
 
@@ -953,70 +1032,79 @@ async function runCrawl(
 async function runScore(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
+  campaignRunId?: number,
 ): Promise<{ scoredCount: number; failedCount: number }> {
-  const unscored = await db
-    .select()
-    .from(leadsTable)
-    .where(
-      and(
-        eq(leadsTable.campaignId, campaign.id),
-        eq(leadsTable.crawlStatus, "crawled"),
-        or(
-          isNull(leadsTable.scoringMethod),
-          like(leadsTable.scoringMethod, "failed%"),
-        ),
-      ),
-    )
-    .limit(50);
-
-  if (unscored.length === 0) return { scoredCount: 0, failedCount: 0 };
-
   const keywords = await db
     .select({ keyword: campaignKeywordsTable.keyword })
     .from(campaignKeywordsTable)
     .where(eq(campaignKeywordsTable.campaignId, campaign.id));
 
   const keywordList = keywords.map((k) => k.keyword);
-  await schedulerLog(campaign.id, `Scoring started: ${unscored.length} leads`);
   let scoredCount = 0;
   let failedCount = 0;
 
-  for (const lead of unscored) {
-    try {
-      const result = await scoreLead({
-        campaignObjective: campaign.objective,
-        campaignKeywords: keywordList,
-        companyName: lead.companyName,
-        rootDomain: lead.rootDomain,
-        rawText: lead.rawText ?? null,
-        sourceQuery: lead.sourceQuery ?? null,
-      });
-
-      const failed = result.score == null;
-      const reviewStatus =
-        !failed && result.score !== null && result.score < campaign.minRelevanceScore
-          ? "low_relevance"
-          : lead.reviewStatus;
-
-      await db.update(leadsTable)
-        .set({
-          relevanceScore: result.score,
-          relevanceReason: result.reason,
-          scoringMethod: result.scoringMethod,
-          reviewStatus,
-        })
-        .where(eq(leadsTable.id, lead.id));
-
-      if (failed) {
-        errors.push(`Score failed ${lead.rootDomain}: ${result.reason}`);
-        failedCount++;
-      } else {
-        scoredCount++;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Score failed ${lead.rootDomain}: ${msg}`);
+  while (true) {
+    const conditions = [
+      eq(leadsTable.campaignId, campaign.id),
+      eq(leadsTable.crawlStatus, "crawled"),
+      or(
+        isNull(leadsTable.scoringMethod),
+        like(leadsTable.scoringMethod, "failed%"),
+      ),
+    ];
+    if (campaignRunId != null) {
+      conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
     }
+
+    const unscored = await db
+      .select()
+      .from(leadsTable)
+      .where(and(...conditions))
+      .limit(50);
+
+    if (unscored.length === 0) break;
+
+    await schedulerLog(campaign.id, `Scoring started: ${unscored.length} leads`);
+
+    for (const lead of unscored) {
+      try {
+        const result = await scoreLead({
+          campaignObjective: campaign.objective,
+          campaignKeywords: keywordList,
+          companyName: lead.companyName,
+          rootDomain: lead.rootDomain,
+          rawText: lead.rawText ?? null,
+          sourceQuery: lead.sourceQuery ?? null,
+        });
+
+        const failed = result.score == null;
+        const reviewStatus =
+          !failed && result.score !== null && result.score < campaign.minRelevanceScore
+            ? "low_relevance"
+            : lead.reviewStatus;
+
+        await db.update(leadsTable)
+          .set({
+            relevanceScore: result.score,
+            relevanceReason: result.reason,
+            scoringMethod: result.scoringMethod,
+            reviewStatus,
+          })
+          .where(eq(leadsTable.id, lead.id));
+
+        if (failed) {
+          errors.push(`Score failed ${lead.rootDomain}: ${result.reason}`);
+          failedCount++;
+        } else {
+          scoredCount++;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Score failed ${lead.rootDomain}: ${msg}`);
+      }
+    }
+
+    if (campaignRunId == null) break;
   }
 
   await schedulerLog(campaign.id, `Scoring complete: ${scoredCount} leads scored`);
@@ -1190,6 +1278,101 @@ async function runEmail(
   return emailsSent;
 }
 
+async function getProcessingState(
+  campaignId: number,
+  campaignRunId?: number,
+): Promise<{ pendingCrawlCount: number; crawlFailedCount: number; pendingScoreCount: number }> {
+  const conditions = [eq(leadsTable.campaignId, campaignId)];
+  if (campaignRunId != null) {
+    conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
+  }
+
+  const leads = await db
+    .select({
+      crawlStatus: leadsTable.crawlStatus,
+      scoringMethod: leadsTable.scoringMethod,
+    })
+    .from(leadsTable)
+    .where(and(...conditions));
+
+  return {
+    pendingCrawlCount: leads.filter((lead) => lead.crawlStatus === "pending" || lead.crawlStatus === "crawling").length,
+    crawlFailedCount: leads.filter((lead) => lead.crawlStatus === "failed").length,
+    pendingScoreCount: leads.filter((lead) => lead.crawlStatus === "crawled" && !lead.scoringMethod).length,
+  };
+}
+
+async function autoBlockLowRelevanceDomains(
+  campaign: typeof campaignsTable.$inferSelect,
+  campaignRunId?: number,
+): Promise<number> {
+  const conditions = [
+    eq(leadsTable.campaignId, campaign.id),
+  ];
+  if (campaignRunId != null) {
+    conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
+  }
+
+  const leads = await db
+    .select({
+      rootDomain: leadsTable.rootDomain,
+      relevanceScore: leadsTable.relevanceScore,
+      scoringMethod: leadsTable.scoringMethod,
+    })
+    .from(leadsTable)
+    .where(and(...conditions));
+
+  const lowScoreDomains = leads
+    .filter((lead) =>
+      typeof lead.relevanceScore === "number" &&
+      lead.relevanceScore < campaign.minRelevanceScore &&
+      !!lead.scoringMethod &&
+      !lead.scoringMethod.startsWith("failed"),
+    )
+    .map((lead) => normalizeDomainToken(lead.rootDomain))
+    .filter(Boolean);
+
+  if (lowScoreDomains.length === 0) return 0;
+
+  const [blockedSetting] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+
+  const existing = Array.from(parseBlockedDomains(blockedSetting?.value));
+
+  const blockedDomains = new Set(existing);
+  const addedDomains: string[] = [];
+  for (const domain of lowScoreDomains) {
+    if (!blockedDomains.has(domain)) {
+      blockedDomains.add(domain);
+      addedDomains.push(domain);
+    }
+  }
+
+  if (addedDomains.length === 0) return 0;
+
+  const nextValue = Array.from(blockedDomains).join("\n");
+  await db
+    .insert(appSettingsTable)
+    .values({ key: "blocked_domains", value: nextValue })
+    .onConflictDoUpdate({
+      target: appSettingsTable.key,
+      set: { value: nextValue, updatedAt: new Date() },
+    });
+
+  await schedulerLog(
+    campaign.id,
+    `Auto-blocked ${addedDomains.length} low-relevance domain${addedDomains.length !== 1 ? "s" : ""}`,
+    {
+      minRelevanceScore: campaign.minRelevanceScore,
+      domains: addedDomains,
+    },
+  );
+
+  return addedDomains.length;
+}
+
 // ── Main pipeline ───────────────────────────────────────────────────────────
 
 export async function runPipeline(
@@ -1214,6 +1397,10 @@ export async function runPipeline(
     discoveryBlockedSkipped: 0,
     crawledCount: 0,
     scoredCount: 0,
+    pendingCrawlCount: 0,
+    crawlFailedCount: 0,
+    pendingScoreCount: 0,
+    autoBlockedLowScoreCount: 0,
     emailsSent: 0,
     skipped: 0,
     failed: 0,
@@ -1279,7 +1466,7 @@ export async function runPipeline(
 
   await setStage(campaignRunId, "crawling");
   try {
-    result.crawledCount = await runCrawl(campaign, errors);
+    result.crawledCount = await runCrawl(campaign, errors, campaignRunId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Crawl failed: ${msg}`);
@@ -1289,7 +1476,7 @@ export async function runPipeline(
 
   await setStage(campaignRunId, "scoring");
   try {
-    const scoreStats = await runScore(campaign, errors);
+    const scoreStats = await runScore(campaign, errors, campaignRunId);
     result.scoredCount = scoreStats.scoredCount;
     result.failed += scoreStats.failedCount;
   } catch (err) {
@@ -1309,6 +1496,25 @@ export async function runPipeline(
   }
 
   result.durationMs = Date.now() - startedAt;
+  const processingState = await getProcessingState(campaignId, campaignRunId);
+  result.pendingCrawlCount = processingState.pendingCrawlCount;
+  result.crawlFailedCount = processingState.crawlFailedCount;
+  result.pendingScoreCount = processingState.pendingScoreCount;
+  if (processingState.pendingCrawlCount > 0) {
+    errors.push(`${processingState.pendingCrawlCount} lead(s) still pending crawl`);
+    result.failed += processingState.pendingCrawlCount;
+  }
+  if (processingState.crawlFailedCount > 0) {
+    errors.push(`${processingState.crawlFailedCount} lead(s) failed crawl and could not be scored`);
+    result.failed += processingState.crawlFailedCount;
+  }
+  if (processingState.pendingScoreCount > 0) {
+    errors.push(`${processingState.pendingScoreCount} crawled lead(s) still pending scoring`);
+    result.failed += processingState.pendingScoreCount;
+  }
+  if (result.scoredCount > 0 && processingState.pendingCrawlCount === 0 && processingState.pendingScoreCount === 0) {
+    result.autoBlockedLowScoreCount = await autoBlockLowRelevanceDomains(campaign, campaignRunId);
+  }
 
   await schedulerLog(
     campaignId,

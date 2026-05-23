@@ -628,7 +628,7 @@ export function CampaignDetail() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Countries (comma separated codes)</Label>
+              <Label className="text-xs font-medium text-muted-foreground">Countries (optional, comma separated codes)</Label>
               <Input
                 value={formData.countries}
                 onChange={(e) => setFormData({ ...formData, countries: e.target.value })}
@@ -684,7 +684,7 @@ export function CampaignDetail() {
                   className="rounded-xl bg-background/50"
                 />
                 <p className="text-[11px] text-muted-foreground/70">
-                  Serper results per keyword-country query. Maximum is 50.
+                  Serper results per search query. If countries are empty, each keyword is searched on its own. Maximum is 50.
                 </p>
               </div>
               <div className="space-y-1.5">

@@ -2896,6 +2896,8 @@ components:
           type: string
         personalizationPrompt:
           type: ["string", "null"]
+        attachmentsJson:
+          type: ["string", "null"]
         isActive:
           type: boolean
         createdAt:
@@ -2918,6 +2920,8 @@ components:
           minLength: 1
         personalizationPrompt:
           type: string
+        attachmentsJson:
+          type: ["string", "null"]
         isActive:
           type: boolean
           default: true
@@ -2932,6 +2936,8 @@ components:
         body:
           type: string
         personalizationPrompt:
+          type: ["string", "null"]
+        attachmentsJson:
           type: ["string", "null"]
         isActive:
           type: boolean

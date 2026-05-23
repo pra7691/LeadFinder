@@ -536,6 +536,7 @@ export const ListEmailTemplatesResponseItem = zod.object({
   "subject": zod.string(),
   "body": zod.string(),
   "personalizationPrompt": zod.string().nullish(),
+  "attachmentsJson": zod.string().nullish(),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -556,6 +557,7 @@ export const CreateEmailTemplateBody = zod.object({
   "subject": zod.string().min(1),
   "body": zod.string().min(1),
   "personalizationPrompt": zod.string().optional(),
+  "attachmentsJson": zod.string().nullish(),
   "isActive": zod.boolean().default(createEmailTemplateBodyIsActiveDefault)
 })
 
@@ -573,6 +575,7 @@ export const GetEmailTemplateResponse = zod.object({
   "subject": zod.string(),
   "body": zod.string(),
   "personalizationPrompt": zod.string().nullish(),
+  "attachmentsJson": zod.string().nullish(),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -591,6 +594,7 @@ export const UpdateEmailTemplateBody = zod.object({
   "subject": zod.string().optional(),
   "body": zod.string().optional(),
   "personalizationPrompt": zod.string().nullish(),
+  "attachmentsJson": zod.string().nullish(),
   "isActive": zod.boolean().optional()
 })
 
@@ -600,6 +604,7 @@ export const UpdateEmailTemplateResponse = zod.object({
   "subject": zod.string(),
   "body": zod.string(),
   "personalizationPrompt": zod.string().nullish(),
+  "attachmentsJson": zod.string().nullish(),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -2004,5 +2009,4 @@ export const UpsertSettingResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
-
 

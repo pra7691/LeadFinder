@@ -13,6 +13,8 @@ export interface EmailTemplate {
   body: string;
   /** @nullable */
   personalizationPrompt?: string | null;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

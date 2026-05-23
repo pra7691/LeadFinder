@@ -148,6 +148,10 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
             metadataJson: JSON.stringify({
               crawledCount: result.crawledCount,
               scoredCount: result.scoredCount,
+              pendingCrawlCount: result.pendingCrawlCount,
+              crawlFailedCount: result.crawlFailedCount,
+              pendingScoreCount: result.pendingScoreCount,
+              autoBlockedLowScoreCount: result.autoBlockedLowScoreCount,
               emailsSent: result.emailsSent,
               durationMs: result.durationMs,
             }),

@@ -8,19 +8,16 @@ import {
   getGetSchedulerStatusQueryKey,
 } from "@workspace/api-client-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Card, CardContent } from "@/components/ui/card";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
-  Activity,
   Pause,
   Search,
   Briefcase,
   Calendar,
   Clock,
   RefreshCw,
-  Loader2,
   Trash2,
 } from "lucide-react";
 import {
@@ -32,6 +29,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -66,6 +71,7 @@ type Campaign = {
 };
 
 export function Campaigns() {
+  const [, setLocation] = useLocation();
   const { data: campaigns, isLoading } = useListCampaigns({
     query: {
       queryKey: getListCampaignsQueryKey(),
@@ -110,11 +116,13 @@ export function Campaigns() {
 
   const handlePause = (e: React.MouseEvent, id: number) => {
     e.preventDefault();
+    e.stopPropagation();
     pauseCampaign.mutate({ id }, { onSuccess: invalidate });
   };
 
   const handleResume = (e: React.MouseEvent, id: number) => {
     e.preventDefault();
+    e.stopPropagation();
     resumeCampaign.mutate({ id }, { onSuccess: invalidate });
   };
 
@@ -141,6 +149,12 @@ export function Campaigns() {
   const filteredCampaigns = campaignRows.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()),
   );
+  const campaignStats = [
+    { label: "Total", value: campaignRows.length },
+    { label: "Active", value: campaignRows.filter((c) => c.isActive && !c.isPaused).length },
+    { label: "Running", value: campaignRows.filter((c) => c.lastRunStatus === "running").length },
+    { label: "Paused", value: campaignRows.filter((c) => c.isPaused).length },
+  ];
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -202,7 +216,7 @@ export function Campaigns() {
                     data-testid="input-campaign-results-per-search"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Maximum is 50 results per keyword-country search.
+                    Maximum is 50 results per search query.
                   </p>
                 </div>
                 <Button
@@ -219,182 +233,203 @@ export function Campaigns() {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {campaignStats.map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-border/50 bg-card/50 p-4">
+            <p className="text-xs text-muted-foreground">{stat.label}</p>
+            <p className="text-2xl font-semibold mt-1">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="glass-card">
-              <CardContent className="p-6 space-y-4">
-                <div className="flex justify-between items-start">
-                  <div className="h-6 w-40 bg-muted/50 rounded-lg animate-pulse" />
-                  <div className="h-6 w-16 bg-muted/50 rounded-full animate-pulse" />
-                </div>
-                <div className="space-y-2">
-                  <div className="h-4 w-full bg-muted/50 rounded animate-pulse" />
-                  <div className="h-4 w-3/4 bg-muted/50 rounded animate-pulse" />
-                </div>
-                <div className="h-4 w-28 bg-muted/50 rounded animate-pulse" />
-              </CardContent>
-            </Card>
-          ))}
+        <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Campaign</TableHead>
+                <TableHead>Objective</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Schedule</TableHead>
+                <TableHead>Keywords</TableHead>
+                <TableHead>Last Run</TableHead>
+                <TableHead>Next Run</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: 8 }).map((__, j) => (
+                    <TableCell key={j}>
+                      <div className="h-4 rounded bg-muted/60 animate-pulse" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : filteredCampaigns.length ? (
+        <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[220px]">Campaign</TableHead>
+                <TableHead className="min-w-[240px]">Objective</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Schedule</TableHead>
+                <TableHead className="min-w-[180px]">Keywords</TableHead>
+                <TableHead>Last Run</TableHead>
+                <TableHead>Next Run</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCampaigns.map((campaign) => {
+                const scheduleType = campaign.scheduleType || "manual";
+                const lastRunStatus = campaign.lastRunStatus || "idle";
+                const isPaused = Boolean(campaign.isPaused);
+                const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
+                const lastRunAt = campaign.lastRunAt ? new Date(campaign.lastRunAt) : null;
+                const { dot, label: dotLabel } = getStatusDot(lastRunStatus, campaign.isActive);
+                const keywords = campaign.keywords || [];
+
+                return (
+                  <TableRow
+                    key={campaign.id}
+                    className="align-top cursor-pointer hover:bg-muted/30"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setLocation(`/campaigns/${campaign.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setLocation(`/campaigns/${campaign.id}`);
+                      }
+                    }}
+                  >
+                    <TableCell>
+                      <span className="font-medium text-foreground" data-testid={`link-campaign-${campaign.id}`}>
+                        {campaign.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="max-w-[320px] text-sm text-muted-foreground">
+                      <span className="line-clamp-2">{campaign.objective}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium">
+                        <span className={cn("h-2 w-2 rounded-full", dot)} />
+                        {lastRunStatus === "running" ? "Running" : isPaused ? "Paused" : dotLabel}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>{SCHEDULE_LABELS[scheduleType] ?? scheduleType}</span>
+                      </div>
+                      {scheduleType !== "manual" && campaign.scheduleTime && (
+                        <p className="mt-1 text-xs text-muted-foreground">@ {campaign.scheduleTime}</p>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex max-w-[220px] flex-wrap gap-1.5">
+                        {keywords.slice(0, 3).map((kw, i) => (
+                          <span key={i} className="rounded-md bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                            {kw}
+                          </span>
+                        ))}
+                        {keywords.length > 3 && (
+                          <span className="rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground">
+                            +{keywords.length - 3}
+                          </span>
+                        )}
+                        {!keywords.length && (
+                          <span className="text-xs italic text-muted-foreground/60">No keywords</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {lastRunAt ? formatDistanceToNow(lastRunAt, { addSuffix: true }) : "Never"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {nextRunAt && scheduleType !== "manual" && !isPaused ? (
+                        <span className="inline-flex items-center gap-1.5 text-primary">
+                          <Clock className="w-3.5 h-3.5" />
+                          {formatDistanceToNow(nextRunAt, { addSuffix: true })}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        {campaign.isActive && scheduleType !== "manual" && (
+                          isPaused ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-lg gap-1.5 text-xs"
+                              onClick={(e) => handleResume(e, campaign.id)}
+                            >
+                              <RefreshCw className="w-3 h-3" /> Resume
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 rounded-lg gap-1.5 text-xs"
+                              onClick={(e) => handlePause(e, campaign.id)}
+                            >
+                              <Pause className="w-3 h-3" /> Pause
+                            </Button>
+                          )
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 rounded-lg gap-1.5 text-xs text-destructive/80 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingId(campaign.id);
+                          }}
+                          data-testid={`button-delete-campaign-${campaign.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCampaigns.map((campaign) => {
-            const scheduleType = campaign.scheduleType || "manual";
-            const lastRunStatus = campaign.lastRunStatus || "idle";
-            const isPaused = Boolean(campaign.isPaused);
-            const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
-            const lastRunAt = campaign.lastRunAt ? new Date(campaign.lastRunAt) : null;
-            const { dot, label: dotLabel } = getStatusDot(lastRunStatus, campaign.isActive);
-
-            return (
-              <Link key={campaign.id} href={`/campaigns/${campaign.id}`} data-testid={`link-campaign-${campaign.id}`}>
-                <Card className="glass-card hover:shadow-md hover:border-primary/30 transition-all duration-300 cursor-pointer group h-full flex flex-col">
-                  <CardContent className="p-6 flex flex-col h-full">
-                    <div className="flex justify-between items-start mb-3">
-                      <h3 className="font-semibold text-lg leading-tight group-hover:text-primary transition-colors">
-                        {campaign.name}
-                      </h3>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        {lastRunStatus === "running" ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="flex items-center text-[11px] font-medium text-blue-500 bg-blue-500/10 px-2.5 py-1 rounded-full gap-1">
-                              <Loader2 className="w-3 h-3 animate-spin" /> Running
-                            </span>
-                            {lastRunAt && (
-                              <span className="text-[10px] text-blue-500/70 tabular-nums pr-0.5">
-                                {formatDistanceToNow(lastRunAt)}
-                              </span>
-                            )}
-                          </div>
-                        ) : campaign.isActive && !isPaused ? (
-                          <span className="flex items-center text-[11px] font-medium text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full gap-1">
-                            <Activity className="w-3 h-3" /> Active
-                          </span>
-                        ) : lastRunStatus === "failed" ? (
-                          <span className="flex items-center text-[11px] font-medium text-destructive bg-destructive/10 px-2.5 py-1 rounded-full gap-1">
-                            <Activity className="w-3 h-3" /> Failed
-                          </span>
-                        ) : isPaused ? (
-                          <span className="flex items-center text-[11px] font-medium text-amber-600 bg-amber-500/10 px-2.5 py-1 rounded-full gap-1">
-                            <Pause className="w-3 h-3" /> Paused
-                          </span>
-                        ) : (
-                          <span className="flex items-center text-[11px] font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-full gap-1">
-                            <Pause className="w-3 h-3" /> Inactive
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2 flex-1">
-                      {campaign.objective}
-                    </p>
-
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                      <Calendar className="w-3.5 h-3.5 shrink-0" />
-                      <span>{SCHEDULE_LABELS[scheduleType] ?? scheduleType}</span>
-                      {scheduleType !== "manual" && campaign.scheduleTime && (
-                        <span className="opacity-60">@ {campaign.scheduleTime}</span>
-                      )}
-                      {lastRunAt && (
-                        <span className="text-[10px] text-muted-foreground ml-auto">
-                          {formatDistanceToNow(lastRunAt, { addSuffix: true })}
-                        </span>
-                      )}
-                    </div>
-
-                    {nextRunAt && scheduleType !== "manual" && !isPaused && (
-                      <div className="flex items-center gap-1.5 text-xs text-primary mb-2">
-                        <Clock className="w-3.5 h-3.5" />
-                        Next: {formatDistanceToNow(nextRunAt, { addSuffix: true })}
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 flex-wrap mt-auto pt-4 border-t border-border/30">
-                      {(campaign.keywords || []).slice(0, 3).map((kw, i) => (
-                        <span key={i} className="text-[11px] font-medium bg-muted/50 text-muted-foreground px-2 py-1 rounded-md">
-                          {kw}
-                        </span>
-                      ))}
-                      {(campaign.keywords?.length || 0) > 3 && (
-                        <span className="text-[11px] font-medium text-muted-foreground px-1 py-1">
-                          +{campaign.keywords!.length - 3}
-                        </span>
-                      )}
-                      {(!campaign.keywords || campaign.keywords.length === 0) && (
-                        <span className="text-[11px] font-medium text-muted-foreground/50 italic px-1 py-1">No keywords</span>
-                      )}
-                    </div>
-
-                    {campaign.isActive && scheduleType !== "manual" && (
-                      <div className="mt-3 pt-3 border-t border-border/20">
-                        {isPaused ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs rounded-lg gap-1.5 w-full text-primary border-primary/30 hover:bg-primary/5"
-                            onClick={(e) => handleResume(e, campaign.id)}
-                          >
-                            <RefreshCw className="w-3 h-3" /> Resume Scheduler
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs rounded-lg gap-1.5 w-full text-muted-foreground hover:text-foreground"
-                            onClick={(e) => handlePause(e, campaign.id)}
-                          >
-                            <Pause className="w-3 h-3" /> Pause Scheduler
-                          </Button>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="mt-3 pt-3 border-t border-border/20 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs rounded-lg gap-1.5 w-full text-destructive/70 hover:text-destructive hover:bg-destructive/5"
-                        onClick={(e) => { e.preventDefault(); setDeletingId(campaign.id); }}
-                        data-testid={`button-delete-campaign-${campaign.id}`}
-                      >
-                        <Trash2 className="w-3 h-3" /> Delete Campaign
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-
-          <ConfirmDialog
-            open={deletingId !== null}
-            onOpenChange={(v) => { if (!v) setDeletingId(null); }}
-            title="Delete Campaign"
-            description={`Permanently delete "${deletingCampaign?.name ?? ""}" and all its runs, leads, and outreach data? This cannot be undone.`}
-            confirmText={deletingCampaign?.name ?? ""}
-            confirmLabel="Delete Campaign"
-            onConfirm={handleDelete}
-            loading={deleteCampaign.isPending}
-          />
-
-          {!filteredCampaigns?.length && (
-            <div className="col-span-full flex flex-col items-center justify-center p-12 text-center bg-muted/20 border border-border/50 rounded-2xl border-dashed">
-              <Briefcase className="w-10 h-10 text-muted-foreground/30 mb-4" />
-              <h3 className="text-lg font-medium text-foreground">No campaigns found</h3>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                {search ? "Try adjusting your search query." : "Get started by creating your first discovery campaign."}
-              </p>
-              {!search && (
-                <Button variant="outline" className="mt-6 rounded-xl" onClick={() => setOpen(true)}>
-                  Create Campaign
-                </Button>
-              )}
-            </div>
+        <div className="flex flex-col items-center justify-center p-12 text-center bg-muted/20 border border-border/50 rounded-2xl border-dashed">
+          <Briefcase className="w-10 h-10 text-muted-foreground/30 mb-4" />
+          <h3 className="text-lg font-medium text-foreground">No campaigns found</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+            {search ? "Try adjusting your search query." : "Get started by creating your first discovery campaign."}
+          </p>
+          {!search && (
+            <Button variant="outline" className="mt-6 rounded-xl" onClick={() => setOpen(true)}>
+              Create Campaign
+            </Button>
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deletingId !== null}
+        onOpenChange={(v) => { if (!v) setDeletingId(null); }}
+        title="Delete Campaign"
+        description={`Permanently delete "${deletingCampaign?.name ?? ""}" and all its runs, leads, and outreach data? This cannot be undone.`}
+        confirmText={deletingCampaign?.name ?? ""}
+        confirmLabel="Delete Campaign"
+        onConfirm={handleDelete}
+        loading={deleteCampaign.isPending}
+      />
     </div>
   );
 }

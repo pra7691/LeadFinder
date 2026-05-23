@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import {
   useListLeadLists,
   useCreateLeadList,
@@ -15,48 +15,38 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import {
   List,
   Plus,
-  MoreHorizontal,
-  Archive,
   Trash2,
   Edit2,
   Users,
-  ChevronRight,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { cn } from "@/lib/utils";
 
-function SkeletonCard() {
+function SkeletonRow() {
   return (
-    <div className="glass-card rounded-2xl p-5 animate-pulse">
-      <div className="flex items-start justify-between">
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-1/3" />
-          <div className="h-3 bg-muted rounded w-1/2" />
-        </div>
-        <div className="h-8 w-8 bg-muted rounded-lg" />
-      </div>
-      <div className="mt-4 flex gap-3">
-        <div className="h-3 bg-muted rounded w-16" />
-        <div className="h-3 bg-muted rounded w-20" />
-      </div>
-    </div>
+    <TableRow>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <TableCell key={i}>
+          <div className="h-4 rounded bg-muted/60 animate-pulse" />
+        </TableCell>
+      ))}
+    </TableRow>
   );
 }
 
@@ -148,6 +138,7 @@ function ListFormDialog({
 }
 
 export function Lists() {
+  const [, setLocation] = useLocation();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -196,19 +187,6 @@ export function Lists() {
     );
   };
 
-  const handleArchive = (list: LeadList) => {
-    const next = list.listStatus === "active" ? "archived" : "active";
-    updateMut.mutate(
-      { id: list.id, data: { listStatus: next as "active" | "archived" } },
-      {
-        onSuccess: () => {
-          toast({ title: next === "archived" ? "List archived" : "List restored" });
-          invalidate();
-        },
-      },
-    );
-  };
-
   const handleDelete = (list: LeadList) => {
     if (!confirm(`Delete "${list.name}"? This cannot be undone.`)) return;
     deleteMut.mutate(
@@ -226,6 +204,12 @@ export function Lists() {
 
   const activeLists = listRows.filter((l) => l.listStatus === "active");
   const archivedLists = listRows.filter((l) => l.listStatus === "archived");
+  const listStats = [
+    { label: "Total Lists", value: listRows.length },
+    { label: "Active", value: activeLists.length },
+    { label: "Archived", value: archivedLists.length },
+    { label: "Total Leads", value: listRows.reduce((sum, list) => sum + (list.leadCount ?? 0), 0) },
+  ];
 
   return (
     <div className="space-y-6">
@@ -253,47 +237,116 @@ export function Lists() {
         </div>
       </div>
 
-      {/* Content */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {listStats.map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-border/50 bg-card/50 p-4">
+            <p className="text-xs text-muted-foreground">{stat.label}</p>
+            <p className="text-2xl font-semibold mt-1">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
       {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>List</TableHead>
+                <TableHead>Leads</TableHead>
+                <TableHead>Campaign</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
+            </TableBody>
+          </Table>
         </div>
       ) : listRows.length === 0 ? (
         <EmptyState onNew={() => setNewOpen(true)} />
       ) : (
-        <div className="space-y-6">
-          {activeLists.length > 0 && (
-            <div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {activeLists.map((list) => (
-                  <ListCard
-                    key={list.id}
-                    list={list}
-                    onEdit={() => setEditTarget(list)}
-                    onArchive={() => handleArchive(list)}
-                    onDelete={() => handleDelete(list)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {showArchived && archivedLists.length > 0 && (
-            <div>
-              <h2 className="text-sm font-medium text-muted-foreground mb-3">Archived</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {archivedLists.map((list) => (
-                  <ListCard
-                    key={list.id}
-                    list={list}
-                    onEdit={() => setEditTarget(list)}
-                    onArchive={() => handleArchive(list)}
-                    onDelete={() => handleDelete(list)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[280px]">List</TableHead>
+                <TableHead>Leads</TableHead>
+                <TableHead>Campaign</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {listRows.map((list) => (
+                <TableRow
+                  key={list.id}
+                  className={`cursor-pointer hover:bg-muted/30 ${list.listStatus === "archived" ? "opacity-60" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setLocation(`/lists/${list.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setLocation(`/lists/${list.id}`);
+                    }
+                  }}
+                >
+                  <TableCell>
+                    <span className="font-medium text-foreground">
+                      {list.name}
+                    </span>
+                    {list.description && (
+                      <p className="mt-1 max-w-[420px] text-xs text-muted-foreground line-clamp-2">
+                        {list.description}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1.5 text-sm">
+                      <Users className="w-3.5 h-3.5 text-muted-foreground" />
+                      {list.leadCount} lead{list.leadCount !== 1 ? "s" : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {list.campaignName ? (
+                      <Badge variant="secondary" className="rounded-md">
+                        {list.campaignName}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-lg"
+                        aria-label={`Edit ${list.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditTarget(list);
+                        }}
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-lg text-destructive/80 hover:text-destructive"
+                        aria-label={`Delete ${list.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(list);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -315,85 +368,6 @@ export function Lists() {
         title="Edit list"
         loading={updateMut.isPending}
       />
-    </div>
-  );
-}
-
-function ListCard({
-  list,
-  onEdit,
-  onArchive,
-  onDelete,
-}: {
-  list: LeadList;
-  onEdit: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div
-      className={cn(
-        "glass-card rounded-2xl p-5 flex flex-col gap-3 group transition-all duration-200 hover:shadow-md",
-        list.listStatus === "archived" && "opacity-60",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <Link href={`/lists/${list.id}`} className="flex-1 min-w-0">
-          <h3 className="font-semibold truncate hover:underline cursor-pointer">{list.name}</h3>
-          {list.description && (
-            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{list.description}</p>
-          )}
-        </Link>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="rounded-xl">
-            <DropdownMenuItem onClick={onEdit} className="gap-2">
-              <Edit2 className="w-3.5 h-3.5" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onArchive} className="gap-2">
-              <Archive className="w-3.5 h-3.5" />
-              {list.listStatus === "active" ? "Archive" : "Restore"}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDelete} className="gap-2 text-destructive">
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Users className="w-3 h-3" />
-          {list.leadCount} lead{list.leadCount !== 1 ? "s" : ""}
-        </span>
-        {list.campaignName && (
-          <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
-            {list.campaignName}
-          </Badge>
-        )}
-        <span className="ml-auto">
-          {formatDistanceToNow(new Date(list.updatedAt), { addSuffix: true })}
-        </span>
-      </div>
-
-      <Link
-        href={`/lists/${list.id}`}
-        className="flex items-center gap-1 text-xs text-primary hover:underline mt-auto"
-      >
-        View leads
-        <ChevronRight className="w-3 h-3" />
-      </Link>
     </div>
   );
 }

@@ -13,8 +13,19 @@ import {
 } from "@workspace/api-zod";
 import { renderTemplate } from "../services/email-generator";
 import { parseLeadEmails } from "../services/lead-emails";
+import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
+import { normalizeTemplateAttachmentsJson } from "../services/email-template-attachments";
 
 const router = Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureEmailTemplateAttachmentColumn();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/email-templates", async (req, res) => {
   const includeInactive = req.query.includeInactive === "true";
@@ -35,6 +46,7 @@ router.post("/email-templates", async (req, res) => {
     subject: body.subject,
     body: body.body,
     personalizationPrompt: body.personalizationPrompt ?? null,
+    attachmentsJson: normalizeTemplateAttachmentsJson(body.attachmentsJson),
     isActive: body.isActive ?? true,
   }).returning();
   res.status(201).json(row);
@@ -53,9 +65,15 @@ router.get("/email-templates/:id", async (req, res) => {
 router.patch("/email-templates/:id", async (req, res) => {
   const { id } = UpdateEmailTemplateParams.parse({ id: Number(req.params.id) });
   const body = UpdateEmailTemplateBody.parse(req.body);
+  const values = {
+    ...body,
+    attachmentsJson:
+      "attachmentsJson" in body ? normalizeTemplateAttachmentsJson(body.attachmentsJson) : undefined,
+    updatedAt: new Date(),
+  };
   const [row] = await db
     .update(emailTemplatesTable)
-    .set({ ...body, updatedAt: new Date() })
+    .set(values)
     .where(eq(emailTemplatesTable.id, id))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }

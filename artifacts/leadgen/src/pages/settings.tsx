@@ -17,9 +17,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download } from "lucide-react";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplates } from "@/pages/email-templates";
+import { saveTextExportToServer } from "@/lib/export-files";
 
 // ---------------------------------------------------------------------------
 // System Health types + fetcher
@@ -203,6 +204,22 @@ function HealthRow({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+function csvEscape(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+async function exportBlockedDomainsCsv(value: string) {
+  const domains = value
+    .split(/\r?\n/)
+    .map((domain) => domain.trim())
+    .filter(Boolean);
+  const csv = ["Domain", ...domains].map(csvEscape).join("\r\n") + "\r\n";
+  return saveTextExportToServer(`blocked-domains-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+}
+
 const OPENAI_MODELS = [
   { value: "gpt-4o-mini", label: "GPT-4o Mini (recommended)" },
   { value: "gpt-4o", label: "GPT-4o" },
@@ -363,7 +380,26 @@ export function Settings() {
                     data-testid="textarea-blocked-domains"
                   />
                 </div>
-                <div className="flex justify-end pt-4 border-t border-border/30">
+                <div className="flex flex-col-reverse gap-3 pt-4 border-t border-border/30 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const saved = await exportBlockedDomainsCsv(blockedDomains);
+                        toast({ title: `Export saved to ${saved.relativePath}` });
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : "Export failed";
+                        toast({ title: message, variant: "destructive" });
+                      }
+                    }}
+                    disabled={!blockedDomains.trim()}
+                    className="rounded-xl gap-2 px-6"
+                    data-testid="button-export-blocked-domains"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export CSV
+                  </Button>
                   <Button onClick={handleSaveFilters} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-settings">
                     {upsertSetting.isPending ? "Saving…" : "Save Domains"}
                   </Button>

@@ -12,5 +12,7 @@ export interface EmailTemplatePatch {
   body?: string;
   /** @nullable */
   personalizationPrompt?: string | null;
+  /** @nullable */
+  attachmentsJson?: string | null;
   isActive?: boolean;
 }

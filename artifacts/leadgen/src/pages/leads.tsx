@@ -78,6 +78,8 @@ import { Label } from "@/components/ui/label";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { LeadDrawer } from "@/components/LeadDrawer";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { saveExportToServer } from "@/lib/export-files";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -148,15 +150,6 @@ function buildExportUrl(opts: ExportOptions): string {
   return `${base}?${params.toString()}`;
 }
 
-function triggerDownload(url: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
 // ── Export Dialog ──────────────────────────────────────────────────────────
 
 function ExportDialog({
@@ -177,8 +170,9 @@ function ExportDialog({
   const [minScore, setMinScore] = useState("");
   const [country, setCountry] = useState("");
   const [exported, setExported] = useState(false);
+  const { toast } = useToast();
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const url = buildExportUrl({
       format,
       campaignId,
@@ -187,12 +181,17 @@ function ExportDialog({
       country,
       leadIds: isBulk ? bulkLeadIds : undefined,
     });
-    triggerDownload(url);
-    setExported(true);
-    setTimeout(() => {
-      setExported(false);
+    try {
+      setExported(true);
+      const saved = await saveExportToServer(url);
+      toast({ title: `Export saved to ${saved.relativePath}` });
       onOpenChange(false);
-    }, 1200);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setExported(false);
+    }
   };
 
   return (

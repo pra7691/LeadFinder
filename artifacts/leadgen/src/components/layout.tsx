@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Activity,
+  AlertTriangle,
   BarChart,
   Briefcase,
   Send,
@@ -108,6 +109,27 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="p-4 mt-auto space-y-3">
+          <Link
+            href="/failed-logs"
+            data-testid="nav-failed logs"
+            onClick={closeSidebar}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
+              location === "/failed-logs" || location.startsWith("/failed-logs/")
+                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <AlertTriangle
+              className={cn(
+                "w-4 h-4",
+                location === "/failed-logs" || location.startsWith("/failed-logs/")
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            Failed Logs
+          </Link>
           <Link
             href="/logs"
             data-testid="nav-activity logs"
