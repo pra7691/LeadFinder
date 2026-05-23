@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable } from "@workspace/db";
+import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import { requestCancellation } from "../scheduler/pipeline";
 import { classifyLeadType } from "../services/lead-classifier";
@@ -375,12 +375,19 @@ router.get("/campaign-runs/:id/leads", async (req, res) => {
   }
 
   const leads = await db
-    .select()
+    .select({
+      lead: leadsTable,
+      addedToList: sql<boolean>`exists (
+        select 1
+        from ${leadListItemsTable}
+        where ${leadListItemsTable.leadId} = ${leadsTable.id}
+      )`,
+    })
     .from(leadsTable)
     .where(eq(leadsTable.campaignRunId, id))
     .orderBy(desc(leadsTable.createdAt));
 
-  res.json(leads);
+  res.json(leads.map((row) => ({ ...row.lead, addedToList: row.addedToList })));
 });
 
 // Get results (blocked / duplicate / lead_created / rejected / skipped_recent) for a run

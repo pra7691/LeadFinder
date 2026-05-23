@@ -23,11 +23,23 @@ export interface OutreachItem {
   recipientEmail: string;
   subject: string;
   body: string;
+  /** @nullable */
+  batchId?: string | null;
   status: OutreachItemStatus;
   aiPersonalized: boolean;
   /** @nullable */
   failureReason?: string | null;
   retryCount: number;
+  /** @nullable */
+  trackingId?: string | null;
+  openCount?: number;
+  clickCount?: number;
+  /** @nullable */
+  firstOpenedAt?: string | null;
+  /** @nullable */
+  lastOpenedAt?: string | null;
+  /** @nullable */
+  lastClickedAt?: string | null;
   /** @nullable */
   approvedAt?: string | null;
   /** @nullable */

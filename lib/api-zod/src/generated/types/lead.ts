@@ -80,6 +80,8 @@ export interface Lead {
      * @nullable
      */
   emailDomainStatus?: string | null;
+  /** True when this lead already belongs to at least one lead list */
+  addedToList?: boolean;
   createdAt: string;
   updatedAt: string;
 }

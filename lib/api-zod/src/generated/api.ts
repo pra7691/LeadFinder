@@ -479,6 +479,7 @@ export const GetCampaignRunLeadsResponseItem = zod.object({
   "crawlError": zod.string().nullish(),
   "leadType": zod.string().nullish().describe('\"company\" | \"directory\" | \"media\" | \"event\" | \"dataset\" | \"research\" | \"stats_platform\"'),
   "emailDomainStatus": zod.string().nullish().describe('\"matching_domain\" | \"external_domain\" | \"mixed\" | \"none\"'),
+  "addedToList": zod.boolean().optional().describe('True when this lead already belongs to at least one lead list'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1402,10 +1403,17 @@ export const ListOutreachResponseItem = zod.object({
   "recipientEmail": zod.string(),
   "subject": zod.string(),
   "body": zod.string(),
+  "batchId": zod.string().nullish(),
   "status": zod.enum(['pending_review', 'approved', 'rejected', 'sent', 'failed', 'bounced', 'draft', 'queued']),
   "aiPersonalized": zod.boolean(),
   "failureReason": zod.string().nullish(),
   "retryCount": zod.number(),
+  "trackingId": zod.string().nullish(),
+  "openCount": zod.number().optional(),
+  "clickCount": zod.number().optional(),
+  "firstOpenedAt": zod.string().nullish(),
+  "lastOpenedAt": zod.string().nullish(),
+  "lastClickedAt": zod.string().nullish(),
   "approvedAt": zod.string().nullish(),
   "rejectedAt": zod.string().nullish(),
   "scheduledAt": zod.string().nullish(),
@@ -2009,4 +2017,3 @@ export const UpsertSettingResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
-

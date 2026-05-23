@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download, MousePointerClick } from "lucide-react";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplates } from "@/pages/email-templates";
 import { saveTextExportToServer } from "@/lib/export-files";
@@ -233,6 +233,7 @@ const SETTINGS_TABS = [
   { value: "serp", path: "/settings/serp", label: "SERP", icon: Search },
   { value: "email-templates", path: "/settings/email-templates", label: "Email Templates", icon: FileText },
   { value: "email-accounts", path: "/settings/email-accounts", label: "Email Accounts", icon: Mail },
+  { value: "email-tracking", path: "/settings/email-tracking", label: "Email Tracking", icon: MousePointerClick },
   { value: "help", path: "/settings/help", label: "Help", icon: HelpCircle },
 ] as const;
 
@@ -267,6 +268,10 @@ export function Settings() {
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Email tracking
+  const [emailTrackerUrl, setEmailTrackerUrl] = useState("");
+  const [emailTrackerSecret, setEmailTrackerSecret] = useState("");
+
   const initialized = useRef(false);
   const settingRows = Array.isArray(settings) ? settings : [];
 
@@ -280,6 +285,8 @@ export function Settings() {
       setAiScoringEnabled(find("ai_scoring_enabled") === "true");
       setOpenaiKey(find("openai_api_key") ?? "");
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
+      setEmailTrackerUrl(find("email_tracker_url") ?? "");
+      setEmailTrackerSecret(find("email_tracker_admin_secret") ?? "");
       initialized.current = true;
     }
   }, [settingRows]);
@@ -335,6 +342,15 @@ export function Settings() {
       onSuccess: (r) => setAiTestResult({ success: r.success, message: r.message }),
       onError: () => setAiTestResult({ success: false, message: "Request failed. Check server logs." }),
     });
+  };
+
+  const handleSaveEmailTracking = async () => {
+    await save("email_tracker_url", emailTrackerUrl.trim());
+    if (!emailTrackerSecret.startsWith("••••••••")) {
+      await save("email_tracker_admin_secret", emailTrackerSecret.trim());
+    }
+    queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
+    toast({ title: "Email tracking settings saved." });
   };
 
   return (
@@ -557,6 +573,54 @@ export function Settings() {
 
         <TabsContent value="email-accounts" className="mt-0">
           <EmailAccounts />
+        </TabsContent>
+
+        <TabsContent value="email-tracking" className="mt-0 max-w-3xl">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground animate-pulse">Loading settings…</div>
+          ) : (
+            <Card className="glass-card">
+              <CardHeader className="border-b border-border/30 pb-4">
+                <div className="flex items-center gap-2">
+                  <MousePointerClick className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-lg font-medium text-foreground">Email Tracking</CardTitle>
+                </div>
+                <CardDescription>Track opens and clicks for emails sent from the outreach queue using your hosted tracker file.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Tracker URL</Label>
+                  <Input
+                    value={emailTrackerUrl}
+                    onChange={(e) => setEmailTrackerUrl(e.target.value)}
+                    placeholder="https://yourdomain.com/config/email-tracker-single-file.php"
+                    className="rounded-xl bg-background/50 font-mono"
+                    data-testid="input-email-tracker-url"
+                  />
+                  <p className="text-[11px] text-muted-foreground">This is the URL of the PHP tracker file you hosted. New outgoing emails will use this automatically.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Admin Secret</Label>
+                  <Input
+                    type="password"
+                    value={emailTrackerSecret}
+                    onChange={(e) => setEmailTrackerSecret(e.target.value)}
+                    placeholder="The secret you set inside the PHP file"
+                    className="rounded-xl bg-background/50 font-mono"
+                    data-testid="input-email-tracker-secret"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Used only by LeadFinder to sync open and click totals from your tracker. It is masked after saving.</p>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-border/30">
+                  <Button onClick={handleSaveEmailTracking} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-email-tracking">
+                    {upsertSetting.isPending ? "Saving…" : "Save Email Tracking"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="help" className="mt-0 max-w-3xl">

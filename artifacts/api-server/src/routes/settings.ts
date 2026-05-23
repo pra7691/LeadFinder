@@ -10,10 +10,11 @@ import { searchSerper } from "../services/serper";
 const router = Router();
 
 // Keys that contain secrets and must be masked in responses
-const MASKED_KEYS = ["openai_api_key", "serper_api_key"] as const;
+const MASKED_KEYS = ["openai_api_key", "serper_api_key", "email_tracker_admin_secret"] as const;
 const SECRET_ENV_KEYS: Record<string, string> = {
   openai_api_key: "OPENAI_API_KEY",
   serper_api_key: "SERPER_API_KEY",
+  email_tracker_admin_secret: "EMAIL_TRACKER_ADMIN_SECRET",
 };
 
 function isMaskedKey(key: string): key is (typeof MASKED_KEYS)[number] {

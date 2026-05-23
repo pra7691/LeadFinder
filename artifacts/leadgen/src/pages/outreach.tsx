@@ -5,16 +5,15 @@ import {
   useApproveOutreach,
   useRejectOutreach,
   useBulkApproveOutreach,
+  useBulkRejectOutreach,
   useListCampaigns,
   useListEmailAccounts,
   useSendOutreachItem,
   useRetryOutreachItem,
   useSendOutreachBatch,
   useSendTestEmail,
-  useGetSendStats,
   useRegenerateOutreach,
   getListOutreachQueryKey,
-  getGetSendStatsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -63,18 +62,22 @@ import {
   RefreshCw,
   Zap,
   FlaskConical,
-  TrendingUp,
   Ban,
   AlertTriangle,
   Info,
   CheckCircle2,
+  MousePointerClick,
+  Eye,
+  Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type OutreachItem = {
+export type OutreachItem = {
   id: number;
   campaignId: number | null;
   leadId: number;
@@ -84,10 +87,17 @@ type OutreachItem = {
   recipientEmail: string;
   subject: string;
   body: string;
+  batchId?: string | null;
   status: string;
   aiPersonalized?: boolean | null;
   failureReason?: string | null;
   retryCount: number;
+  trackingId?: string | null;
+  openCount?: number | null;
+  clickCount?: number | null;
+  firstOpenedAt?: string | null;
+  lastOpenedAt?: string | null;
+  lastClickedAt?: string | null;
   approvedAt?: string | null;
   rejectedAt?: string | null;
   scheduledAt?: string | null;
@@ -104,6 +114,23 @@ type OutreachItem = {
   qualityWarnings?: QualityWarning[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type OutreachDisplayRow = {
+  id: string;
+  kind: "group" | "item";
+  items: OutreachItem[];
+  primary: OutreachItem;
+  count: number;
+  title: string;
+  subtitle: string;
+  subject: string;
+  templateName: string | null;
+  listName: string | null;
+  status: string;
+  openCount: number;
+  clickCount: number;
+  date: string;
 };
 
 type QualityWarning = {
@@ -158,6 +185,11 @@ const STATUS_CONFIG: Record<
     color: "bg-destructive/10 text-destructive border-destructive/20",
     icon: <X className="w-3 h-3" />,
   },
+  mixed: {
+    label: "Mixed",
+    color: "bg-muted text-muted-foreground border-border",
+    icon: <Users className="w-3 h-3" />,
+  },
 };
 
 const ALL_STATUSES = ["pending_review", "approved", "sent", "failed", "bounced", "rejected", "draft", "queued"];
@@ -174,7 +206,7 @@ const SEVERITY_COLOR: Record<QualityWarning["severity"], string> = {
   info: "text-blue-400",
 };
 
-function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? {
     label: status,
     color: "bg-muted text-muted-foreground border-border",
@@ -221,6 +253,67 @@ function WarningBadge({ warnings = [] }: { warnings?: QualityWarning[] }) {
       Clean
     </span>
   );
+}
+
+export function aggregateStatus(items: OutreachItem[]): string {
+  const statuses = new Set(items.map((item) => item.status));
+  return statuses.size === 1 ? items[0]?.status ?? "mixed" : "mixed";
+}
+
+export function fallbackBatchKey(item: OutreachItem): string {
+  if (!item.listId) return `item-${item.id}`;
+  const created = new Date(item.createdAt);
+  const minuteBucket = Number.isNaN(created.getTime())
+    ? item.createdAt
+    : created.toISOString().slice(0, 16);
+  return [
+    "list",
+    item.listId,
+    item.emailTemplateId ?? "template",
+    item.emailAccountId ?? "account",
+    minuteBucket,
+  ].join("-");
+}
+
+export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
+  const groups = new Map<string, OutreachItem[]>();
+
+  for (const item of items) {
+    const key = item.listId ? (item.batchId || fallbackBatchKey(item)) : `item-${item.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+
+  return [...groups.entries()].map(([key, groupItems]) => {
+    const sorted = [...groupItems].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const primary = sorted[0]!;
+    const isGroup = sorted.length > 1 || Boolean(primary.listId);
+    const openCount = sorted.reduce((sum, item) => sum + (item.openCount ?? 0), 0);
+    const clickCount = sorted.reduce((sum, item) => sum + (item.clickCount ?? 0), 0);
+
+    return {
+      id: key,
+      kind: isGroup ? "group" : "item",
+      items: sorted,
+      primary,
+      count: sorted.length,
+      title: isGroup ? primary.listName ?? `List #${primary.listId}` : primary.companyName ?? primary.recipientEmail,
+      subtitle: isGroup
+        ? `${sorted.length} recipient${sorted.length === 1 ? "" : "s"}`
+        : primary.companyName ? primary.recipientEmail : primary.campaignName ?? "",
+      subject: primary.subject,
+      templateName: primary.templateName ?? null,
+      listName: primary.listName ?? null,
+      status: aggregateStatus(sorted),
+      openCount,
+      clickCount,
+      date: primary.sentAt ?? primary.approvedAt ?? primary.createdAt,
+    };
+  });
+}
+
+export function formatTrackingTime(value?: string | null): string {
+  if (!value) return "Not yet";
+  return format(new Date(value), "MMM d, yyyy HH:mm");
 }
 
 function QualityPanel({ warnings = [] }: { warnings?: QualityWarning[] }) {
@@ -396,62 +489,6 @@ function SendTestDialog({
   );
 }
 
-// ── Send Stats bar ──────────────────────────────────────────────────────────
-
-function SendStatsBar() {
-  const { data: stats } = useGetSendStats();
-  const campaignStats = Array.isArray(stats?.campaigns) ? stats.campaigns : [];
-  const accountStats = Array.isArray(stats?.accounts) ? stats.accounts : [];
-
-  if (!stats || (campaignStats.length === 0 && accountStats.length === 0)) {
-    return null;
-  }
-
-  const totalSentToday = campaignStats.reduce((s, c) => s + c.sentToday, 0);
-  const totalLimit = campaignStats.reduce((s, c) => s + c.dailyLimit, 0);
-  const activeCampaigns = campaignStats.filter((c) => c.sentToday > 0).length;
-  const accountsAtLimit = accountStats.filter((a) => a.sentToday >= a.dailyLimit).length;
-
-  return (
-    <div className="flex items-center gap-4 px-4 py-3 rounded-xl bg-muted/30 border border-border/40 text-sm">
-      <TrendingUp className="w-4 h-4 text-primary shrink-0" />
-      <span className="font-medium text-foreground">
-        {totalSentToday} sent today
-      </span>
-      {totalLimit > 0 && (
-        <span className="text-muted-foreground">
-          out of {totalLimit} daily limit
-        </span>
-      )}
-      {activeCampaigns > 0 && (
-        <span className="text-muted-foreground hidden sm:inline">
-          · {activeCampaigns} campaign{activeCampaigns !== 1 ? "s" : ""} active
-        </span>
-      )}
-      {accountsAtLimit > 0 && (
-        <span className="text-amber-600 font-medium hidden sm:inline">
-          · {accountsAtLimit} account{accountsAtLimit !== 1 ? "s" : ""} at daily limit
-        </span>
-      )}
-      <div className="ml-auto flex gap-3 shrink-0">
-        {campaignStats.slice(0, 3).map((c) => (
-          <div key={c.campaignId} className="flex items-center gap-1.5 text-xs">
-            <span className="text-muted-foreground truncate max-w-[100px]">{c.campaignName}</span>
-            <span
-              className={cn(
-                "font-medium",
-                c.sentToday >= c.dailyLimit ? "text-amber-600" : "text-foreground",
-              )}
-            >
-              {c.sentToday}/{c.dailyLimit}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Preview Panel ───────────────────────────────────────────────────────────
 
 function PreviewPanel({
@@ -597,6 +634,9 @@ function PreviewPanel({
               { label: "Created", ts: item.createdAt },
               { label: "Approved", ts: item.approvedAt },
               { label: "Sent", ts: item.sentAt },
+              { label: "First opened", ts: item.firstOpenedAt },
+              { label: "Last opened", ts: item.lastOpenedAt },
+              { label: "Last clicked", ts: item.lastClickedAt },
               { label: "Bounced", ts: item.bouncedAt },
             ]
               .filter((r) => r.ts)
@@ -606,6 +646,16 @@ function PreviewPanel({
                   <span className="font-medium">{format(new Date(r.ts!), "MMM d, yyyy HH:mm")}</span>
                 </div>
               ))}
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="rounded-lg bg-muted/30 p-2 text-xs">
+                <span className="text-muted-foreground">Opens</span>
+                <p className="font-semibold">{item.openCount ?? 0}</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 p-2 text-xs">
+                <span className="text-muted-foreground">Clicks</span>
+                <p className="font-semibold">{item.clickCount ?? 0}</p>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -662,6 +712,8 @@ function PreviewPanel({
 
 export function Outreach() {
   const qc = useQueryClient();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [campaignFilter, setCampaignFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -671,6 +723,7 @@ export function Outreach() {
   // Batch send state
   const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number; stopped?: boolean } | null>(null);
   const [stoppingBatch, setStoppingBatch] = useState(false);
+  const [sendingGroupId, setSendingGroupId] = useState<string | null>(null);
 
   const { data: campaigns } = useListCampaigns();
 
@@ -685,11 +738,12 @@ export function Outreach() {
 
   const deleteOutreach = useDeleteOutreach();
   const bulkApprove = useBulkApproveOutreach();
+  const bulkReject = useBulkRejectOutreach();
   const sendBatch = useSendOutreachBatch();
+  const displayRows = useMemo(() => buildDisplayRows(outreachItems), [outreachItems]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
-    qc.invalidateQueries({ queryKey: getGetSendStatsQueryKey() });
   };
 
   const handleDelete = (id: number) => {
@@ -720,6 +774,55 @@ export function Outreach() {
     });
   };
 
+  const sendSelectedItems = async (ids: number[]) => {
+    const res = await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(json?.error ?? "Failed to send selected outreach.");
+    }
+    return json as { sent: number; failed: number; skipped: number; stopped?: boolean };
+  };
+
+  const handleSendGroup = async (items: OutreachItem[]) => {
+    const ids = items.filter((item) => item.status === "approved").map((item) => item.id);
+    if (ids.length === 0 || sendingGroupId || sendBatch.isPending) return;
+    const groupId = buildDisplayRows(items)[0]?.id ?? ids.join("-");
+    try {
+      setBatchResult(null);
+      setStoppingBatch(false);
+      setSendingGroupId(groupId);
+      const result = await sendSelectedItems(ids);
+      setBatchResult({ sent: result.sent, failed: result.failed, skipped: result.skipped, stopped: result.stopped });
+      invalidate();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send selected outreach.";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setSendingGroupId(null);
+      setStoppingBatch(false);
+    }
+  };
+
+  const handleApproveGroup = (items: OutreachItem[]) => {
+    const ids = items
+      .filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued")
+      .map((item) => item.id);
+    if (ids.length === 0) return;
+    bulkApprove.mutate({ data: { ids } }, { onSuccess: invalidate });
+  };
+
+  const handleRejectGroup = (items: OutreachItem[]) => {
+    const ids = items
+      .filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved")
+      .map((item) => item.id);
+    if (ids.length === 0) return;
+    bulkReject.mutate({ data: { ids } }, { onSuccess: invalidate });
+  };
+
   const handleSendBatch = () => {
     setBatchResult(null);
     setStoppingBatch(false);
@@ -746,6 +849,21 @@ export function Outreach() {
     }
   };
 
+  const handleSyncTracking = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/outreach/tracking-sync`, { method: "POST" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.message ?? "Tracking sync failed");
+      }
+      toast({ title: `Tracking synced for ${json.synced} outreach item${json.synced === 1 ? "" : "s"}.` });
+      invalidate();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Tracking sync failed";
+      toast({ title: message, variant: "destructive" });
+    }
+  };
+
   const toggleRow = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -756,9 +874,10 @@ export function Outreach() {
   };
 
   const toggleAll = () => {
-    if (!outreachItems.length) return;
-    if (selected.size === outreachItems.length) setSelected(new Set());
-    else setSelected(new Set(outreachItems.map((i) => i.id)));
+    const visibleIds = displayRows.flatMap((row) => row.items.map((item) => item.id));
+    if (!visibleIds.length) return;
+    if (visibleIds.every((id) => selected.has(id))) setSelected(new Set());
+    else setSelected(new Set(visibleIds));
   };
 
   const statusCounts = ALL_STATUSES.reduce(
@@ -801,6 +920,14 @@ export function Outreach() {
             variant="outline"
             size="sm"
             className="rounded-xl gap-1.5"
+            onClick={handleSyncTracking}
+          >
+            <RefreshCw className="w-4 h-4" /> Sync Tracking
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl gap-1.5"
             onClick={() => setTestDialogOpen(true)}
           >
             <FlaskConical className="w-4 h-4" /> Send Test
@@ -821,7 +948,7 @@ export function Outreach() {
               size="sm"
               className="rounded-xl gap-1.5"
               onClick={handleSendBatch}
-              disabled={approvedCount === 0}
+              disabled={approvedCount === 0 || Boolean(sendingGroupId)}
             >
               <Zap className="w-4 h-4" />
               {`Send Batch${approvedCount > 0 ? ` (${approvedCount})` : ""}`}
@@ -829,9 +956,6 @@ export function Outreach() {
           )}
         </div>
       </div>
-
-      {/* Send stats bar */}
-      <SendStatsBar />
 
       {/* Review summary */}
       {outreachItems.length > 0 && (
@@ -971,15 +1095,16 @@ export function Outreach() {
               <TableRow className="border-border/30 hover:bg-transparent">
                 <TableHead className="w-10 pl-4">
                   <Checkbox
-                    checked={!!outreachItems && outreachItems.length > 0 && selected.size === outreachItems.length}
+                    checked={displayRows.length > 0 && displayRows.flatMap((row) => row.items.map((item) => item.id)).every((id) => selected.has(id))}
                     onCheckedChange={toggleAll}
                     aria-label="Select all"
                   />
                 </TableHead>
-                <TableHead>Recipient</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead className="w-[150px]">Quality</TableHead>
+                <TableHead>Outreach</TableHead>
+                <TableHead>Template / Subject</TableHead>
+                <TableHead className="w-[100px]">Count</TableHead>
                 <TableHead className="w-[120px]">Status</TableHead>
+                <TableHead className="w-[120px]">Tracking</TableHead>
                 <TableHead className="w-[140px]">Date</TableHead>
                 <TableHead className="w-[160px] text-right pr-4">Actions</TableHead>
               </TableRow>
@@ -1002,9 +1127,9 @@ export function Outreach() {
                     <TableCell><div className="h-7 w-16 bg-muted/50 rounded-lg animate-pulse ml-auto" /></TableCell>
                   </TableRow>
                 ))
-              ) : outreachItems.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-40 text-center">
+                  <TableCell colSpan={8} className="h-40 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <MailOpen className="w-8 h-8 opacity-20" />
                       <p className="text-sm">
@@ -1016,17 +1141,44 @@ export function Outreach() {
                   </TableCell>
                 </TableRow>
               ) : (
-                outreachItems.map((item) => (
-                  <OutreachRow
-                    key={item.id}
-                    item={item}
-                    selected={selected.has(item.id)}
-                    isPreview={preview?.id === item.id}
-                    onToggle={() => toggleRow(item.id)}
-                    onPreview={() => setPreview(preview?.id === item.id ? null : item)}
-                    onDelete={() => handleDelete(item.id)}
-                    onRefresh={invalidate}
-                  />
+                displayRows.map((row) => (
+                  row.kind === "group" ? (
+                    <OutreachGroupRow
+                      key={row.id}
+                      row={row}
+                      selected={row.items.every((item) => selected.has(item.id))}
+                      onToggle={() => {
+                        const allSelected = row.items.every((item) => selected.has(item.id));
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          row.items.forEach((item) => {
+                            if (allSelected) next.delete(item.id);
+                            else next.add(item.id);
+                          });
+                          return next;
+                        });
+                      }}
+                      onApprove={() => handleApproveGroup(row.items)}
+                      onReject={() => handleRejectGroup(row.items)}
+                      onSend={() => handleSendGroup(row.items)}
+                      onStop={handleStopBatch}
+                      onPreview={() => navigate(`/outreach/batches/${encodeURIComponent(row.id)}`)}
+                      isBusy={bulkApprove.isPending || bulkReject.isPending}
+                      isSending={sendingGroupId === row.id}
+                      isStopping={stoppingBatch && sendingGroupId === row.id}
+                    />
+                  ) : (
+                    <OutreachRow
+                      key={row.primary.id}
+                      item={row.primary}
+                      selected={selected.has(row.primary.id)}
+                      isPreview={preview?.id === row.primary.id}
+                      onToggle={() => toggleRow(row.primary.id)}
+                      onPreview={() => setPreview(preview?.id === row.primary.id ? null : row.primary)}
+                      onDelete={() => handleDelete(row.primary.id)}
+                      onRefresh={invalidate}
+                    />
+                  )
                 ))
               )}
             </TableBody>
@@ -1059,6 +1211,130 @@ export function Outreach() {
 }
 
 // ── Row component (extracted for clarity) ──────────────────────────────────
+
+function OutreachGroupRow({
+  row,
+  selected,
+  onToggle,
+  onApprove,
+  onReject,
+  onSend,
+  onStop,
+  onPreview,
+  isBusy,
+  isSending,
+  isStopping,
+}: {
+  row: OutreachDisplayRow;
+  selected: boolean;
+  onToggle: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onSend: () => void;
+  onStop: () => void;
+  onPreview: () => void;
+  isBusy: boolean;
+  isSending: boolean;
+  isStopping: boolean;
+}) {
+  const approvableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued").length;
+  const rejectableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved").length;
+  const sendableCount = row.items.filter((item) => item.status === "approved").length;
+
+  return (
+    <TableRow
+      className={cn(
+        "group border-border/30 transition-colors cursor-pointer",
+        selected && "bg-muted/40",
+      )}
+      onClick={onPreview}
+    >
+      <TableCell className="pl-4 w-10" onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={`Select outreach ${row.title}`} />
+      </TableCell>
+
+      <TableCell className="font-medium max-w-[220px]">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Users className="w-4 h-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-sm">{row.title}</div>
+            <div className="text-xs text-muted-foreground truncate">{row.subtitle}</div>
+          </div>
+        </div>
+      </TableCell>
+
+      <TableCell className="max-w-[260px]">
+        <p className="truncate text-sm">{row.templateName ?? row.subject}</p>
+        <p className="truncate text-[10px] text-muted-foreground mt-1">{row.subject}</p>
+      </TableCell>
+
+      <TableCell>
+        <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-xs font-medium">
+          {row.count} email{row.count === 1 ? "" : "s"}
+        </span>
+      </TableCell>
+
+      <TableCell>
+        {isSending ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Sending
+          </span>
+        ) : (
+          <StatusBadge status={row.status} />
+        )}
+      </TableCell>
+
+      <TableCell>
+        <div className="flex flex-col gap-1 text-xs">
+          <span className={cn("inline-flex items-center gap-1", row.openCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+            <Eye className="w-3.5 h-3.5" />
+            {row.openCount} open{row.openCount === 1 ? "" : "s"}
+          </span>
+          <span className={cn("inline-flex items-center gap-1", row.clickCount > 0 ? "text-primary" : "text-muted-foreground")}>
+            <MousePointerClick className="w-3.5 h-3.5" />
+            {row.clickCount} click{row.clickCount === 1 ? "" : "s"}
+          </span>
+        </div>
+      </TableCell>
+
+      <TableCell className="text-xs text-muted-foreground">
+        {format(new Date(row.date), "MMM d, HH:mm")}
+      </TableCell>
+
+      <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1">
+          {approvableCount > 0 && (
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-green-600 hover:bg-green-500/10"
+              onClick={onApprove} disabled={isBusy} title={`Approve ${approvableCount}`}>
+              <ThumbsUp className="w-3.5 h-3.5 mr-1" /> Approve
+            </Button>
+          )}
+          {isSending ? (
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-destructive hover:bg-destructive/10"
+              onClick={onStop} disabled={isStopping} title="Stop sending">
+              {isStopping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <X className="w-3.5 h-3.5 mr-1" />}
+              {isStopping ? "Stopping" : "Stop"}
+            </Button>
+          ) : sendableCount > 0 && (
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary hover:bg-primary/10"
+              onClick={onSend} disabled={isBusy} title={`Send ${sendableCount}`}>
+              <Send className="w-3.5 h-3.5 mr-1" /> Send
+            </Button>
+          )}
+          {!isSending && rejectableCount > 0 && (
+            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10"
+              onClick={onReject} disabled={isBusy} title={`Reject ${rejectableCount}`}>
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
 
 function OutreachRow({
   item,
@@ -1168,6 +1444,25 @@ function OutreachRow({
       </TableCell>
 
       <TableCell><StatusBadge status={item.status} /></TableCell>
+
+      <TableCell>
+        <div className="flex flex-col gap-1 text-xs">
+          <span className={cn(
+            "inline-flex items-center gap-1",
+            (item.openCount ?? 0) > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+          )}>
+            <Eye className="w-3.5 h-3.5" />
+            {item.openCount ?? 0} open{(item.openCount ?? 0) === 1 ? "" : "s"}
+          </span>
+          <span className={cn(
+            "inline-flex items-center gap-1",
+            (item.clickCount ?? 0) > 0 ? "text-primary" : "text-muted-foreground",
+          )}>
+            <MousePointerClick className="w-3.5 h-3.5" />
+            {item.clickCount ?? 0} click{(item.clickCount ?? 0) === 1 ? "" : "s"}
+          </span>
+        </div>
+      </TableCell>
 
       <TableCell className="text-xs text-muted-foreground">
         {item.sentAt

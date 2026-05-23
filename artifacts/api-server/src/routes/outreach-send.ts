@@ -19,6 +19,14 @@ import {
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
 import { toNodemailerAttachments } from "../services/email-template-attachments";
+import {
+  addTrackingToHtml,
+  ensureTrackingId,
+  getTrackingSettings,
+  recordClick,
+  recordOpen,
+  syncExternalTracking,
+} from "../services/email-tracking";
 
 const router = Router();
 
@@ -174,12 +182,17 @@ async function doSend(
   try {
     const attachments = await getTemplateAttachments(item.emailTemplateId);
     const transporter = await getTransporter(account);
+    const trackingSettings = await getTrackingSettings();
+    const trackingId = trackingSettings.trackerUrl ? await ensureTrackingId(item) : null;
+    const html = toHtmlEmail(fullBody);
     await transporter.sendMail({
       from: fromHeader(account),
       to: item.recipientEmail,
       subject: item.subject,
       text: toTextEmail(fullBody),
-      html: toHtmlEmail(fullBody),
+      html: trackingSettings.trackerUrl && trackingId
+        ? addTrackingToHtml(html, trackingSettings.trackerUrl, trackingId)
+        : html,
       attachments: attachments.length ? attachments : undefined,
     });
 
@@ -207,6 +220,8 @@ async function doSend(
       outreachId: item.id,
       leadId: item.leadId,
       accountId: account.id,
+      trackingId,
+      trackingEnabled: Boolean(trackingSettings.trackerUrl),
     });
     return true;
   } catch (err) {
@@ -282,10 +297,17 @@ router.post("/outreach/send-batch", async (req, res) => {
   batchSendRunning = true;
   batchSendCancelRequested = false;
 
+  const rawIds = (req.body as { ids?: unknown } | undefined)?.ids;
+  const ids = Array.isArray(rawIds)
+    ? rawIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+  const approvedConditions = [eq(outreachQueueTable.status, "approved")];
+  if (ids.length > 0) approvedConditions.push(inArray(outreachQueueTable.id, ids));
+
   const approved = await db
     .select()
     .from(outreachQueueTable)
-    .where(eq(outreachQueueTable.status, "approved"));
+    .where(and(...approvedConditions));
 
   if (approved.length === 0) {
     resetBatchSendState();
@@ -474,6 +496,60 @@ router.post("/outreach/send-test", async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.json({ ok: false, message: `Failed to send: ${message}` });
+  }
+});
+
+// ── POST /outreach/tracking-sync ───────────────────────────────────────────
+
+router.post("/outreach/tracking-sync", async (_req, res) => {
+  try {
+    const result = await syncExternalTracking();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ ok: false, message });
+  }
+});
+
+// ── GET /outreach/tracking/open/:trackingId.gif ────────────────────────────
+
+router.get("/outreach/tracking/open/:trackingId.gif", async (req, res) => {
+  const trackingId = String(req.params.trackingId ?? "").replace(/[^a-zA-Z0-9._-]/g, "");
+  if (trackingId) await recordOpen(trackingId);
+
+  const pixel = Buffer.from(
+    "R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==",
+    "base64",
+  );
+  res
+    .set({
+      "Content-Type": "image/gif",
+      "Content-Length": String(pixel.length),
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    })
+    .send(pixel);
+});
+
+// ── GET /outreach/tracking/click/:trackingId ───────────────────────────────
+
+router.get("/outreach/tracking/click/:trackingId", async (req, res) => {
+  const trackingId = String(req.params.trackingId ?? "").replace(/[^a-zA-Z0-9._-]/g, "");
+  const targetUrl = String(req.query.url ?? "");
+  if (!targetUrl) {
+    res.status(400).send("Missing redirect URL.");
+    return;
+  }
+
+  try {
+    const parsed = new URL(targetUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      res.status(400).send("Only http and https links are allowed.");
+      return;
+    }
+    if (trackingId) await recordClick(trackingId);
+    res.redirect(302, parsed.toString());
+  } catch {
+    res.status(400).send("Invalid redirect URL.");
   }
 });
 

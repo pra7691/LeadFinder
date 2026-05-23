@@ -18,6 +18,7 @@ import {
   getGetListHealthQueryKey,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
+import type { Lead } from "@workspace/api-client-react";
 import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -193,7 +194,8 @@ export function CampaignRunDetail() {
       enabled: !!runIdNum,
     },
   });
-  const leadRows = Array.isArray(leads) ? leads : [];
+  type CampaignRunLead = Lead & { addedToList?: boolean };
+  const leadRows: CampaignRunLead[] = Array.isArray(leads) ? leads as CampaignRunLead[] : [];
 
   const { data: lists } = useListLeadLists();
   const listRows = Array.isArray(lists) ? lists : [];
@@ -210,7 +212,7 @@ export function CampaignRunDetail() {
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   type StatusFilter = "all" | "unreviewed" | "qualified" | "rejected";
-  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore";
+  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore" | "notInList";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
   const [resultFilter, setResultFilter] = useState<null | "blocked" | "duplicate" | "rejected">(null);
@@ -286,6 +288,7 @@ export function CampaignRunDetail() {
       if (leadFilters.has("hasEmail") && !l.emails) return false;
       if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
       if (leadFilters.has("aboveMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore < minRelevanceScore)) return false;
+      if (leadFilters.has("notInList") && l.addedToList) return false;
       return true;
     });
   }, [leadRows, searchQuery, statusFilter, leadFilters, minRelevanceScore]);
@@ -633,6 +636,7 @@ export function CampaignRunDetail() {
     { key: "hasEmail", label: "Has Email" },
     { key: "hasPhone", label: "Has Phone" },
     { key: "aboveMinScore", label: `Above ${minRelevanceScore}` },
+    { key: "notInList", label: "Not in List" },
   ];
 
   return (
@@ -1173,6 +1177,7 @@ export function CampaignRunDetail() {
                   <span className="w-36 hidden md:block">Domain</span>
                   <span className="w-12 hidden sm:block text-center">Score</span>
                   <span className="w-14 hidden sm:block text-center">Email</span>
+                  <span className="w-16 hidden md:block text-center">In List</span>
                   <span className="w-24">Status</span>
                   <span className="w-28 text-right">Actions</span>
                 </div>
@@ -1239,6 +1244,18 @@ export function CampaignRunDetail() {
                         <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                           {lead.emails && <Mail className="w-3 h-3 text-emerald-500" aria-label={lead.emails} />}
                           {lead.phoneNumbers && <Phone className="w-3 h-3 text-blue-500" aria-label={lead.phoneNumbers} />}
+                        </span>
+                      </span>
+                      <span className="w-16 hidden md:block text-center">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            lead.addedToList
+                              ? "bg-emerald-500/10 text-emerald-600"
+                              : "bg-muted/40 text-muted-foreground",
+                          )}
+                        >
+                          {lead.addedToList ? "Yes" : "No"}
                         </span>
                       </span>
                       <span className="w-24 shrink-0">

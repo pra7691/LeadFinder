@@ -1959,6 +1959,9 @@ components:
         emailDomainStatus:
           type: ["string", "null"]
           description: '"matching_domain" | "external_domain" | "mixed" | "none"'
+        addedToList:
+          type: boolean
+          description: True when this lead already belongs to at least one lead list
         createdAt:
           type: string
         updatedAt:
@@ -2227,6 +2230,8 @@ components:
           type: string
         body:
           type: string
+        batchId:
+          type: ["string", "null"]
         status:
           type: string
           enum: [pending_review, approved, rejected, sent, failed, bounced, draft, queued]
@@ -2236,6 +2241,18 @@ components:
           type: ["string", "null"]
         retryCount:
           type: integer
+        trackingId:
+          type: ["string", "null"]
+        openCount:
+          type: integer
+        clickCount:
+          type: integer
+        firstOpenedAt:
+          type: ["string", "null"]
+        lastOpenedAt:
+          type: ["string", "null"]
+        lastClickedAt:
+          type: ["string", "null"]
         approvedAt:
           type: ["string", "null"]
         rejectedAt:

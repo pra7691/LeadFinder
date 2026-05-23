@@ -19,6 +19,7 @@ import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplateEditor } from "@/pages/email-template-editor";
 import { EmailTemplates } from "@/pages/email-templates";
 import { Outreach } from "@/pages/outreach";
+import { OutreachBatchDetail } from "@/pages/outreach-batch-detail";
 import { Logs } from "@/pages/logs";
 import { FailedLogs } from "@/pages/failed-logs";
 import { Settings } from "@/pages/settings";
@@ -52,6 +53,7 @@ function Router() {
           <Route path="/email-templates/new" component={EmailTemplateEditor} />
           <Route path="/email-templates/:id/edit" component={EmailTemplateEditor} />
           <Route path="/email-templates" component={EmailTemplatesRoute} />
+          <Route path="/outreach/batches/:batchId" component={OutreachBatchDetail} />
           <Route path="/outreach" component={Outreach} />
           <Route path="/outreach-review" component={Outreach} />
           <Route path="/failed-logs/runs/:runId" component={FailedLogs} />

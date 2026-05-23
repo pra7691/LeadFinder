@@ -278,6 +278,7 @@ router.post("/outreach/from-list", async (req, res) => {
 
   let queued = 0;
   let skipped = 0;
+  const batchId = `list-${body.listId}-${Date.now()}`;
   const items: (typeof outreachQueueTable.$inferSelect)[] = [];
 
   // Pre-fetch existing queue items for this list to detect duplicates
@@ -313,6 +314,7 @@ router.post("/outreach/from-list", async (req, res) => {
       recipientEmail,
       subject,
       body: emailBody,
+      batchId,
       status: "pending_review",
     }).returning();
     items.push(item);

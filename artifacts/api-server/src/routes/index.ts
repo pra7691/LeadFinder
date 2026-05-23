@@ -20,8 +20,18 @@ import schedulerRouter from "./scheduler";
 import exportRouter from "./export";
 import fileExportsRouter from "./file-exports";
 import adminRouter from "./admin";
+import { ensureOutreachTrackingColumns } from "../lib/schema-guards";
 
 const router: IRouter = Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureOutreachTrackingColumns();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.use(healthRouter);
 router.use(dashboardRouter);
