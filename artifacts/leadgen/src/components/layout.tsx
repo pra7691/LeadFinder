@@ -12,10 +12,14 @@ import {
   Sun,
   Menu,
   X,
+  Users,
+  Mail,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
 import { Button } from "./ui/button";
+import { useGetDashboardStats } from "@workspace/api-client-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: BarChart },
@@ -24,6 +28,35 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach", icon: Send },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+function TodayStatsBar() {
+  const { data } = useGetDashboardStats({ query: { refetchInterval: 60_000, staleTime: 30_000 } });
+  if (!data) return null;
+  const searches = data.searchesToday ?? 0;
+  const maxSearches = data.globalMaxSearches ?? 10;
+  const qualifiedLeads = data.qualifiedLeadsToday ?? 0;
+  const emails = data.emailsSentToday ?? 0;
+  const maxEmails = data.globalMaxEmails ?? 20;
+
+  return (
+    <div className="sticky top-0 z-10 hidden lg:flex items-center gap-4 px-6 h-10 border-b border-border/30 bg-background/80 backdrop-blur-xl shrink-0 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5">
+        <Search className="w-3 h-3 opacity-60" />
+        <span>Searches today: <strong className="text-foreground">{searches}</strong><span className="opacity-50"> / {maxSearches}</span></span>
+      </div>
+      <div className="w-px h-4 bg-border/50" />
+      <div className="flex items-center gap-1.5">
+        <Users className="w-3 h-3 opacity-60" />
+        <span>Qualified leads today: <strong className="text-foreground">{qualifiedLeads}</strong></span>
+      </div>
+      <div className="w-px h-4 bg-border/50" />
+      <div className="flex items-center gap-1.5">
+        <Mail className="w-3 h-3 opacity-60" />
+        <span>Emails sent today: <strong className="text-foreground">{emails}</strong><span className="opacity-50"> / {maxEmails}</span></span>
+      </div>
+    </div>
+  );
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -177,6 +210,9 @@ export function Layout({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 lg:ml-64 flex flex-col min-h-screen relative z-0">
+        {/* Today stats bar — desktop only */}
+        <TodayStatsBar />
+
         {/* Mobile top bar */}
         <div className="sticky top-0 z-10 lg:hidden flex items-center gap-3 px-4 h-14 border-b border-border/50 bg-background/80 backdrop-blur-xl shrink-0">
           <Button

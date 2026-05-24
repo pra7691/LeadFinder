@@ -64,7 +64,6 @@ type FormData = {
   isActive: boolean;
   minRelevanceScore: number;
   maxSearchesPerDay: number;
-  maxLeadsPerDay: number;
   maxEmailsPerDay: number;
   resultsPerSearch: number;
   queryRefreshDays: number;
@@ -403,7 +402,6 @@ export function CampaignDetail() {
     isActive: true,
     minRelevanceScore: 50,
     maxSearchesPerDay: 10,
-    maxLeadsPerDay: 50,
     maxEmailsPerDay: 20,
     resultsPerSearch: 10,
     queryRefreshDays: 30,
@@ -428,7 +426,6 @@ export function CampaignDetail() {
         isActive: campaign.isActive ?? true,
         minRelevanceScore: campaign.minRelevanceScore ?? 50,
         maxSearchesPerDay: campaign.maxSearchesPerDay ?? 10,
-        maxLeadsPerDay: campaign.maxLeadsPerDay ?? 50,
         maxEmailsPerDay: campaign.maxEmailsPerDay ?? 20,
         resultsPerSearch: campaign.resultsPerSearch ?? 10,
         queryRefreshDays: campaign.queryRefreshDays ?? 30,
@@ -550,14 +547,6 @@ export function CampaignDetail() {
           </Button>
           <Button
             variant="outline"
-            className="rounded-xl shadow-sm gap-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setResetDataOpen(true)}
-            data-testid="button-reset-campaign-data"
-          >
-            <RotateCcw className="w-4 h-4" /> Reset Data
-          </Button>
-          <Button
-            variant="outline"
             className="rounded-xl shadow-sm gap-2 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
             onClick={() => setDeleteCampaignOpen(true)}
             data-testid="button-delete-campaign"
@@ -649,18 +638,16 @@ export function CampaignDetail() {
           </CardContent>
         </Card>
 
-        {/* Limits */}
-        <Card className="glass-card">
+        {/* Other Settings */}
+        <Card className="glass-card md:col-span-2">
           <CardHeader className="border-b border-border/30 pb-3">
-            <h3 className="text-sm font-medium text-foreground">Limits</h3>
+            <h3 className="text-sm font-medium text-foreground">Other Settings</h3>
           </CardHeader>
-          <CardContent className="space-y-4 pt-5">
+          <CardContent className="space-y-6 pt-5">
+            {/* Fields grid */}
             <div className="grid grid-cols-2 gap-3">
               {([
                 { label: "Min Relevance Score", key: "minRelevanceScore" },
-                { label: "Max Searches / Day", key: "maxSearchesPerDay" },
-                { label: "Max Leads / Day", key: "maxLeadsPerDay" },
-                { label: "Max Emails / Day", key: "maxEmailsPerDay" },
               ] as const).map((f) => (
                 <div key={f.key} className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">{f.label}</Label>
@@ -684,7 +671,7 @@ export function CampaignDetail() {
                   className="rounded-xl bg-background/50"
                 />
                 <p className="text-[11px] text-muted-foreground/70">
-                  Serper results per search query. If countries are empty, each keyword is searched on its own. Maximum is 50.
+                  Serper results per search query. Maximum is 50.
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -726,94 +713,83 @@ export function CampaignDetail() {
                 </p>
               </div>
             </div>
-            <div className="pt-1 border-t border-border/30">
-              <p className="text-xs text-muted-foreground">
-                Email templates are managed in the{" "}
-                <a href="/settings/email-templates" className="text-primary hover:underline">Email Templates</a>{" "}
-                section.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Scheduler — spans full width */}
-        <Card className="glass-card md:col-span-2">
-          <CardHeader className="border-b border-border/30 pb-3">
-            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-primary" /> Scheduler
-            </h3>
-          </CardHeader>
-          <CardContent className="pt-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground">Schedule Type</Label>
-                <Select
-                  value={formData.scheduleType}
-                  onValueChange={(v) => setFormData({ ...formData, scheduleType: v })}
-                >
-                  <SelectTrigger className="rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Manual only</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                  </SelectContent>
-                </Select>
+            {/* Scheduler */}
+            <div className="border-t border-border/30 pt-5 space-y-4">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-primary" /> Scheduler
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Schedule Type</Label>
+                  <Select
+                    value={formData.scheduleType}
+                    onValueChange={(v) => setFormData({ ...formData, scheduleType: v })}
+                  >
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">Manual only</SelectItem>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formData.scheduleType !== "manual" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground">Run Time (24h)</Label>
+                    <Input
+                      type="time"
+                      value={formData.scheduleTime}
+                      onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
+                      className="rounded-xl bg-background/50"
+                    />
+                  </div>
+                )}
+
+                {nextRunAt && formData.scheduleType !== "manual" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground">Next Run</Label>
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-primary pt-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      {format(nextRunAt, "MMM d, HH:mm")}
+                    </div>
+                  </div>
+                )}
+
+                {formData.scheduleType === "manual" && (
+                  <div className="space-y-1.5 sm:col-span-3">
+                    <Label className="text-xs font-medium text-muted-foreground">Schedule</Label>
+                    <p className="text-sm text-muted-foreground pt-2">Manual — click <strong>Run Campaign</strong> above to run.</p>
+                  </div>
+                )}
               </div>
 
-              {formData.scheduleType !== "manual" && (
+              {formData.scheduleType === "weekly" && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">Run Time (24h)</Label>
-                  <Input
-                    type="time"
-                    value={formData.scheduleTime}
-                    onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
-                    className="rounded-xl bg-background/50"
-                  />
-                </div>
-              )}
-
-              {nextRunAt && formData.scheduleType !== "manual" && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">Next Run</Label>
-                  <div className="flex items-center gap-1.5 text-sm font-medium text-primary pt-2">
-                    <Clock className="w-3.5 h-3.5" />
-                    {format(nextRunAt, "MMM d, HH:mm")}
+                  <Label className="text-xs font-medium text-muted-foreground">Days of Week</Label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {DAYS_OF_WEEK.map((d) => (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() => toggleDay(d.value)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                          selectedDays.includes(d.value)
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted/30 text-muted-foreground border-border/50 hover:border-border",
+                        )}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
-
-              {formData.scheduleType === "manual" && (
-                <div className="space-y-1.5 sm:col-span-3">
-                  <Label className="text-xs font-medium text-muted-foreground">Schedule</Label>
-                  <p className="text-sm text-muted-foreground pt-2">Manual — click <strong>Run Campaign</strong> above to run.</p>
-                </div>
-              )}
             </div>
-
-            {formData.scheduleType === "weekly" && (
-              <div className="mt-4 space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground">Days of Week</Label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {DAYS_OF_WEEK.map((d) => (
-                    <button
-                      key={d.value}
-                      type="button"
-                      onClick={() => toggleDay(d.value)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
-                        selectedDays.includes(d.value)
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted/30 text-muted-foreground border-border/50 hover:border-border",
-                      )}
-                    >
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>

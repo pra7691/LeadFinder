@@ -85,6 +85,8 @@ export interface PipelineResult {
 
 export interface PipelineOptions {
   forceDiscoveryRefresh?: boolean;
+  /** When true, skip the discovery step entirely (used when resuming a failed run). */
+  skipDiscovery?: boolean;
 }
 
 // ── Hard qualification filter lists ────────────────────────────────────────
@@ -510,7 +512,8 @@ async function runDiscovery(
   const blockedResultDomains = new Set<string>();
 
   let searchCount = 0;
-  const maxSearches = campaign.maxSearchesPerDay;
+  const [globalSearchSetting] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_searches_per_day"));
+  const maxSearches = parseInt(globalSearchSetting?.value ?? String(campaign.maxSearchesPerDay ?? 10), 10);
   const now = new Date();
   const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
   const sourceRefreshMs = (campaign.discoverySourceRefreshDays ?? 30) * 24 * 60 * 60 * 1000;
@@ -949,8 +952,6 @@ async function runCrawl(
   campaignRunId?: number,
 ): Promise<number> {
   let crawledCount = 0;
-  const batchSize = Math.max(1, campaign.maxLeadsPerDay ?? 50);
-
   while (true) {
     const conditions = [
       eq(leadsTable.campaignId, campaign.id),
@@ -964,7 +965,7 @@ async function runCrawl(
       .select()
       .from(leadsTable)
       .where(and(...conditions))
-      .limit(batchSize);
+      .limit(100);
 
     if (uncrawled.length === 0) break;
 
@@ -976,7 +977,16 @@ async function runCrawl(
           .set({ crawlStatus: "crawling", crawlError: null })
           .where(eq(leadsTable.id, lead.id));
 
-        const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
+        // Hard per-lead deadline: 7 pages × 15 s each + some buffer = 120 s max.
+        // Without this, a single site that hangs at the TCP/body level could
+        // block the entire crawl batch indefinitely.
+        const LEAD_TIMEOUT_MS = 120_000;
+        const data = await Promise.race([
+          crawlWebsite(lead.websiteUrl, lead.rootDomain),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Crawl timed out after ${LEAD_TIMEOUT_MS / 1000}s`)), LEAD_TIMEOUT_MS),
+          ),
+        ]);
         const ok = data.pagesSucceeded > 0;
         const updates: Record<string, unknown> = {
           crawlStatus: ok ? "crawled" : "failed",
@@ -1134,7 +1144,10 @@ async function runEmail(
         sql`${leadsTable.emails} IS NOT NULL AND ${leadsTable.emails} != ''`,
       ),
     )
-    .limit(campaign.maxEmailsPerDay);
+    .limit(await (async () => {
+      const [s] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_emails_per_day"));
+      return parseInt(s?.value ?? String(campaign.maxEmailsPerDay ?? 20), 10);
+    })());
 
   if (eligibleLeads.length === 0) return 0;
 
@@ -1180,10 +1193,12 @@ async function runEmail(
   });
 
   let emailsSent = 0;
+  const [globalEmailSetting] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_emails_per_day"));
+  const globalMaxEmailsPerDay = parseInt(globalEmailSetting?.value ?? String(campaign.maxEmailsPerDay ?? 20), 10);
 
   for (const lead of eligibleLeads) {
     if (accountSentToday >= account.dailySendLimit) break;
-    if (emailsSent >= campaign.maxEmailsPerDay) break;
+    if (emailsSent >= globalMaxEmailsPerDay) break;
 
     const recipientEmail = lead.emails?.split(",")[0]?.trim();
     if (!recipientEmail) continue;
@@ -1433,23 +1448,27 @@ export async function runPipeline(
     return result;
   }
 
-  await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"`);
+  await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"${options.skipDiscovery ? " (resuming — skipping discovery)" : ""}`);
   await setStage(campaignRunId, "searching");
 
   try {
-    const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
-    result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
-    result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
-    result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
-    result.discoveryRawResults = discoveryStats.rawResultsFound;
-    result.discoveryResultsSeenBefore = discoveryStats.resultUrlsSeenBefore;
-    result.discoverySourcesFound = discoveryStats.discoverySourcesFound;
-    result.discoverySourcesMined = discoveryStats.discoverySourcesMined;
-    result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
-    result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
-    result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
-    if (discoveryStats.missingSerperKey) {
-      result.failed++;
+    if (options.skipDiscovery) {
+      await schedulerLog(campaignId, "Discovery skipped (resume mode)");
+    } else {
+      const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
+      result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
+      result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
+      result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
+      result.discoveryRawResults = discoveryStats.rawResultsFound;
+      result.discoveryResultsSeenBefore = discoveryStats.resultUrlsSeenBefore;
+      result.discoverySourcesFound = discoveryStats.discoverySourcesFound;
+      result.discoverySourcesMined = discoveryStats.discoverySourcesMined;
+      result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
+      result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
+      result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
+      if (discoveryStats.missingSerperKey) {
+        result.failed++;
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

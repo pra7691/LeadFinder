@@ -440,11 +440,15 @@ const FILTERS: { value: QuickFilter; label: string; color?: string }[] = [
 export function Leads() {
   const [filterCampaignId, setFilterCampaignId] = useState<number | undefined>(undefined);
   const [filterRunId, setFilterRunId] = useState<number | undefined>(undefined);
+  const [filterMinScore, setFilterMinScore] = useState<string>("");
+  const [filterMaxScore, setFilterMaxScore] = useState<string>("");
 
   const { data: leads, isLoading } = useListLeads({
     limit: 200,
     campaignId: filterCampaignId,
     campaignRunId: filterRunId,
+    minScore: filterMinScore !== "" ? Number(filterMinScore) : undefined,
+    maxScore: filterMaxScore !== "" ? Number(filterMaxScore) : undefined,
   });
   const runCrawl = useRunCrawl();
   const bulkCrawl = useBulkCrawl();
@@ -784,6 +788,33 @@ export function Leads() {
               data-testid="lead-search"
             />
           </div>
+
+          {/* Score range filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Score</span>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              placeholder="Min"
+              value={filterMinScore}
+              onChange={(e) => setFilterMinScore(e.target.value)}
+              className="w-16 h-9 rounded-xl bg-background/50 border-border/50 text-xs text-center px-1"
+              data-testid="filter-min-score"
+            />
+            <span className="text-xs text-muted-foreground">–</span>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              placeholder="Max"
+              value={filterMaxScore}
+              onChange={(e) => setFilterMaxScore(e.target.value)}
+              className="w-16 h-9 rounded-xl bg-background/50 border-border/50 text-xs text-center px-1"
+              data-testid="filter-max-score"
+            />
+          </div>
+
           <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={handleBulkCrawl}
             disabled={isBulkBusy || filteredLeads.length === 0} data-testid="btn-bulk-crawl">
             {bulkCrawlState === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
@@ -843,7 +874,7 @@ export function Leads() {
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
             disabled={isBulkBusy} onClick={() => handleBulkActionOp("disqualify")}>
-            <ThumbsDown className="w-3 h-3" /> Reject
+            <ThumbsDown className="w-3 h-3" /> Disqualify
           </Button>
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-primary border-primary/30 hover:bg-primary/10"
@@ -934,12 +965,11 @@ export function Leads() {
                 return (
                   <TableRow
                     key={lead.id}
-                    className="group border-border/30 transition-colors cursor-pointer hover:bg-muted/20"
+                    className="group border-border/30 transition-colors hover:bg-muted/20"
                     data-testid={`lead-row-${lead.id}`}
-                    onClick={() => setOpenLeadId(lead.id)}
                   >
                     {/* Select */}
-                    <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                    <TableCell className="pl-4">
                       <Checkbox checked={selected.has(lead.id)}
                         onCheckedChange={() => {}}
                         onClick={(e) => toggleSelect(e, lead.id)}
@@ -947,9 +977,12 @@ export function Leads() {
                         data-testid={`checkbox-lead-${lead.id}`} />
                     </TableCell>
 
-                    {/* Company */}
-                    <TableCell className="font-medium text-foreground leading-tight">
-                      <div>{lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-sm">Pending crawl</span>}</div>
+                    {/* Company — click opens lead detail */}
+                    <TableCell
+                      className="font-medium text-foreground leading-tight cursor-pointer"
+                      onClick={() => setOpenLeadId(lead.id)}
+                    >
+                      <div className="hover:text-primary transition-colors">{lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-sm">Pending crawl</span>}</div>
                       <ContactQualityBadge emails={lead.emails} phones={lead.phoneNumbers} linkedin={lead.linkedinUrl} />
                     </TableCell>
 

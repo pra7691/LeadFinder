@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { appSettingsTable, campaignsTable, campaignRunsTable, leadsTable } from "@workspace/db";
-import { eq, and, isNotNull, isNull, gte, inArray, desc, sql, type SQL } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, gte, lte, inArray, desc, sql, type SQL } from "drizzle-orm";
 import { saveExportFile } from "../services/export-files";
 import { parseBlockedDomains } from "../services/domain-blocklist";
 import {
@@ -79,6 +79,7 @@ router.get("/leads", async (req, res) => {
       ? hasEmailRaw === "true" || hasEmailRaw === "1"
       : undefined;
   const minScore = req.query.minScore ? Number(req.query.minScore) : undefined;
+  const maxScore = req.query.maxScore ? Number(req.query.maxScore) : undefined;
   const limit = req.query.limit ? Number(req.query.limit) : 200;
   const offset = req.query.offset ? Number(req.query.offset) : 0;
 
@@ -117,6 +118,9 @@ router.get("/leads", async (req, res) => {
   }
   if (minScore !== undefined && !isNaN(minScore)) {
     conditions.push(gte(leadsTable.relevanceScore, minScore));
+  }
+  if (maxScore !== undefined && !isNaN(maxScore)) {
+    conditions.push(lte(leadsTable.relevanceScore, maxScore));
   }
 
   const leads =

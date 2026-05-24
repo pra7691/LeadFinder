@@ -8,6 +8,7 @@ import {
   campaignsTable,
   leadsTable,
   logsTable,
+  appSettingsTable,
 } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { decrypt, isEncrypted } from "../lib/crypto";
@@ -104,6 +105,21 @@ async function getAccountSentToday(account: typeof emailAccountsTable.$inferSele
     return 0;
   }
   return account.sentToday;
+}
+
+async function getGlobalEmailLimit(): Promise<number> {
+  const [row] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_emails_per_day"));
+  return parseInt(row?.value ?? "20", 10);
+}
+
+async function getGlobalSentToday(): Promise<number> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(outreachQueueTable)
+    .where(and(eq(outreachQueueTable.status, "sent"), sql`${outreachQueueTable.sentAt} >= ${today.toISOString()}`));
+  return count;
 }
 
 async function getCampaignSentToday(campaignId: number): Promise<number> {
@@ -324,8 +340,11 @@ router.post("/outreach/send-batch", async (req, res) => {
   // Cache campaigns and accounts
   const campaignCache = new Map<number, typeof campaignsTable.$inferSelect>();
   const accountCache = new Map<number, typeof emailAccountsTable.$inferSelect>();
-  const campaignSentToday = new Map<number, number>();
   const accountSentToday = new Map<number, number>();
+
+  // Global email limit
+  const globalEmailLimit = await getGlobalEmailLimit();
+  let globalSentToday = await getGlobalSentToday();
 
   try {
   for (const item of approved) {
@@ -338,6 +357,13 @@ router.post("/outreach/send-batch", async (req, res) => {
         remaining: approved.length - (sent + failed + skipped),
       });
       break;
+    }
+
+    // Global daily limit check
+    if (globalSentToday >= globalEmailLimit) {
+      await logSend(item.campaignId, "send_skip", `Global daily email limit reached (${globalEmailLimit})`, { outreachId: item.id });
+      skipped++;
+      continue;
     }
 
     // Anti-spam checks
@@ -356,19 +382,6 @@ router.post("/outreach/send-batch", async (req, res) => {
         if (c) campaignCache.set(item.campaignId, c);
       }
       campaign = campaignCache.get(item.campaignId);
-
-      // Campaign daily limit (only when campaign exists)
-      if (campaign) {
-        if (!campaignSentToday.has(item.campaignId)) {
-          campaignSentToday.set(item.campaignId, await getCampaignSentToday(item.campaignId));
-        }
-        const campSent = campaignSentToday.get(item.campaignId) ?? 0;
-        if (campSent >= campaign.maxEmailsPerDay) {
-          await logSend(item.campaignId, "send_skip", `Campaign daily limit reached (${campaign.maxEmailsPerDay})`, { outreachId: item.id });
-          skipped++;
-          continue;
-        }
-      }
     }
 
     // Load email account
@@ -424,10 +437,7 @@ router.post("/outreach/send-batch", async (req, res) => {
 
     if (success) {
       sent++;
-      if (item.campaignId !== null) {
-        const campSent = campaignSentToday.get(item.campaignId) ?? 0;
-        campaignSentToday.set(item.campaignId, campSent + 1);
-      }
+      globalSentToday++;
       accountSentToday.set(accountId, acctSent + 1);
       // Refresh account cache counter
       const acct = accountCache.get(accountId)!;
@@ -569,7 +579,7 @@ router.get("/outreach/send-stats", async (_req, res) => {
         campaignId: c.id,
         campaignName: c.name,
         sentToday,
-        dailyLimit: c.maxEmailsPerDay,
+        dailyLimit: await getGlobalEmailLimit(),
       };
     }),
   );
@@ -641,13 +651,14 @@ router.post("/outreach/:id/send", async (req, res) => {
       .from(campaignsTable)
       .where(eq(campaignsTable.id, item.campaignId));
     campaign = c;
-    if (campaign) {
-      const campSent = await getCampaignSentToday(item.campaignId);
-      if (campSent >= campaign.maxEmailsPerDay) {
-        res.status(429).json({ error: `Campaign daily limit reached (${campaign.maxEmailsPerDay})` });
-        return;
-      }
-    }
+  }
+
+  // Global daily limit check for single send
+  const globalLimit = await getGlobalEmailLimit();
+  const globalSent = await getGlobalSentToday();
+  if (globalSent >= globalLimit) {
+    res.status(429).json({ error: `Global daily email limit reached (${globalLimit})` });
+    return;
   }
 
   await doSend(item, account, campaign);

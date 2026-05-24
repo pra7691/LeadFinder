@@ -5,7 +5,7 @@
 
 import * as cron from "node-cron";
 import { db } from "@workspace/db";
-import { campaignsTable } from "@workspace/db";
+import { campaignsTable, leadsTable, campaignRunsTable } from "@workspace/db";
 import { and, eq, lte, ne } from "drizzle-orm";
 import { runPipeline } from "./pipeline";
 import { logger } from "../lib/logger";
@@ -154,11 +154,73 @@ async function tick() {
 
 let cronTask: cron.ScheduledTask | null = null;
 
+/**
+ * On server startup, reset any state that was left "in progress" by a previous
+ * process that crashed or was killed mid-run.
+ *
+ * - Campaigns stuck in "running" → reset to "failed" so the scheduler can
+ *   pick them up again on the next scheduled tick.
+ * - Campaign runs still open → mark them ended/failed.
+ * - Leads stuck in "crawling" → reset to "pending" so they get re-crawled.
+ */
+async function recoverStuckState() {
+  try {
+    // 1. Reset campaigns stuck in "running"
+    const stuckCampaigns = await db
+      .update(campaignsTable)
+      .set({ lastRunStatus: "failed" })
+      .where(eq(campaignsTable.lastRunStatus, "running"))
+      .returning({ id: campaignsTable.id, name: campaignsTable.name });
+
+    if (stuckCampaigns.length > 0) {
+      logger.warn(
+        { campaigns: stuckCampaigns.map((c) => `${c.id}:${c.name}`) },
+        `Startup recovery: reset ${stuckCampaigns.length} stuck campaign(s) from "running" → "failed"`,
+      );
+    }
+
+    // 2. Close any campaign runs that were never ended
+    const stuckRuns = await db
+      .update(campaignRunsTable)
+      .set({ status: "failed", endedAt: new Date() })
+      .where(eq(campaignRunsTable.status, "running"))
+      .returning({ id: campaignRunsTable.id });
+
+    if (stuckRuns.length > 0) {
+      logger.warn(
+        { runIds: stuckRuns.map((r) => r.id) },
+        `Startup recovery: closed ${stuckRuns.length} stuck campaign run(s)`,
+      );
+    }
+
+    // 3. Reset leads stuck mid-crawl
+    const stuckLeads = await db
+      .update(leadsTable)
+      .set({ crawlStatus: "pending", crawlError: "Reset on server restart" })
+      .where(eq(leadsTable.crawlStatus, "crawling"))
+      .returning({ id: leadsTable.id });
+
+    if (stuckLeads.length > 0) {
+      logger.warn(
+        { count: stuckLeads.length },
+        `Startup recovery: reset ${stuckLeads.length} lead(s) from "crawling" → "pending"`,
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Startup recovery failed — continuing anyway");
+  }
+}
+
 export function startScheduler() {
   if (cronTask) {
     logger.warn("Scheduler already running");
     return;
   }
+
+  // Clean up any stuck state left by a previous server crash
+  recoverStuckState().catch((err) =>
+    logger.error({ err }, "Startup recovery threw unexpectedly"),
+  );
 
   // Run every minute: "* * * * *"
   cronTask = cron.schedule("* * * * *", () => {

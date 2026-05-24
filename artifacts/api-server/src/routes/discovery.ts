@@ -110,7 +110,9 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
   });
 
   // ── Work unit tracking setup ──────────────────────────────────────────────
-  const totalWorkUnits = Math.min(keywords.length * countryTargets.length, campaign.maxSearchesPerDay);
+  const [globalSearchSetting] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_searches_per_day"));
+  const globalMaxSearches = parseInt(globalSearchSetting?.value ?? String(campaign.maxSearchesPerDay ?? 10), 10);
+  const totalWorkUnits = Math.min(keywords.length * countryTargets.length, globalMaxSearches);
   const discoveryStartedAt = Date.now();
 
   try {
@@ -147,7 +149,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
     queries: [] as string[],
   };
 
-  const maxSearches = campaign.maxSearchesPerDay;
+  const maxSearches = globalMaxSearches;
   let searchCount = 0;
   const now = new Date();
   const queryRefreshMs = (campaign.queryRefreshDays ?? 30) * 24 * 60 * 60 * 1000;

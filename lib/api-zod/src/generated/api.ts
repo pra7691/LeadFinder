@@ -30,7 +30,11 @@ export const GetDashboardStatsResponse = zod.object({
   "approvedToSend": zod.number(),
   "rejectedDrafts": zod.number(),
   "riskyQueued": zod.number(),
-  "listsReadyForOutreach": zod.number()
+  "listsReadyForOutreach": zod.number(),
+  "searchesToday": zod.number(),
+  "qualifiedLeadsToday": zod.number(),
+  "globalMaxSearches": zod.number(),
+  "globalMaxEmails": zod.number()
 })
 
 
@@ -49,7 +53,6 @@ export const ListCampaignsResponseItem = zod.object({
   "isActive": zod.boolean(),
   "minRelevanceScore": zod.number(),
   "maxSearchesPerDay": zod.number(),
-  "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(listCampaignsResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().default(listCampaignsResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -79,7 +82,6 @@ export const ListCampaignsResponse = zod.array(ListCampaignsResponseItem)
 export const createCampaignBodyIsActiveDefault = true;
 export const createCampaignBodyMinRelevanceScoreDefault = 50;
 export const createCampaignBodyMaxSearchesPerDayDefault = 100;
-export const createCampaignBodyMaxLeadsPerDayDefault = 50;
 export const createCampaignBodyMaxEmailsPerDayDefault = 20;
 export const createCampaignBodyResultsPerSearchDefault = 10;
 export const createCampaignBodyResultsPerSearchMax = 50;
@@ -96,7 +98,6 @@ export const CreateCampaignBody = zod.object({
   "isActive": zod.boolean().default(createCampaignBodyIsActiveDefault),
   "minRelevanceScore": zod.number().default(createCampaignBodyMinRelevanceScoreDefault),
   "maxSearchesPerDay": zod.number().default(createCampaignBodyMaxSearchesPerDayDefault),
-  "maxLeadsPerDay": zod.number().default(createCampaignBodyMaxLeadsPerDayDefault),
   "maxEmailsPerDay": zod.number().default(createCampaignBodyMaxEmailsPerDayDefault),
   "resultsPerSearch": zod.number().min(1).max(createCampaignBodyResultsPerSearchMax).default(createCampaignBodyResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().min(1).default(createCampaignBodyQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -132,7 +133,6 @@ export const GetCampaignResponse = zod.object({
   "isActive": zod.boolean(),
   "minRelevanceScore": zod.number(),
   "maxSearchesPerDay": zod.number(),
-  "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(getCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().default(getCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -173,7 +173,6 @@ export const UpdateCampaignBody = zod.object({
   "isActive": zod.boolean().optional(),
   "minRelevanceScore": zod.number().optional(),
   "maxSearchesPerDay": zod.number().optional(),
-  "maxLeadsPerDay": zod.number().optional(),
   "maxEmailsPerDay": zod.number().optional(),
   "resultsPerSearch": zod.number().min(1).max(updateCampaignBodyResultsPerSearchMax).optional().describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().min(1).optional().describe('Days before the same keyword-country query is searched again'),
@@ -201,7 +200,6 @@ export const UpdateCampaignResponse = zod.object({
   "isActive": zod.boolean(),
   "minRelevanceScore": zod.number(),
   "maxSearchesPerDay": zod.number(),
-  "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(updateCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().default(updateCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -289,7 +287,6 @@ export const PauseCampaignResponse = zod.object({
   "isActive": zod.boolean(),
   "minRelevanceScore": zod.number(),
   "maxSearchesPerDay": zod.number(),
-  "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(pauseCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().default(pauseCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -330,7 +327,6 @@ export const ResumeCampaignResponse = zod.object({
   "isActive": zod.boolean(),
   "minRelevanceScore": zod.number(),
   "maxSearchesPerDay": zod.number(),
-  "maxLeadsPerDay": zod.number(),
   "maxEmailsPerDay": zod.number(),
   "resultsPerSearch": zod.number().default(resumeCampaignResponseResultsPerSearchDefault).describe('Number of Serper search results requested per keyword-country query (1-50)'),
   "queryRefreshDays": zod.number().default(resumeCampaignResponseQueryRefreshDaysDefault).describe('Days before the same keyword-country query is searched again'),
@@ -859,6 +855,7 @@ export const ListLeadsQueryParams = zod.object({
   "country": zod.coerce.string().optional(),
   "hasEmail": zod.coerce.boolean().optional(),
   "minScore": zod.coerce.number().optional(),
+  "maxScore": zod.coerce.number().optional(),
   "limit": zod.coerce.number().default(listLeadsQueryLimitDefault),
   "offset": zod.coerce.number().default(listLeadsQueryOffsetDefault)
 })

@@ -6,12 +6,39 @@ import {
   leadStatusHistoryTable,
   logsTable,
   campaignsTable,
+  appSettingsTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
+import { normalizeDomainToken, parseBlockedDomains } from "../services/domain-blocklist";
 
 const router = Router();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+async function addDomainsToBlocklist(rawDomains: (string | null)[]): Promise<void> {
+  const domains = rawDomains.map(normalizeDomainToken).filter(Boolean);
+  if (domains.length === 0) return;
+
+  const [existing] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+
+  const blocked = parseBlockedDomains(existing?.value);
+  const added = domains.filter((d) => !blocked.has(d));
+  if (added.length === 0) return;
+
+  added.forEach((d) => blocked.add(d));
+  const nextValue = Array.from(blocked).join("\n");
+
+  await db
+    .insert(appSettingsTable)
+    .values({ key: "blocked_domains", value: nextValue })
+    .onConflictDoUpdate({
+      target: appSettingsTable.key,
+      set: { value: nextValue, updatedAt: new Date() },
+    });
+}
 
 async function recordStatusChange(
   leadId: number,
@@ -154,6 +181,11 @@ router.post("/leads/bulk-action", async (req, res) => {
     .set(patch)
     .where(inArray(leadsTable.id, targetIds));
 
+  // Auto-block domains when leads are disqualified
+  if (action === "disqualify") {
+    await addDomainsToBlocklist(targetLeads.map((l) => l.rootDomain));
+  }
+
   // Record history for each lead
   await Promise.all(
     targetLeads.map((lead) =>
@@ -208,6 +240,14 @@ router.patch("/leads/:id", async (req, res) => {
     .set(body)
     .where(eq(leadsTable.id, id))
     .returning();
+
+  // Auto-block domain when a lead is disqualified
+  if (
+    body.qualificationStatus === "rejected" &&
+    existing.qualificationStatus !== "rejected"
+  ) {
+    await addDomainsToBlocklist([existing.rootDomain]);
+  }
 
   // Record status changes
   const statusChanged =

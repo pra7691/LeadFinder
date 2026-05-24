@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActivityStats,
   AddLeadsToListInput,
   AddLeadsToListResult,
   AppSetting,
@@ -38,6 +39,7 @@ import type {
   BulkScoreInput,
   BulkScoreSummary,
   Campaign,
+  GetActivityStatsParams,
   CampaignEmailAccountAssignment,
   CampaignEmailAccountInput,
   CampaignInput,
@@ -256,6 +258,54 @@ export function useGetDashboardStats<TData = Awaited<ReturnType<typeof getDashbo
 
 
 
+
+
+export const getGetActivityStatsUrl = (params?: GetActivityStatsParams) => {
+  const searchParams = new URLSearchParams();
+  if (params?.range) searchParams.set('range', params.range);
+  const qs = searchParams.toString();
+  return `/api/dashboard/activity-stats${qs ? `?${qs}` : ''}`;
+}
+
+/**
+ * @summary Get activity stats for a given date range
+ */
+export const getActivityStats = async (params?: GetActivityStatsParams, options?: RequestInit): Promise<ActivityStats> => {
+  return customFetch<ActivityStats>(getGetActivityStatsUrl(params), {
+    ...options,
+    method: 'GET',
+  });
+};
+
+export const getGetActivityStatsQueryKey = (params?: GetActivityStatsParams) => {
+  return [`/api/dashboard/activity-stats`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetActivityStatsQueryOptions = <TData = Awaited<ReturnType<typeof getActivityStats>>, TError = ErrorType<unknown>>(
+  params?: GetActivityStatsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getActivityStats>>, TError, TData>, request?: SecondParameter<typeof customFetch> }
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetActivityStatsQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getActivityStats>>> = ({ signal }) =>
+    getActivityStats(params, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<Awaited<ReturnType<typeof getActivityStats>>, TError, TData> & { queryKey: QueryKey };
+};
+
+export type GetActivityStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getActivityStats>>>;
+export type GetActivityStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get activity stats for a given date range
+ */
+export function useGetActivityStats<TData = Awaited<ReturnType<typeof getActivityStats>>, TError = ErrorType<unknown>>(
+  params?: GetActivityStatsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getActivityStats>>, TError, TData>, request?: SecondParameter<typeof customFetch> }
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetActivityStatsQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 
 export const getListCampaignsUrl = () => {
@@ -1395,6 +1445,36 @@ export const useCancelCampaignRun = <TError = ErrorType<void>,
       > => {
       return useMutation(getCancelCampaignRunMutationOptions(options));
     }
+
+// ── Resume campaign run ─────────────────────────────────────────────────────
+
+export const getResumeCampaignRunUrl = (id: number) => `/api/campaign-runs/${id}/resume`;
+
+export const resumeCampaignRun = async (id: number, options?: RequestInit): Promise<{ status: string; campaignId: number; runId: number }> => {
+  return customFetch<{ status: string; campaignId: number; runId: number }>(
+    getResumeCampaignRunUrl(id),
+    { ...options, method: 'POST' },
+  );
+};
+
+export const getResumeCampaignRunMutationOptions = <TError = ErrorType<void>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof resumeCampaignRun>>, TError, { id: number }, TContext>, request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof resumeCampaignRun>>, TError, { id: number }, TContext> => {
+  const mutationKey = ['resumeCampaignRun'];
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof resumeCampaignRun>>, { id: number }> = ({ id }) =>
+    resumeCampaignRun(id, requestOptions);
+  return { mutationKey, mutationFn, ...mutationOptions };
+};
+
+export type ResumeCampaignRunMutationResult = NonNullable<Awaited<ReturnType<typeof resumeCampaignRun>>>;
+export type ResumeCampaignRunMutationError = ErrorType<void>;
+
+export const useResumeCampaignRun = <TError = ErrorType<void>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof resumeCampaignRun>>, TError, { id: number }, TContext>, request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof resumeCampaignRun>>, TError, { id: number }, TContext> => {
+  return useMutation(getResumeCampaignRunMutationOptions(options));
+};
 
 export const getListEmailTemplatesUrl = (params?: ListEmailTemplatesParams,) => {
   const normalizedParams = new URLSearchParams();

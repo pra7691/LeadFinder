@@ -16,7 +16,7 @@ export interface CrawlData {
 }
 
 const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us", "/team", "/company"];
-const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_TIMEOUT_MS = 15_000; // covers both headers + body
 
 const SKIP_CRAWL_PATHS = [
   /\/blog\b/i, /\/blogs\b/i, /\/article/i, /\/news\b/i, /\/docs\b/i,
@@ -31,9 +31,12 @@ function shouldSkipPath(path: string): boolean {
 // ── Fetch ──────────────────────────────────────────────────────────────────
 
 async function fetchPage(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  // Keep the timer alive through the ENTIRE request (headers + body).
+  // Clearing it before response.text() was the bug: a server that sent headers
+  // quickly but then stalled on the body would hang forever.
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
@@ -42,13 +45,15 @@ async function fetchPage(url: string): Promise<string | null> {
       },
       redirect: "follow",
     });
-    clearTimeout(timer);
     if (!response.ok) return null;
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("text/html")) return null;
+    // response.text() is now also guarded by the same abort signal
     return await response.text();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

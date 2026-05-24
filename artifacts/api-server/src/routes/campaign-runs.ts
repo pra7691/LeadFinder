@@ -2,7 +2,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
-import { requestCancellation } from "../scheduler/pipeline";
+import { requestCancellation, runPipeline } from "../scheduler/pipeline";
+import { computeNextRunAt } from "../scheduler/index";
 import { classifyLeadType } from "../services/lead-classifier";
 import { crawlWebsite } from "../services/crawler";
 import { scoreLead } from "../services/scorer";
@@ -684,6 +685,147 @@ router.post("/campaign-runs/:id/cancel", async (req, res) => {
 
   res.json(updated);
   return;
+});
+
+// ── POST /campaign-runs/:id/resume ─────────────────────────────────────────
+//
+// Resume a failed or partial campaign run from where it left off.
+// Skips the discovery step (leads were already found); re-crawls any leads
+// still pending/stuck in this run, then continues with scoring and email.
+
+router.post("/campaign-runs/:id/resume", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+
+  const [run] = await db
+    .select()
+    .from(campaignRunsTable)
+    .where(eq(campaignRunsTable.id, id));
+
+  if (!run) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
+
+  const resumable: string[] = ["failed", "partial", "cancelled"];
+  if (!resumable.includes(run.status)) {
+    res.status(400).json({
+      error: `Cannot resume a run with status "${run.status}". Only failed, partial, or cancelled runs can be resumed.`,
+    });
+    return;
+  }
+
+  const [campaign] = await db
+    .select()
+    .from(campaignsTable)
+    .where(eq(campaignsTable.id, run.campaignId));
+
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found" });
+    return;
+  }
+
+  if (campaign.lastRunStatus === "running") {
+    res.status(409).json({ error: "A pipeline is already running for this campaign" });
+    return;
+  }
+
+  // Reset any leads left mid-crawl from the previous attempt
+  const resetLeads = await db
+    .update(leadsTable)
+    .set({ crawlStatus: "pending", crawlError: "Reset for resume" })
+    .where(and(eq(leadsTable.campaignRunId, id), eq(leadsTable.crawlStatus, "crawling")))
+    .returning({ id: leadsTable.id });
+
+  // Re-open the run
+  await db
+    .update(campaignRunsTable)
+    .set({
+      status: "running",
+      completedAt: null,
+      errorMessage: null,
+      currentStage: "searching",
+    })
+    .where(eq(campaignRunsTable.id, id));
+
+  await db
+    .update(campaignsTable)
+    .set({ lastRunStatus: "running", lastRunAt: new Date() })
+    .where(eq(campaignsTable.id, campaign.id));
+
+  await db.insert(logsTable).values({
+    campaignId: campaign.id,
+    type: "workflow",
+    message: `Campaign run #${id} resumed by user${resetLeads.length > 0 ? ` (${resetLeads.length} stuck lead(s) reset to pending)` : ""}.`,
+  });
+
+  // Fire-and-forget — skip discovery, resume from crawl step
+  runPipeline(campaign.id, id, { skipDiscovery: true })
+    .then(async (result) => {
+      const workCompleted =
+        result.crawledCount > 0 ||
+        result.scoredCount > 0 ||
+        result.emailsSent > 0;
+      const status =
+        result.failed > 0
+          ? (workCompleted ? "partial" : "failed")
+          : "completed";
+
+      const nextRunAt = computeNextRunAt(
+        campaign.scheduleType,
+        campaign.scheduleTime,
+        campaign.scheduleDays,
+      );
+
+      await Promise.all([
+        db.update(campaignsTable)
+          .set({ lastRunStatus: status === "completed" ? "success" : status, lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
+          .where(eq(campaignsTable.id, campaign.id)),
+        db.update(campaignRunsTable)
+          .set({
+            status,
+            currentStage: status,
+            completedAt: new Date(),
+            totalNewLeads: result.discoveryLeadsCreated,
+            totalSearches: result.discoverySearchesPerformed,
+            totalRejected: result.failed,
+            errorMessage: result.errors.length > 0 ? result.errors.join("; ") : null,
+            metadataJson: JSON.stringify({
+              crawledCount: result.crawledCount,
+              scoredCount: result.scoredCount,
+              pendingCrawlCount: result.pendingCrawlCount,
+              crawlFailedCount: result.crawlFailedCount,
+              pendingScoreCount: result.pendingScoreCount,
+              emailsSent: result.emailsSent,
+              durationMs: result.durationMs,
+              resumedRun: true,
+            }),
+            progressPercent: 100,
+            estimatedRemainingSeconds: 0,
+          })
+          .where(eq(campaignRunsTable.id, id)),
+      ]);
+    })
+    .catch(async (err) => {
+      const nextRunAt = computeNextRunAt(
+        campaign.scheduleType,
+        campaign.scheduleTime,
+        campaign.scheduleDays,
+      );
+      await Promise.all([
+        db.update(campaignsTable)
+          .set({ lastRunStatus: "failed", lastRunAt: new Date(), nextRunAt: nextRunAt ?? undefined })
+          .where(eq(campaignsTable.id, campaign.id)),
+        db.update(campaignRunsTable)
+          .set({ status: "failed", currentStage: "failed", completedAt: new Date(), errorMessage: String(err?.message ?? err) })
+          .where(eq(campaignRunsTable.id, id)),
+      ]);
+    });
+
+  res.status(202).json({ status: "resumed", campaignId: campaign.id, runId: id });
 });
 
 export default router;

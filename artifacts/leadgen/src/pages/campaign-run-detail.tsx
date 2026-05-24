@@ -11,7 +11,9 @@ import {
   useDeleteCampaignRun,
   useDeleteLead,
   useBulkDeleteLeads,
+  useBulkLeadAction,
   useCancelCampaignRun,
+  useResumeCampaignRun,
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
   getListCampaignRunsQueryKey,
@@ -50,6 +52,7 @@ import {
   X,
   Ban,
   Copy,
+  RotateCcw,
 } from "lucide-react";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -205,7 +208,9 @@ export function CampaignRunDetail() {
   const deleteRun = useDeleteCampaignRun();
   const deleteLead = useDeleteLead();
   const bulkDeleteLeads = useBulkDeleteLeads();
+  const bulkLeadAction = useBulkLeadAction();
   const cancelRun = useCancelCampaignRun();
+  const resumeRun = useResumeCampaignRun();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [addToListOpen, setAddToListOpen] = useState(false);
@@ -215,6 +220,8 @@ export function CampaignRunDetail() {
   type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore" | "notInList";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
+  const [minScoreFilter, setMinScoreFilter] = useState<string>("");
+  const [maxScoreFilter, setMaxScoreFilter] = useState<string>("");
   const [resultFilter, setResultFilter] = useState<null | "blocked" | "duplicate" | "rejected">(null);
   const [blockReasonFilter, setBlockReasonFilter] = useState<BlockReasonFilter>("all");
   const [resultSearchQuery, setResultSearchQuery] = useState("");
@@ -289,9 +296,11 @@ export function CampaignRunDetail() {
       if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
       if (leadFilters.has("aboveMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore < minRelevanceScore)) return false;
       if (leadFilters.has("notInList") && l.addedToList) return false;
+      if (minScoreFilter !== "" && (typeof l.relevanceScore !== "number" || l.relevanceScore < Number(minScoreFilter))) return false;
+      if (maxScoreFilter !== "" && (typeof l.relevanceScore !== "number" || l.relevanceScore > Number(maxScoreFilter))) return false;
       return true;
     });
-  }, [leadRows, searchQuery, statusFilter, leadFilters, minRelevanceScore]);
+  }, [leadRows, searchQuery, statusFilter, leadFilters, minRelevanceScore, minScoreFilter, maxScoreFilter]);
 
   const crawlSummary = useMemo(() => {
     const total = leadRows.length;
@@ -674,6 +683,34 @@ export function CampaignRunDetail() {
               Stop Run
             </Button>
           )}
+          {(run.status === "failed" || run.status === "partial" || run.status === "cancelled") && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 hover:border-emerald-500/60"
+              disabled={resumeRun.isPending}
+              onClick={() => {
+                resumeRun.mutate(
+                  { id: runIdNum },
+                  {
+                    onSuccess: () => {
+                      toast({ title: "Run resumed", description: "The pipeline is picking up from where it left off." });
+                      queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
+                      queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId: campaignId ? Number(campaignId) : undefined }) });
+                    },
+                    onError: (err: unknown) => {
+                      const msg = (err as { message?: string })?.message ?? "Failed to resume run";
+                      toast({ title: "Resume failed", description: msg, variant: "destructive" });
+                    },
+                  },
+                );
+              }}
+              data-testid="button-resume-run"
+            >
+              {resumeRun.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+              Resume Run
+            </Button>
+          )}
           {run.status !== "running" && (
             <Button
               size="sm"
@@ -1049,6 +1086,32 @@ export function CampaignRunDetail() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="rounded-xl gap-2 text-xs h-8 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
+                      onClick={() => bulkLeadAction.mutate(
+                        { data: { action: "qualify", leadIds: Array.from(selectedIds) } },
+                        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
+                      )}
+                      disabled={bulkLeadAction.isPending}
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                      Qualify {selectedIds.size}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl gap-2 text-xs h-8 border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                      onClick={() => bulkLeadAction.mutate(
+                        { data: { action: "disqualify", leadIds: Array.from(selectedIds) } },
+                        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
+                      )}
+                      disabled={bulkLeadAction.isPending}
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                      Disqualify {selectedIds.size}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       className="rounded-xl gap-2 text-xs h-8"
                       onClick={() => setAddToListOpen(true)}
                     >
@@ -1101,6 +1164,29 @@ export function CampaignRunDetail() {
                   onChange={(e) => { setSearchQuery(e.target.value); setSelectedIds(new Set()); }}
                   placeholder="Search company or domain…"
                   className="pl-8 h-8 text-xs rounded-xl bg-background/50"
+                />
+              </div>
+              {/* Score range filter */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Score</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="Min"
+                  value={minScoreFilter}
+                  onChange={(e) => { setMinScoreFilter(e.target.value); setSelectedIds(new Set()); }}
+                  className="w-14 h-8 text-xs rounded-xl bg-background/50 text-center px-1"
+                />
+                <span className="text-xs text-muted-foreground">–</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="Max"
+                  value={maxScoreFilter}
+                  onChange={(e) => { setMaxScoreFilter(e.target.value); setSelectedIds(new Set()); }}
+                  className="w-14 h-8 text-xs rounded-xl bg-background/50 text-center px-1"
                 />
               </div>
               <div className="flex gap-1.5 flex-wrap">
@@ -1186,23 +1272,21 @@ export function CampaignRunDetail() {
                     <div
                       key={lead.id}
                       className={cn(
-                        "flex items-center gap-3 px-5 py-3 hover:bg-muted/10 transition-colors group cursor-pointer",
+                        "flex items-center gap-3 px-5 py-3 hover:bg-muted/10 transition-colors group",
                         selectedIds.has(lead.id) && "bg-primary/5",
                       )}
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest('input,button')) return;
-                        setSelectedLeadId(lead.id);
-                      }}
                     >
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead.id)}
                         onChange={() => toggleLead(lead.id)}
-                        onClick={(e) => e.stopPropagation()}
                         className="rounded accent-primary shrink-0"
                       />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => setSelectedLeadId(lead.id)}
+                      >
+                        <p className="text-sm font-medium truncate hover:text-primary transition-colors">
                           {lead.companyName || (
                             <span className="italic text-muted-foreground/60 font-normal text-xs">
                               {lead.crawlStatus === "failed" ? "Company unavailable" : "Pending crawl"}
@@ -1230,9 +1314,16 @@ export function CampaignRunDetail() {
                           )}
                         </div>
                       </div>
-                      <span className="w-36 text-xs text-muted-foreground truncate hidden md:block">
+                      <a
+                        href={lead.rootDomain ? `https://${lead.rootDomain}` : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-36 text-xs text-muted-foreground truncate hidden md:flex items-center gap-1 hover:text-primary transition-colors"
+                      >
+                        <Globe className="w-3 h-3 shrink-0 opacity-60" />
                         {lead.rootDomain}
-                      </span>
+                      </a>
                       <span className="w-12 hidden sm:block text-center">
                         {(lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed")) ? (
                           <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />

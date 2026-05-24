@@ -21,6 +21,20 @@ export interface DashboardStats {
   rejectedDrafts: number;
   riskyQueued: number;
   listsReadyForOutreach: number;
+  searchesToday: number;
+  qualifiedLeadsToday: number;
+  globalMaxSearches: number;
+  globalMaxEmails: number;
+}
+
+export interface ActivityStats {
+  searches: number;
+  qualifiedLeads: number;
+  emailsSent: number;
+}
+
+export interface GetActivityStatsParams {
+  range?: 'today' | 'week' | 'alltime';
 }
 
 export type CampaignScheduleType = typeof CampaignScheduleType[keyof typeof CampaignScheduleType];

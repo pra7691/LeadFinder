@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download, MousePointerClick } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download, MousePointerClick, Gauge } from "lucide-react";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplates } from "@/pages/email-templates";
 import { saveTextExportToServer } from "@/lib/export-files";
@@ -229,6 +229,7 @@ const OPENAI_MODELS = [
 
 const SETTINGS_TABS = [
   { value: "domains", path: "/settings/domains", label: "Domains", icon: Shield },
+  { value: "limits", path: "/settings/limits", label: "Limits", icon: Gauge },
   { value: "ai", path: "/settings/ai", label: "AI", icon: BrainCircuit },
   { value: "serp", path: "/settings/serp", label: "SERP", icon: Search },
   { value: "email-templates", path: "/settings/email-templates", label: "Email Templates", icon: FileText },
@@ -272,6 +273,10 @@ export function Settings() {
   const [emailTrackerUrl, setEmailTrackerUrl] = useState("");
   const [emailTrackerSecret, setEmailTrackerSecret] = useState("");
 
+  // Global limits
+  const [globalMaxSearches, setGlobalMaxSearches] = useState("10");
+  const [globalMaxEmails, setGlobalMaxEmails] = useState("20");
+
   const initialized = useRef(false);
   const settingRows = Array.isArray(settings) ? settings : [];
 
@@ -287,6 +292,8 @@ export function Settings() {
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
       setEmailTrackerUrl(find("email_tracker_url") ?? "");
       setEmailTrackerSecret(find("email_tracker_admin_secret") ?? "");
+      setGlobalMaxSearches(find("global_max_searches_per_day") ?? "10");
+      setGlobalMaxEmails(find("global_max_emails_per_day") ?? "20");
       initialized.current = true;
     }
   }, [settingRows]);
@@ -306,6 +313,13 @@ export function Settings() {
     await save("blocked_domains", blockedDomains);
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "Settings saved." });
+  };
+
+  const handleSaveLimits = async () => {
+    await save("global_max_searches_per_day", globalMaxSearches);
+    await save("global_max_emails_per_day", globalMaxEmails);
+    queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
+    toast({ title: "Limits saved." });
   };
 
   const handleSaveSerper = async () => {
@@ -378,6 +392,54 @@ export function Settings() {
             ))}
           </TabsList>
         </div>
+
+        {/* ── Limits ───────────────────────────────────────────────────────── */}
+        <TabsContent value="limits" className="mt-0 max-w-3xl">
+          <Card className="glass-card">
+            <CardHeader className="border-b border-border/30 pb-4">
+              <CardTitle className="text-base font-semibold">Global Daily Limits</CardTitle>
+              <CardDescription>
+                These limits apply across all campaigns. The header bar shows today&apos;s usage vs. these limits in real time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Max Searches / Day</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={globalMaxSearches}
+                    onChange={(e) => setGlobalMaxSearches(e.target.value)}
+                    className="rounded-xl bg-background/50"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Maximum number of Serper SERP searches performed across all campaigns in a single day.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Max Emails / Day</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={globalMaxEmails}
+                    onChange={(e) => setGlobalMaxEmails(e.target.value)}
+                    className="rounded-xl bg-background/50"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Maximum number of outreach emails sent in total across all campaigns in a single day.
+                  </p>
+                </div>
+              </div>
+              <Button onClick={handleSaveLimits} disabled={upsertSetting.isPending} className="rounded-xl">
+                {upsertSetting.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Save Limits
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="domains" className="mt-0 max-w-3xl">
           {isLoading ? (

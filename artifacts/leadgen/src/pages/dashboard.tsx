@@ -1,5 +1,6 @@
 import {
   useGetDashboardStats,
+  useGetActivityStats,
   useListLogs,
   useGetSchedulerStatus,
   useTriggerCampaignPipeline,
@@ -7,6 +8,13 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Activity,
   Briefcase,
@@ -24,11 +32,13 @@ import {
   ThumbsUp,
   XCircle,
   AlertTriangle,
+  Search,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
+import { useState } from "react";
 
 type SchedulerRow = {
   campaignId: number;
@@ -57,8 +67,19 @@ const STATUS_TEXT: Record<string, string> = {
   failed: "text-destructive",
 };
 
+const RANGE_LABELS: Record<string, string> = {
+  today: "Today",
+  week: "This Week",
+  alltime: "All Time",
+};
+
 export function Dashboard() {
+  const [activityRange, setActivityRange] = useState<"today" | "week" | "alltime">("today");
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats();
+  const { data: activityStats, isLoading: activityLoading, isFetching: activityFetching } = useGetActivityStats(
+    { range: activityRange },
+    { query: { refetchInterval: 60_000, staleTime: 0 } },
+  );
   const { data: logs, isLoading: logsLoading } = useListLogs({ limit: 8 });
   const { data: schedulerStatus } = useGetSchedulerStatus();
   const triggerPipeline = useTriggerCampaignPipeline();
@@ -89,6 +110,58 @@ export function Dashboard() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
+
+      {/* Activity stats with date range */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium text-muted-foreground">Activity</h2>
+            {activityFetching && !activityLoading && (
+              <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+            )}
+          </div>
+          <Select value={activityRange} onValueChange={(v) => setActivityRange(v as "today" | "week" | "alltime")}>
+            <SelectTrigger className="w-36 h-8 text-xs rounded-xl">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="alltime">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <ActivityStatCard
+            title="Searches"
+            subtitle={RANGE_LABELS[activityRange]}
+            value={activityStats?.searches}
+            icon={Search}
+            loading={activityLoading}
+            fetching={activityFetching}
+            limit={activityRange === "today" ? stats?.globalMaxSearches : undefined}
+          />
+          <ActivityStatCard
+            title="Qualified Leads"
+            subtitle={RANGE_LABELS[activityRange]}
+            value={activityStats?.qualifiedLeads}
+            icon={Users}
+            loading={activityLoading}
+            fetching={activityFetching}
+            valueClassName="text-emerald-500"
+          />
+          <ActivityStatCard
+            title="Emails Sent"
+            subtitle={RANGE_LABELS[activityRange]}
+            value={activityStats?.emailsSent}
+            icon={Send}
+            loading={activityLoading}
+            fetching={activityFetching}
+            valueClassName="text-primary"
+            limit={activityRange === "today" ? stats?.globalMaxEmails : undefined}
+          />
+        </div>
+      </div>
 
       {/* Pipeline stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -313,6 +386,69 @@ function ReviewTile({
         <div className="text-[10px] text-muted-foreground">{label}</div>
       </div>
     </div>
+  );
+}
+
+function ActivityStatCard({
+  title,
+  subtitle,
+  value,
+  icon: Icon,
+  loading,
+  fetching = false,
+  valueClassName = "",
+  limit,
+}: {
+  title: string;
+  subtitle: string;
+  value?: number;
+  icon: React.ElementType;
+  loading: boolean;
+  fetching?: boolean;
+  valueClassName?: string;
+  limit?: number;
+}) {
+  const pct = limit !== undefined && value !== undefined ? Math.min(100, Math.round((value / limit) * 100)) : null;
+  return (
+    <Card className={cn("glass-card border-border/50 transition-opacity duration-200", fetching && !loading ? "opacity-60" : "")}>
+      <CardContent className="pt-5 pb-4 px-5">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+            <p className="text-sm font-medium mt-0.5">{title}</p>
+          </div>
+          <div className="p-2 bg-muted/40 rounded-lg shrink-0 relative">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            {fetching && !loading && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full animate-pulse" />
+            )}
+          </div>
+        </div>
+        {loading ? (
+          <div className="h-9 w-20 bg-muted/50 animate-pulse rounded-md" />
+        ) : (
+          <>
+            <div className={cn("text-3xl font-semibold tracking-tight", valueClassName)}>
+              {value !== undefined ? value.toLocaleString() : "-"}
+              {limit !== undefined && (
+                <span className="text-sm font-normal text-muted-foreground ml-1.5">/ {limit}</span>
+              )}
+            </div>
+            {pct !== null && (
+              <div className="mt-2.5 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-amber-500" : "bg-primary",
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
