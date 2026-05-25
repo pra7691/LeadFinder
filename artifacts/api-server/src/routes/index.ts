@@ -20,7 +20,8 @@ import schedulerRouter from "./scheduler";
 import exportRouter from "./export";
 import fileExportsRouter from "./file-exports";
 import adminRouter from "./admin";
-import { ensureOutreachTrackingColumns } from "../lib/schema-guards";
+import unsubscribeRouter from "./unsubscribe";
+import { ensureOutreachTrackingColumns, ensureUnsubscribeSchema } from "../lib/schema-guards";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,9 @@ const router: IRouter = Router();
 // failure (see schema-guards.ts) so the next request retries automatically.
 ensureOutreachTrackingColumns().catch(() => {
   // Columns will be retried on the next request that needs them.
+});
+ensureUnsubscribeSchema().catch(() => {
+  // Schema will be retried on the next request that needs it.
 });
 
 router.use(healthRouter);
@@ -51,6 +55,7 @@ router.use(outreachSendRouter);
 router.use(outreachRouter);
 router.use(logsRouter);
 router.use(settingsRouter);
+router.use(unsubscribeRouter);
 router.use(adminRouter);
 
 export default router;

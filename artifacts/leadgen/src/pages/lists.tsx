@@ -30,12 +30,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { saveExportToServer } from "@/lib/export-files";
 import {
   List,
   Plus,
   Trash2,
   Edit2,
   Users,
+  Download,
+  Loader2,
 } from "lucide-react";
 
 function SkeletonRow() {
@@ -145,6 +148,7 @@ export function Lists() {
   const [showArchived, setShowArchived] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<LeadList | null>(null);
+  const [exportingListId, setExportingListId] = useState<number | null>(null);
 
   const listParams = { includeArchived: showArchived ? true : undefined };
   const { data: lists, isLoading } = useListLeadLists(
@@ -157,6 +161,30 @@ export function Lists() {
   const deleteMut = useDeleteLeadList();
 
   const invalidate = () => qc.invalidateQueries({ queryKey: getListLeadListsQueryKey() });
+
+  const handleExportList = async (list: LeadList, format: "csv" | "xlsx" = "csv") => {
+    if (exportingListId !== null) return;
+    setExportingListId(list.id);
+    try {
+      const resp = await fetch(`/api/lists/${list.id}/leads`);
+      if (!resp.ok) throw new Error("Failed to fetch list leads");
+      const leads = (await resp.json()) as { id: number }[];
+      if (!leads.length) {
+        toast({ title: "No leads in this list to export" });
+        return;
+      }
+      const ids = leads.map((l) => l.id).join(",");
+      const saved = await saveExportToServer(`/api/leads/export?format=${format}&leadIds=${ids}`);
+      toast({ title: `Exported ${leads.length} lead${leads.length !== 1 ? "s" : ""} → ${saved.relativePath}` });
+    } catch (err: unknown) {
+      toast({
+        title: err instanceof Error ? err.message : "Export failed",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingListId(null);
+    }
+  };
 
   const handleCreate = (form: FormState) => {
     createMut.mutate(
@@ -317,6 +345,21 @@ export function Lists() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                        aria-label={`Export ${list.name}`}
+                        disabled={exportingListId === list.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExportList(list, "csv");
+                        }}
+                      >
+                        {exportingListId === list.id
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <Download className="w-4 h-4" />}
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"

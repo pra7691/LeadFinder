@@ -22,7 +22,9 @@ import { Outreach } from "@/pages/outreach";
 import { OutreachBatchDetail } from "@/pages/outreach-batch-detail";
 import { Logs } from "@/pages/logs";
 import { FailedLogs } from "@/pages/failed-logs";
+import { NoEmailLeads } from "@/pages/no-email-leads";
 import { Settings } from "@/pages/settings";
+import { Unsubscribes } from "@/pages/unsubscribes";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,7 +57,9 @@ function Router() {
           <Route path="/email-templates" component={EmailTemplatesRoute} />
           <Route path="/outreach/batches/:batchId" component={OutreachBatchDetail} />
           <Route path="/outreach" component={Outreach} />
+          <Route path="/unsubscribes" component={Unsubscribes} />
           <Route path="/outreach-review" component={Outreach} />
+          <Route path="/no-email-leads" component={NoEmailLeads} />
           <Route path="/failed-logs/runs/:runId" component={FailedLogs} />
           <Route path="/failed-logs" component={FailedLogs} />
           <Route path="/logs" component={Logs} />

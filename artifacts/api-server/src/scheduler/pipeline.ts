@@ -30,6 +30,7 @@ import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
+import { buildUnsubscribeUrl, isEmailUnsubscribed } from "../routes/unsubscribe";
 import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
 
 // ── Cancellation registry ─────────────────────────────────────────────────
@@ -121,6 +122,21 @@ const JUNK_PATH_PATTERNS = [
 /** TLD patterns for government / education / research institutions. */
 const JUNK_TLD_PATTERN = /\.(gov|edu|ac\.uk|ac\.jp|edu\.au|gov\.uk|gov\.au|ac\.nz|edu\.nz|gc\.ca)$/i;
 
+/**
+ * Subdomain prefixes that indicate non-company content even when the root
+ * domain itself is not in any block list. e.g. docs.company.com, blog.company.com.
+ * These are checked against the SUBDOMAIN part of the rootDomain only.
+ */
+const JUNK_SUBDOMAIN_PREFIXES = [
+  "docs.", "blog.", "blogs.", "discuss.", "forum.", "forums.", "community.",
+  "help.", "support.", "status.", "dev.", "developer.", "developers.",
+  "careers.", "jobs.", "hiring.", "news.", "press.", "ir.", "investors.",
+  "shop.", "store.", "app.", "apps.", "play.", "pages.", "sites.",
+  "training.", "learn.", "learning.", "academy.", "university.",
+  "research.", "lab.", "labs.", "open.", "opensource.", "wiki.",
+  "mail.", "webmail.", "calendar.", "drive.", "cloud.",
+];
+
 /** Title/snippet words that strongly suggest non-company content. */
 const JUNK_TITLE_WORDS = [
   "tutorial", "documentation", "blog post", "research paper",
@@ -203,6 +219,13 @@ function classifySearchResultDetailed(
   // Government / education TLDs
   if (JUNK_TLD_PATTERN.test(domainLower)) {
     return { cls: "blocked", reason: "Government or education domain" };
+  }
+
+  // Junk subdomain prefixes (docs.*, blog.*, discuss.*, etc.)
+  for (const prefix of JUNK_SUBDOMAIN_PREFIXES) {
+    if (domainLower.startsWith(prefix)) {
+      return { cls: "blocked", reason: `Non-company subdomain (${prefix.replace(".", "")})` };
+    }
   }
 
   // Known directory/listing domains → treat as discovery sources to mine
@@ -501,7 +524,7 @@ async function runDiscovery(
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "blocked_domains"));
 
-  const blockedDomains = parseBlockedDomains(blockedSetting?.value);
+  let blockedDomains = parseBlockedDomains(blockedSetting?.value);
 
   const existingLeads = await db
     .select({ rootDomain: leadsTable.rootDomain })
@@ -556,6 +579,15 @@ async function runDiscovery(
   outer: for (const kw of keywords) {
     for (const co of countryTargets) {
       if (searchCount >= maxSearches) break outer;
+
+      // ── Refresh blocklist each query so domains added mid-run are respected ─
+      try {
+        const [freshBlockedSetting] = await db
+          .select()
+          .from(appSettingsTable)
+          .where(eq(appSettingsTable.key, "blocked_domains"));
+        blockedDomains = parseBlockedDomains(freshBlockedSetting?.value);
+      } catch { /* non-fatal – keep using the last good snapshot */ }
 
       const query = [kw.keyword, co.country].filter(Boolean).join(" ");
 
@@ -936,6 +968,35 @@ async function runDiscovery(
     }
   }
 
+  // ── Post-run blocklist cleanup ─────────────────────────────────────────────
+  // Delete any leads created during this run whose domain now matches the
+  // blocklist (catches domains added to the blocklist while the run was running).
+  try {
+    const [finalBlockedSetting] = await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "blocked_domains"));
+    const finalBlockedDomains = parseBlockedDomains(finalBlockedSetting?.value);
+    if (finalBlockedDomains.size > 0 && campaignRunId != null) {
+      const runLeads = await db
+        .select({ id: leadsTable.id, rootDomain: leadsTable.rootDomain })
+        .from(leadsTable)
+        .where(eq(leadsTable.campaignRunId, campaignRunId));
+      const toDelete = runLeads.filter((l) => domainMatchesBlockedList(l.rootDomain, finalBlockedDomains));
+      if (toDelete.length > 0) {
+        for (const lead of toDelete) {
+          await db.delete(leadsTable).where(eq(leadsTable.id, lead.id));
+        }
+        await schedulerLog(
+          campaign.id,
+          `Post-run blocklist cleanup: removed ${toDelete.length} lead${toDelete.length === 1 ? "" : "s"} that matched updated blocklist`,
+          { removed: toDelete.map((l) => l.rootDomain) },
+        );
+        stats.newLeadsCreated = Math.max(0, stats.newLeadsCreated - toDelete.length);
+      }
+    }
+  } catch { /* non-fatal */ }
+
   await schedulerLog(
     campaign.id,
     `Discovery complete: ${stats.searchesPerformed} searched, ${stats.searchesSkipped} skipped, ${stats.newLeadsCreated} new leads`,
@@ -1131,6 +1192,20 @@ async function runEmail(
     return 0; // No email template configured
   }
 
+  // Re-fetch the current blocklist so we don't email any domain that was
+  // blocked since this campaign's leads were originally created.
+  const [emailBlockedSetting] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+  const emailBlockedDomains = parseBlockedDomains(emailBlockedSetting?.value);
+
+  // Configurable send delay
+  const [delayMinRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_min_seconds"));
+  const [delayMaxRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_max_seconds"));
+  const pipelineDelayMinMs = Math.max(1000, (parseInt(delayMinRow?.value ?? "30", 10) || 30) * 1000);
+  const pipelineDelayMaxMs = Math.max(pipelineDelayMinMs, (parseInt(delayMaxRow?.value ?? "120", 10) || 120) * 1000);
+
   // Find qualified leads not yet queued for this campaign
   const eligibleLeads = await db
     .select()
@@ -1150,6 +1225,13 @@ async function runEmail(
     })());
 
   if (eligibleLeads.length === 0) return 0;
+
+  // Filter out leads whose domain is now in the blocklist (could have been
+  // added since the lead was originally discovered in a prior run).
+  const safeLeads = eligibleLeads.filter(
+    (l) => !domainMatchesBlockedList(l.rootDomain, emailBlockedDomains),
+  );
+  if (safeLeads.length === 0) return 0;
 
   // Get the email account assigned to this campaign
   const [assignedAccount] = await db
@@ -1196,12 +1278,18 @@ async function runEmail(
   const [globalEmailSetting] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "global_max_emails_per_day"));
   const globalMaxEmailsPerDay = parseInt(globalEmailSetting?.value ?? String(campaign.maxEmailsPerDay ?? 20), 10);
 
-  for (const lead of eligibleLeads) {
+  for (const lead of safeLeads) {
     if (accountSentToday >= account.dailySendLimit) break;
     if (emailsSent >= globalMaxEmailsPerDay) break;
 
     const recipientEmail = lead.emails?.split(",")[0]?.trim();
     if (!recipientEmail) continue;
+
+    // Skip unsubscribed recipients
+    if (await isEmailUnsubscribed(recipientEmail)) {
+      await schedulerLog(campaign.id, `Skipped email to ${recipientEmail} (unsubscribed)`, { leadId: lead.id });
+      continue;
+    }
 
     // Check for duplicate queue entry
     const existing = await db
@@ -1228,9 +1316,7 @@ async function runEmail(
       .replace(/\{\{country\}\}/g, lead.sourceCountry || "")
       .replace(/\{\{campaign_name\}\}/g, campaign.name);
 
-    const fullBody = appendUnsubscribeFooter(body, campaign.unsubscribeFooter);
-
-    // Insert as approved to outreach queue
+    // Insert as approved to outreach queue first (so we get an ID for the unsubscribe token)
     const [queued] = await db.insert(outreachQueueTable).values({
       campaignId: campaign.id,
       leadId: lead.id,
@@ -1244,6 +1330,13 @@ async function runEmail(
 
     if (!queued) continue;
 
+    // Build final email body with unsubscribe link
+    const unsubscribeUrl = await buildUnsubscribeUrl(queued.id, recipientEmail, lead.companyName);
+    const bodyWithUnsub = unsubscribeUrl
+      ? appendUnsubscribeFooter(body, `To unsubscribe from future emails, click here: ${unsubscribeUrl}`)
+      : body;
+    const fullBody = appendUnsubscribeFooter(bodyWithUnsub, campaign.unsubscribeFooter);
+
     // Auto-send
     try {
       await transporter.sendMail({
@@ -1252,6 +1345,10 @@ async function runEmail(
         subject,
         text: toTextEmail(fullBody),
         html: toHtmlEmail(fullBody),
+        headers: unsubscribeUrl ? {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        } : undefined,
       });
 
       const now = new Date();
@@ -1278,8 +1375,9 @@ async function runEmail(
       await schedulerLog(campaign.id, `Email sent to ${recipientEmail} (${lead.rootDomain})`, { leadId: lead.id });
 
       // Anti-spam delay
-      if (emailsSent < eligibleLeads.length) {
-        await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 6000) + 2000));
+      if (emailsSent < safeLeads.length) {
+        const delayMs = Math.floor(Math.random() * (pipelineDelayMaxMs - pipelineDelayMinMs + 1)) + pipelineDelayMinMs;
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1376,9 +1474,23 @@ async function autoBlockLowRelevanceDomains(
       set: { value: nextValue, updatedAt: new Date() },
     });
 
+  // Also disqualify all existing leads for these domains across this campaign
+  // so they won't surface for outreach in future runs.
+  for (const domain of addedDomains) {
+    await db
+      .update(leadsTable)
+      .set({ qualificationStatus: "rejected" })
+      .where(
+        and(
+          eq(leadsTable.campaignId, campaign.id),
+          sql`${leadsTable.rootDomain} = ${domain}`,
+        ),
+      );
+  }
+
   await schedulerLog(
     campaign.id,
-    `Auto-blocked ${addedDomains.length} low-relevance domain${addedDomains.length !== 1 ? "s" : ""}`,
+    `Auto-blocked ${addedDomains.length} low-relevance domain${addedDomains.length !== 1 ? "s" : ""} and disqualified their leads`,
     {
       minRelevanceScore: campaign.minRelevanceScore,
       domains: addedDomains,

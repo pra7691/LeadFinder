@@ -272,10 +272,16 @@ export function Settings() {
   // Email tracking
   const [emailTrackerUrl, setEmailTrackerUrl] = useState("");
   const [emailTrackerSecret, setEmailTrackerSecret] = useState("");
+  const [unsubscribePageUrl, setUnsubscribePageUrl] = useState("");
+  const [unsubscribeAdminSecret, setUnsubscribeAdminSecret] = useState("");
 
   // Global limits
   const [globalMaxSearches, setGlobalMaxSearches] = useState("10");
   const [globalMaxEmails, setGlobalMaxEmails] = useState("20");
+
+  // Send delay
+  const [sendDelayMin, setSendDelayMin] = useState("30");
+  const [sendDelayMax, setSendDelayMax] = useState("120");
 
   const initialized = useRef(false);
   const settingRows = Array.isArray(settings) ? settings : [];
@@ -292,8 +298,12 @@ export function Settings() {
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
       setEmailTrackerUrl(find("email_tracker_url") ?? "");
       setEmailTrackerSecret(find("email_tracker_admin_secret") ?? "");
+      setUnsubscribePageUrl(find("unsubscribe_page_url") ?? "");
+      setUnsubscribeAdminSecret(find("unsubscribe_admin_secret") ?? "");
       setGlobalMaxSearches(find("global_max_searches_per_day") ?? "10");
       setGlobalMaxEmails(find("global_max_emails_per_day") ?? "20");
+      setSendDelayMin(find("send_delay_min_seconds") ?? "30");
+      setSendDelayMax(find("send_delay_max_seconds") ?? "120");
       initialized.current = true;
     }
   }, [settingRows]);
@@ -318,6 +328,10 @@ export function Settings() {
   const handleSaveLimits = async () => {
     await save("global_max_searches_per_day", globalMaxSearches);
     await save("global_max_emails_per_day", globalMaxEmails);
+    const minSec = Math.max(1, parseInt(sendDelayMin, 10) || 1);
+    const maxSec = Math.max(minSec, parseInt(sendDelayMax, 10) || minSec);
+    await save("send_delay_min_seconds", String(minSec));
+    await save("send_delay_max_seconds", String(maxSec));
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "Limits saved." });
   };
@@ -362,6 +376,10 @@ export function Settings() {
     await save("email_tracker_url", emailTrackerUrl.trim());
     if (!emailTrackerSecret.startsWith("••••••••")) {
       await save("email_tracker_admin_secret", emailTrackerSecret.trim());
+    }
+    await save("unsubscribe_page_url", unsubscribePageUrl.trim());
+    if (!unsubscribeAdminSecret.startsWith("••••••••")) {
+      await save("unsubscribe_admin_secret", unsubscribeAdminSecret.trim());
     }
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "Email tracking settings saved." });
@@ -433,6 +451,38 @@ export function Settings() {
                   </p>
                 </div>
               </div>
+              <div className="border-t border-border/30 pt-6 space-y-2">
+                <Label className="text-sm font-semibold">Email Send Delay</Label>
+                <p className="text-xs text-muted-foreground">
+                  A random delay (in seconds) is applied between each email in a batch. Helps avoid spam filters.
+                </p>
+                <div className="grid grid-cols-2 gap-6 pt-1">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Minimum Delay (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={sendDelayMin}
+                      onChange={(e) => setSendDelayMin(e.target.value)}
+                      className="rounded-xl bg-background/50"
+                    />
+                    <p className="text-xs text-muted-foreground">Shortest possible wait between sends.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Maximum Delay (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={sendDelayMax}
+                      onChange={(e) => setSendDelayMax(e.target.value)}
+                      className="rounded-xl bg-background/50"
+                    />
+                    <p className="text-xs text-muted-foreground">Longest possible wait between sends.</p>
+                  </div>
+                </div>
+              </div>
               <Button onClick={handleSaveLimits} disabled={upsertSetting.isPending} className="rounded-xl">
                 {upsertSetting.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                 Save Limits
@@ -448,7 +498,17 @@ export function Settings() {
             <Card className="glass-card">
               <CardContent className="space-y-6 pt-6">
                 <div className="space-y-3">
-                  <Label className="text-sm font-medium">Blocked Domains</Label>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium">Blocked Domains</Label>
+                    {(() => {
+                      const count = blockedDomains.split(/[\n,]/).map(d => d.trim()).filter(Boolean).length;
+                      return count > 0 ? (
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                          {count}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   <p className="text-xs text-muted-foreground">Leads matching these domains will be automatically rejected. Enter one domain per line.</p>
                   <Textarea
                     value={blockedDomains}
@@ -650,8 +710,43 @@ export function Settings() {
                 <CardDescription>Track opens and clicks for emails sent from the outreach queue using your hosted tracker file.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6 pt-6">
+
+                {/* ── Unsubscribe Page ──────────────────────────────────── */}
+                <div className="rounded-xl border border-border/40 p-4 space-y-4 bg-muted/20">
+                  <div>
+                    <p className="text-sm font-semibold">Unsubscribe Page (FTP Hosting)</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Upload <code className="bg-muted px-1 rounded font-mono">unsubscribe.php</code> to your web hosting via FTP,
+                      then enter its URL and the admin secret you set inside the file.
+                      LeadFinder will embed a unique unsubscribe link in every outgoing email.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Unsubscribe Page URL</Label>
+                    <Input
+                      value={unsubscribePageUrl}
+                      onChange={(e) => setUnsubscribePageUrl(e.target.value)}
+                      placeholder="https://yourdomain.com/unsubscribe.php"
+                      className="rounded-xl bg-background/50 font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Unsubscribe Admin Secret</Label>
+                    <Input
+                      type="password"
+                      value={unsubscribeAdminSecret}
+                      onChange={(e) => setUnsubscribeAdminSecret(e.target.value)}
+                      placeholder="The password you set inside unsubscribe.php"
+                      className="rounded-xl bg-background/50 font-mono"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Used by LeadFinder to sync the unsubscribe list from your hosted file. Masked after saving.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Tracker URL</Label>
+                  <Label className="text-sm font-medium">Open &amp; Click Tracker URL</Label>
                   <Input
                     value={emailTrackerUrl}
                     onChange={(e) => setEmailTrackerUrl(e.target.value)}

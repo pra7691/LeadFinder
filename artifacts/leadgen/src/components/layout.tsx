@@ -15,6 +15,7 @@ import {
   Users,
   Mail,
   Search,
+  MailX,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { href: "/campaigns", label: "Campaigns", icon: Briefcase },
   { href: "/lists", label: "Lists", icon: BookMarked },
   { href: "/outreach", label: "Outreach", icon: Send },
+  { href: "/unsubscribes", label: "Unsubscribes", icon: MailX },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -142,6 +144,27 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="p-4 mt-auto space-y-3">
+          <Link
+            href="/no-email-leads"
+            data-testid="nav-no email leads"
+            onClick={closeSidebar}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
+              location === "/no-email-leads"
+                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            <MailX
+              className={cn(
+                "w-4 h-4",
+                location === "/no-email-leads"
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            No Email Leads
+          </Link>
           <Link
             href="/failed-logs"
             data-testid="nav-failed logs"

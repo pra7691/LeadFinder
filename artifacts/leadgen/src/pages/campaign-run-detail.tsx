@@ -217,7 +217,7 @@ export function CampaignRunDetail() {
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   type StatusFilter = "all" | "unreviewed" | "qualified" | "rejected";
-  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore" | "notInList";
+  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore" | "belowMinScore" | "notInList";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
   const [minScoreFilter, setMinScoreFilter] = useState<string>("");
@@ -295,6 +295,7 @@ export function CampaignRunDetail() {
       if (leadFilters.has("hasEmail") && !l.emails) return false;
       if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
       if (leadFilters.has("aboveMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore < minRelevanceScore)) return false;
+      if (leadFilters.has("belowMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore >= minRelevanceScore)) return false;
       if (leadFilters.has("notInList") && l.addedToList) return false;
       if (minScoreFilter !== "" && (typeof l.relevanceScore !== "number" || l.relevanceScore < Number(minScoreFilter))) return false;
       if (maxScoreFilter !== "" && (typeof l.relevanceScore !== "number" || l.relevanceScore > Number(maxScoreFilter))) return false;
@@ -644,7 +645,8 @@ export function CampaignRunDetail() {
   const LEAD_FILTER_TABS: { key: LeadFilter; label: string }[] = [
     { key: "hasEmail", label: "Has Email" },
     { key: "hasPhone", label: "Has Phone" },
-    { key: "aboveMinScore", label: `Above ${minRelevanceScore}` },
+    { key: "aboveMinScore", label: `Score ≥ ${minRelevanceScore}` },
+    { key: "belowMinScore", label: `Score < ${minRelevanceScore}` },
     { key: "notInList", label: "Not in List" },
   ];
 
@@ -1289,7 +1291,7 @@ export function CampaignRunDetail() {
                         <p className="text-sm font-medium truncate hover:text-primary transition-colors">
                           {lead.companyName || (
                             <span className="italic text-muted-foreground/60 font-normal text-xs">
-                              {lead.crawlStatus === "failed" ? "Company unavailable" : "Pending crawl"}
+                              {lead.crawlStatus === "failed" ? "Crawl failed – name unavailable" : lead.crawlStatus === "crawling" ? "Crawling…" : "Pending crawl"}
                             </span>
                           )}
                         </p>

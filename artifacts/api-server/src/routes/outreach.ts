@@ -28,6 +28,8 @@ import {
 import { generatePersonalizedEmail } from "../services/email-generator";
 import { analyzeQuality } from "../services/quality-analyzer";
 import { getPrimaryLeadEmail, parseLeadEmails } from "../services/lead-emails";
+import { isEmailUnsubscribed } from "./unsubscribe";
+import { isEmailHardBounced } from "./outreach-send";
 
 const router = Router();
 
@@ -295,6 +297,15 @@ router.post("/outreach/from-list", async (req, res) => {
     const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
+    // Skip invalid email format
+    if (classifyEmail(recipientEmail).isRejected) { skipped++; continue; }
+
+    // Skip unsubscribed recipients
+    if (await isEmailUnsubscribed(recipientEmail)) { skipped++; continue; }
+
+    // Skip previously hard-bounced recipients
+    if (await isEmailHardBounced(recipientEmail)) { skipped++; continue; }
+
     // Duplicate protection
     if (alreadyQueued.has(recipientEmail.toLowerCase())) { skipped++; continue; }
 
@@ -344,6 +355,15 @@ router.post("/outreach/bulk-queue", async (req, res) => {
   for (const lead of leads) {
     const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
+
+    // Skip invalid email format
+    if (classifyEmail(recipientEmail).isRejected) { skipped++; continue; }
+
+    // Skip unsubscribed recipients
+    if (await isEmailUnsubscribed(recipientEmail)) { skipped++; continue; }
+
+    // Skip previously hard-bounced recipients
+    if (await isEmailHardBounced(recipientEmail)) { skipped++; continue; }
 
     const { subject, body: emailBody } = await resolveEmailContent(
       lead,

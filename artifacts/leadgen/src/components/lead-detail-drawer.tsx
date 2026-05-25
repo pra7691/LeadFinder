@@ -37,12 +37,14 @@ import {
   ExternalLink,
   Tag,
   Search as SearchIcon,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScoreBadge } from "./ScoreBadge";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { saveExportToServer } from "@/lib/export-files";
 
 interface LeadDetailDrawerProps {
   leadId: number | null;
@@ -94,6 +96,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsForm, setDetailsForm] = useState<Record<string, string>>({});
   const [addToListOpen, setAddToListOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const handleQualify = (status: "qualified" | "rejected") => {
     if (!lead) return;
@@ -204,6 +207,22 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     setEditingNotes(true);
   };
 
+  const handleExport = async (format: "csv" | "xlsx" = "csv") => {
+    if (!lead || exporting) return;
+    setExporting(true);
+    try {
+      const saved = await saveExportToServer(`/api/leads/export?format=${format}&leadIds=${lead.id}`);
+      toast({ title: `Exported → ${saved.relativePath}` });
+    } catch (err: unknown) {
+      toast({
+        title: err instanceof Error ? err.message : "Export failed",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <Sheet open={!!leadId} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -218,7 +237,11 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-lg font-semibold leading-tight">
-                    {lead.companyName || <span className="italic text-muted-foreground/60 font-normal text-base">Pending crawl</span>}
+                    {lead.companyName || (
+                      <span className="italic text-muted-foreground/60 font-normal text-base">
+                        {lead.crawlStatus === "failed" ? "Crawl failed – name unavailable" : "Pending crawl"}
+                      </span>
+                    )}
                   </SheetTitle>
                   {lead.websiteUrl && (
                     <a
@@ -269,6 +292,16 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   onClick={() => setAddToListOpen(true)}
                 >
                   <Plus className="w-3.5 h-3.5" /> Add to List
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl gap-1.5 h-8 text-xs"
+                  onClick={() => handleExport("csv")}
+                  disabled={exporting}
+                >
+                  {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  Export
                 </Button>
                 <Button
                   size="sm"

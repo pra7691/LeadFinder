@@ -3,12 +3,18 @@ import { sql } from "drizzle-orm";
 
 let emailTemplateAttachmentColumnPromise: Promise<void> | null = null;
 let outreachTrackingColumnsPromise: Promise<void> | null = null;
+let unsubscribeSchemaPromise: Promise<void> | null = null;
 
 export function ensureEmailTemplateAttachmentColumn(): Promise<void> {
   if (!emailTemplateAttachmentColumnPromise) {
     emailTemplateAttachmentColumnPromise = db
       .execute(sql`ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS attachments_json text`)
-      .then(() => undefined);
+      .then(() => undefined)
+      .catch((err) => {
+        // Reset so the next caller retries rather than getting a stale rejection.
+        emailTemplateAttachmentColumnPromise = null;
+        throw err;
+      });
   }
 
   return emailTemplateAttachmentColumnPromise;
@@ -34,4 +40,31 @@ export function ensureOutreachTrackingColumns(): Promise<void> {
   }
 
   return outreachTrackingColumnsPromise;
+}
+
+export function ensureUnsubscribeSchema(): Promise<void> {
+  if (!unsubscribeSchemaPromise) {
+    unsubscribeSchemaPromise = Promise.all([
+      // Create the unsubscribes table
+      db.execute(sql`
+        CREATE TABLE IF NOT EXISTS unsubscribes (
+          id serial PRIMARY KEY,
+          email text NOT NULL UNIQUE,
+          token text NOT NULL UNIQUE,
+          outreach_id integer REFERENCES outreach_queue(id) ON DELETE SET NULL,
+          company_name text,
+          unsubscribed_at timestamptz NOT NULL DEFAULT now(),
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `),
+      // Add unsubscribe_token column to outreach_queue
+      db.execute(sql`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS unsubscribe_token text`),
+    ])
+      .then(() => undefined)
+      .catch((err) => {
+        unsubscribeSchemaPromise = null;
+        throw err;
+      });
+  }
+  return unsubscribeSchemaPromise;
 }

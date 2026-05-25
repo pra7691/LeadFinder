@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-zod";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
+import { buildUnsubscribeUrl, isEmailUnsubscribed } from "./unsubscribe";
 import { toNodemailerAttachments } from "../services/email-template-attachments";
 import {
   addTrackingToHtml,
@@ -82,9 +83,18 @@ function fromHeader(account: typeof emailAccountsTable.$inferSelect): string {
 }
 
 async function getTransporter(account: typeof emailAccountsTable.$inferSelect) {
-  const rawPassword = isEncrypted(account.smtpPassword)
-    ? decrypt(account.smtpPassword)
-    : account.smtpPassword;
+  let rawPassword: string;
+  try {
+    rawPassword = isEncrypted(account.smtpPassword)
+      ? decrypt(account.smtpPassword)
+      : account.smtpPassword;
+  } catch {
+    throw new Error(
+      `SMTP password decryption failed for account "${account.smtpUser}" — ` +
+      `the server encryption key has changed since the password was saved. ` +
+      `Please go to Settings → Email Accounts, edit this account, re-enter the password, and save.`,
+    );
+  }
   return nodemailer.createTransport({
     host: account.smtpHost,
     port: account.smtpPort,
@@ -193,7 +203,21 @@ async function doSend(
   account: typeof emailAccountsTable.$inferSelect,
   campaign?: typeof campaignsTable.$inferSelect,
 ): Promise<boolean> {
-  const fullBody = appendUnsubscribeFooter(item.body, campaign?.unsubscribeFooter);
+  // Skip if recipient has unsubscribed
+  if (await isEmailUnsubscribed(item.recipientEmail)) {
+    await db.update(outreachQueueTable)
+      .set({ status: "rejected", failureReason: "skipped:unsubscribed" })
+      .where(eq(outreachQueueTable.id, item.id));
+    await logSend(item.campaignId, "send_skip", `Skipped: ${item.recipientEmail} is unsubscribed`, { outreachId: item.id });
+    return false;
+  }
+
+  // Append unsubscribe link to body
+  const unsubscribeUrl = await buildUnsubscribeUrl(item.id, item.recipientEmail);
+  const bodyWithUnsub = unsubscribeUrl
+    ? appendUnsubscribeFooter(item.body, `To unsubscribe from future emails, click here: ${unsubscribeUrl}`)
+    : item.body;
+  const fullBody = appendUnsubscribeFooter(bodyWithUnsub, campaign?.unsubscribeFooter);
 
   try {
     const attachments = await getTemplateAttachments(item.emailTemplateId);
@@ -210,6 +234,10 @@ async function doSend(
         ? addTrackingToHtml(html, trackingSettings.trackerUrl, trackingId)
         : html,
       attachments: attachments.length ? attachments : undefined,
+      headers: unsubscribeUrl ? {
+        "List-Unsubscribe": `<${unsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      } : undefined,
     });
 
     const now = new Date();
@@ -242,23 +270,41 @@ async function doSend(
     return true;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    const isHardBounce = /\b5[0-9]{2}\b/.test(reason) ||
+      /permanent.*(failure|error)/i.test(reason) ||
+      /does not exist/i.test(reason) ||
+      /no such user/i.test(reason) ||
+      /user unknown/i.test(reason) ||
+      /invalid.*(mailbox|address|recipient)/i.test(reason) ||
+      /mailbox not found/i.test(reason);
     await db
       .update(outreachQueueTable)
       .set({
-        status: "failed",
+        status: isHardBounce ? "bounced" : "failed",
         failureReason: reason,
         retryCount: sql`${outreachQueueTable.retryCount} + 1`,
+        bouncedAt: isHardBounce ? new Date() : undefined,
       })
       .where(eq(outreachQueueTable.id, item.id));
 
-    await logSend(item.campaignId, "send_failure", `Failed to send to ${item.recipientEmail}: ${reason}`, {
+    await logSend(item.campaignId, "send_failure", `${isHardBounce ? "Bounced" : "Failed"} sending to ${item.recipientEmail}: ${reason}`, {
       outreachId: item.id,
       leadId: item.leadId,
       accountId: account.id,
       error: reason,
+      isHardBounce,
     });
     return false;
   }
+}
+
+/** Returns true if this email has previously hard-bounced. */
+export async function isEmailHardBounced(email: string): Promise<boolean> {
+  const [row] = await db.select({ id: outreachQueueTable.id })
+    .from(outreachQueueTable)
+    .where(and(eq(outreachQueueTable.recipientEmail, email.toLowerCase()), eq(outreachQueueTable.status, "bounced")))
+    .limit(1);
+  return Boolean(row);
 }
 
 // ── Anti-spam guard ─────────────────────────────────────────────────────────
@@ -295,7 +341,7 @@ async function antiSpamCheck(
       )
       .limit(1);
     if (duplicate.length > 0 && duplicate[0].id !== item.id) {
-      return { ok: false, reason: "Email already sent to this lead for this campaign" };
+      return { ok: false, reason: "skipped:duplicate" };
     }
   }
 
@@ -346,6 +392,12 @@ router.post("/outreach/send-batch", async (req, res) => {
   const globalEmailLimit = await getGlobalEmailLimit();
   let globalSentToday = await getGlobalSentToday();
 
+  // Configurable send delay
+  const [delayMinRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_min_seconds"));
+  const [delayMaxRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_max_seconds"));
+  const sendDelayMinMs = Math.max(1000, (parseInt(delayMinRow?.value ?? "30", 10) || 30) * 1000);
+  const sendDelayMaxMs = Math.max(sendDelayMinMs, (parseInt(delayMaxRow?.value ?? "120", 10) || 120) * 1000);
+
   try {
   for (const item of approved) {
     if (batchSendCancelRequested) {
@@ -369,6 +421,12 @@ router.post("/outreach/send-batch", async (req, res) => {
     // Anti-spam checks
     const spamCheck = await antiSpamCheck(item);
     if (!spamCheck.ok) {
+      // Persist structured skip reasons so the UI can show the right status
+      if (spamCheck.reason?.startsWith("skipped:")) {
+        await db.update(outreachQueueTable)
+          .set({ status: "rejected", failureReason: spamCheck.reason })
+          .where(eq(outreachQueueTable.id, item.id));
+      }
       await logSend(item.campaignId, "send_skip", `Skipped: ${spamCheck.reason}`, { outreachId: item.id });
       skipped++;
       continue;
@@ -415,7 +473,7 @@ router.post("/outreach/send-batch", async (req, res) => {
 
     // Randomized delay between sends (skip delay before first send)
     if (sent + failed > 0) {
-      const delayResult = await randomInterruptibleDelay(2000, 8000);
+      const delayResult = await randomInterruptibleDelay(sendDelayMinMs, sendDelayMaxMs);
       if (delayResult === "cancelled") {
         stopped = true;
         await logSend(null, "send_skip", "Batch sending stopped by user during send delay", {

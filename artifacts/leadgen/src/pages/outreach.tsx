@@ -69,6 +69,8 @@ import {
   MousePointerClick,
   Eye,
   Users,
+  MailX,
+  SkipForward,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -190,9 +192,45 @@ const STATUS_CONFIG: Record<
     color: "bg-muted text-muted-foreground border-border",
     icon: <Users className="w-3 h-3" />,
   },
+  // ── Derived display statuses ───────────────────────────────────────────────
+  opened: {
+    label: "Opened",
+    color: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+    icon: <MailOpen className="w-3 h-3" />,
+  },
+  clicked: {
+    label: "Clicked",
+    color: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+    icon: <MousePointerClick className="w-3 h-3" />,
+  },
+  unsubscribed: {
+    label: "Unsubscribed",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    icon: <MailX className="w-3 h-3" />,
+  },
+  skipped_unsubscribed: {
+    label: "Skipped · Unsubscribed",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    icon: <SkipForward className="w-3 h-3" />,
+  },
+  skipped_duplicate: {
+    label: "Skipped · Duplicate",
+    color: "bg-muted text-muted-foreground border-border",
+    icon: <SkipForward className="w-3 h-3" />,
+  },
+  skipped_invalid: {
+    label: "Skipped · Invalid Email",
+    color: "bg-destructive/10 text-destructive border-destructive/20",
+    icon: <SkipForward className="w-3 h-3" />,
+  },
 };
 
-const ALL_STATUSES = ["pending_review", "approved", "sent", "failed", "bounced", "rejected", "draft", "queued"];
+const ALL_STATUSES = [
+  "pending_review", "approved", "sent", "opened", "clicked",
+  "unsubscribed", "failed", "bounced", "rejected",
+  "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid",
+  "draft", "queued",
+];
 
 const SEVERITY_ICON: Record<QualityWarning["severity"], React.ReactNode> = {
   error: <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0" />,
@@ -205,6 +243,25 @@ const SEVERITY_COLOR: Record<QualityWarning["severity"], string> = {
   warning: "text-amber-500",
   info: "text-blue-400",
 };
+
+/**
+ * Derives the rich display status from raw DB fields.
+ * Used in the batch detail view and anywhere a per-item status is shown.
+ */
+export function getDisplayStatus(item: OutreachItem): string {
+  // Structured skip reasons (written when antiSpamCheck or doSend skips the item)
+  if (item.failureReason === "skipped:unsubscribed") return "skipped_unsubscribed";
+  if (item.failureReason === "skipped:duplicate")    return "skipped_duplicate";
+  if (item.failureReason === "skipped:invalid_email") return "skipped_invalid";
+  // Post-send unsubscribe (recipient clicked the link after receiving the email)
+  if (item.status === "sent" && item.failureReason === "unsubscribed") return "unsubscribed";
+  // Engagement states (only meaningful once sent)
+  if (item.status === "sent") {
+    if ((item.clickCount ?? 0) > 0) return "clicked";
+    if ((item.openCount ?? 0) > 0) return "opened";
+  }
+  return item.status;
+}
 
 export function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? {
@@ -256,8 +313,12 @@ function WarningBadge({ warnings = [] }: { warnings?: QualityWarning[] }) {
 }
 
 export function aggregateStatus(items: OutreachItem[]): string {
-  const statuses = new Set(items.map((item) => item.status));
-  return statuses.size === 1 ? items[0]?.status ?? "mixed" : "mixed";
+  const statuses = new Set(items.map((item) => getDisplayStatus(item)));
+  if (statuses.size === 1) {
+    const first = items[0];
+    return first ? getDisplayStatus(first) : "mixed";
+  }
+  return "mixed";
 }
 
 export function fallbackBatchKey(item: OutreachItem): string {
@@ -287,8 +348,9 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
     const sorted = [...groupItems].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     const primary = sorted[0]!;
     const isGroup = sorted.length > 1 || Boolean(primary.listId);
-    const openCount = sorted.reduce((sum, item) => sum + (item.openCount ?? 0), 0);
-    const clickCount = sorted.reduce((sum, item) => sum + (item.clickCount ?? 0), 0);
+    // Unique-recipient counts (how many recipients opened/clicked ≥ once)
+    const openCount = sorted.filter((item) => (item.openCount ?? 0) > 0).length;
+    const clickCount = sorted.filter((item) => (item.clickCount ?? 0) > 0).length;
 
     return {
       id: key,
@@ -550,7 +612,7 @@ function PreviewPanel({
               )}
             </p>
           </div>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={getDisplayStatus(item)} />
         </div>
         {item.retryCount > 0 && (
           <p className="text-xs text-muted-foreground">
@@ -727,9 +789,17 @@ export function Outreach() {
 
   const { data: campaigns } = useListCampaigns();
 
+  // Derived statuses are computed client-side from status + failureReason + tracking counts.
+  // They must not be sent to the API as a server-side filter.
+  const DERIVED_STATUSES = useMemo(
+    () => new Set(["opened", "clicked", "unsubscribed", "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid"]),
+    [],
+  );
+
   const queryParams = {
     campaignId: campaignFilter !== "all" ? Number(campaignFilter) : undefined,
-    status: statusFilter !== "all" ? statusFilter : undefined,
+    // For derived statuses, fetch all and filter client-side
+    status: statusFilter !== "all" && !DERIVED_STATUSES.has(statusFilter) ? statusFilter : undefined,
   };
 
   const { data: rawItems, isLoading } = useListOutreach(queryParams);
@@ -740,7 +810,17 @@ export function Outreach() {
   const bulkApprove = useBulkApproveOutreach();
   const bulkReject = useBulkRejectOutreach();
   const sendBatch = useSendOutreachBatch();
-  const displayRows = useMemo(() => buildDisplayRows(outreachItems), [outreachItems]);
+  const displayRows = useMemo(() => {
+    const rows = buildDisplayRows(outreachItems);
+    if (statusFilter === "all" || !DERIVED_STATUSES.has(statusFilter)) return rows;
+    // Client-side filter: keep only rows that contain items matching the derived status
+    return rows
+      .map((row) => {
+        const filtered = row.items.filter((item) => getDisplayStatus(item) === statusFilter);
+        return { ...row, items: filtered, count: filtered.length, status: aggregateStatus(filtered) };
+      })
+      .filter((row) => row.count > 0);
+  }, [outreachItems, statusFilter, DERIVED_STATUSES]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
@@ -771,6 +851,18 @@ export function Outreach() {
     Promise.all([...selected].map((id) => deleteOutreach.mutateAsync({ id }).catch(() => null))).then(() => {
       invalidate();
       setSelected(new Set());
+    });
+  };
+
+  const handleDeleteGroup = (items: OutreachItem[]) => {
+    if (!confirm(`Delete this batch (${items.length} item${items.length === 1 ? "" : "s"})? This cannot be undone.`)) return;
+    Promise.all(items.map((item) => deleteOutreach.mutateAsync({ id: item.id }).catch(() => null))).then(() => {
+      invalidate();
+      setSelected((prev) => {
+        const next = new Set(prev);
+        items.forEach((item) => next.delete(item.id));
+        return next;
+      });
     });
   };
 
@@ -882,7 +974,7 @@ export function Outreach() {
 
   const statusCounts = ALL_STATUSES.reduce(
     (acc, s) => {
-      acc[s] = outreachItems.filter((i) => i.status === s).length;
+      acc[s] = outreachItems.filter((i) => getDisplayStatus(i) === s).length;
       return acc;
     },
     {} as Record<string, number>,
@@ -1162,10 +1254,12 @@ export function Outreach() {
                       onReject={() => handleRejectGroup(row.items)}
                       onSend={() => handleSendGroup(row.items)}
                       onStop={handleStopBatch}
+                      onDelete={() => handleDeleteGroup(row.items)}
                       onPreview={() => navigate(`/outreach/batches/${encodeURIComponent(row.id)}`)}
                       isBusy={bulkApprove.isPending || bulkReject.isPending}
                       isSending={sendingGroupId === row.id}
                       isStopping={stoppingBatch && sendingGroupId === row.id}
+                      isGlobalSending={sendBatch.isPending && sendingGroupId !== row.id}
                     />
                   ) : (
                     <OutreachRow
@@ -1220,10 +1314,12 @@ function OutreachGroupRow({
   onReject,
   onSend,
   onStop,
+  onDelete,
   onPreview,
   isBusy,
   isSending,
   isStopping,
+  isGlobalSending,
 }: {
   row: OutreachDisplayRow;
   selected: boolean;
@@ -1232,10 +1328,12 @@ function OutreachGroupRow({
   onReject: () => void;
   onSend: () => void;
   onStop: () => void;
+  onDelete: () => void;
   onPreview: () => void;
   isBusy: boolean;
   isSending: boolean;
   isStopping: boolean;
+  isGlobalSending: boolean;
 }) {
   const approvableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued").length;
   const rejectableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved").length;
@@ -1291,11 +1389,11 @@ function OutreachGroupRow({
         <div className="flex flex-col gap-1 text-xs">
           <span className={cn("inline-flex items-center gap-1", row.openCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
             <Eye className="w-3.5 h-3.5" />
-            {row.openCount} open{row.openCount === 1 ? "" : "s"}
+            {row.openCount} recipient{row.openCount === 1 ? "" : "s"} opened
           </span>
           <span className={cn("inline-flex items-center gap-1", row.clickCount > 0 ? "text-primary" : "text-muted-foreground")}>
             <MousePointerClick className="w-3.5 h-3.5" />
-            {row.clickCount} click{row.clickCount === 1 ? "" : "s"}
+            {row.clickCount} recipient{row.clickCount === 1 ? "" : "s"} clicked
           </span>
         </div>
       </TableCell>
@@ -1318,6 +1416,10 @@ function OutreachGroupRow({
               {isStopping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <X className="w-3.5 h-3.5 mr-1" />}
               {isStopping ? "Stopping" : "Stop"}
             </Button>
+          ) : isGlobalSending && sendableCount > 0 ? (
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary/60 cursor-default" disabled title="Sending…">
+              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Sending…
+            </Button>
           ) : sendableCount > 0 && (
             <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary hover:bg-primary/10"
               onClick={onSend} disabled={isBusy} title={`Send ${sendableCount}`}>
@@ -1330,6 +1432,10 @@ function OutreachGroupRow({
               <X className="w-3.5 h-3.5" />
             </Button>
           )}
+          <Button size="icon" variant="ghost" className="h-7 w-7 rounded-lg text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+            onClick={onDelete} disabled={isBusy || isSending} title="Delete batch">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
         </div>
       </TableCell>
     </TableRow>
@@ -1443,7 +1549,7 @@ function OutreachRow({
         </div>
       </TableCell>
 
-      <TableCell><StatusBadge status={item.status} /></TableCell>
+      <TableCell><StatusBadge status={getDisplayStatus(item)} /></TableCell>
 
       <TableCell>
         <div className="flex flex-col gap-1 text-xs">
