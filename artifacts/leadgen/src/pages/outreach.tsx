@@ -72,7 +72,7 @@ import {
   MailX,
   SkipForward,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -187,10 +187,15 @@ const STATUS_CONFIG: Record<
     color: "bg-destructive/10 text-destructive border-destructive/20",
     icon: <X className="w-3 h-3" />,
   },
-  mixed: {
-    label: "Mixed",
-    color: "bg-muted text-muted-foreground border-border",
-    icon: <Users className="w-3 h-3" />,
+  sending: {
+    label: "Sending",
+    color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    icon: <Loader2 className="w-3 h-3 animate-spin" />,
+  },
+  completed: {
+    label: "Completed",
+    color: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+    icon: <CheckCircle className="w-3 h-3" />,
   },
   // ── Derived display statuses ───────────────────────────────────────────────
   opened: {
@@ -312,13 +317,30 @@ function WarningBadge({ warnings = [] }: { warnings?: QualityWarning[] }) {
   );
 }
 
+const TERMINAL_STATUSES = new Set([
+  "sent", "opened", "clicked", "unsubscribed",
+  "failed", "bounced", "rejected",
+  "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid",
+]);
+
 export function aggregateStatus(items: OutreachItem[]): string {
-  const statuses = new Set(items.map((item) => getDisplayStatus(item)));
-  if (statuses.size === 1) {
-    const first = items[0];
-    return first ? getDisplayStatus(first) : "mixed";
-  }
-  return "mixed";
+  const displayStatuses = items.map((item) => getDisplayStatus(item));
+  const statusSet = new Set(displayStatuses);
+
+  // All the same → use that status directly
+  if (statusSet.size === 1) return displayStatuses[0] ?? "completed";
+
+  const hasApproved = displayStatuses.some((s) => s === "approved");
+  const hasTerminal = displayStatuses.some((s) => TERMINAL_STATUSES.has(s));
+
+  // Some sent, some still approved → actively sending
+  if (hasApproved && hasTerminal) return "sending";
+
+  // Nothing left to send → all done
+  if (!hasApproved) return "completed";
+
+  // All waiting (e.g. mix of pending_review + approved)
+  return "approved";
 }
 
 export function fallbackBatchKey(item: OutreachItem): string {
@@ -359,9 +381,7 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
       primary,
       count: sorted.length,
       title: isGroup ? primary.listName ?? `List #${primary.listId}` : primary.companyName ?? primary.recipientEmail,
-      subtitle: isGroup
-        ? `${sorted.length} recipient${sorted.length === 1 ? "" : "s"}`
-        : primary.companyName ? primary.recipientEmail : primary.campaignName ?? "",
+      subtitle: isGroup ? "" : primary.campaignName ?? "",
       subject: primary.subject,
       templateName: primary.templateName ?? null,
       listName: primary.listName ?? null,
@@ -786,6 +806,36 @@ export function Outreach() {
   const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number; stopped?: boolean } | null>(null);
   const [stoppingBatch, setStoppingBatch] = useState(false);
   const [sendingGroupId, setSendingGroupId] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll /api/outreach/send-batch/status so "Sending" persists after page revisit
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch/status`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { running: boolean; batchId: string | null };
+        if (data.running && data.batchId) {
+          setSendingGroupId((prev) => prev ?? data.batchId);
+        } else {
+          // Send finished — clear state and refresh list
+          setSendingGroupId((prev) => {
+            if (prev !== null) {
+              qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
+            }
+            return null;
+          });
+        }
+      } catch { /* network error — ignore */ }
+    };
+    poll();
+    pollRef.current = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [qc]);
 
   const { data: campaigns } = useListCampaigns();
 
@@ -1123,33 +1173,12 @@ export function Outreach() {
           </Select>
         </div>
 
-        {/* Status tabs */}
-        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 border border-border/50 flex-wrap">
-          {["all", ...ALL_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => { setStatusFilter(s); setSelected(new Set()); }}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                statusFilter === s
-                  ? "bg-background text-foreground shadow-sm border border-border/50"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {s === "all" ? "All" : STATUS_CONFIG[s]?.label ?? s}
-              {s !== "all" && statusCounts[s] > 0 && (
-                <span className="ml-1.5 opacity-60">{statusCounts[s]}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {(campaignFilter !== "all" || statusFilter !== "all") && (
+        {campaignFilter !== "all" && (
           <Button
             variant="ghost"
             size="sm"
             className="h-8 px-2 text-xs text-muted-foreground"
-            onClick={() => { setCampaignFilter("all"); setStatusFilter("all"); }}
+            onClick={() => setCampaignFilter("all")}
           >
             <X className="w-3 h-3 mr-1" /> Clear
           </Button>
@@ -1193,10 +1222,11 @@ export function Outreach() {
                   />
                 </TableHead>
                 <TableHead>Outreach</TableHead>
-                <TableHead>Template / Subject</TableHead>
+                <TableHead>Template</TableHead>
                 <TableHead className="w-[100px]">Count</TableHead>
                 <TableHead className="w-[120px]">Status</TableHead>
-                <TableHead className="w-[120px]">Tracking</TableHead>
+                <TableHead className="w-[80px] text-center">Opens</TableHead>
+                <TableHead className="w-[80px] text-center">Clicks</TableHead>
                 <TableHead className="w-[140px]">Date</TableHead>
                 <TableHead className="w-[160px] text-right pr-4">Actions</TableHead>
               </TableRow>
@@ -1364,8 +1394,7 @@ function OutreachGroupRow({
       </TableCell>
 
       <TableCell className="max-w-[260px]">
-        <p className="truncate text-sm">{row.templateName ?? row.subject}</p>
-        <p className="truncate text-[10px] text-muted-foreground mt-1">{row.subject}</p>
+        <p className="truncate text-sm">{row.templateName ?? <span className="italic text-muted-foreground">No template</span>}</p>
       </TableCell>
 
       <TableCell>
@@ -1385,17 +1414,18 @@ function OutreachGroupRow({
         )}
       </TableCell>
 
-      <TableCell>
-        <div className="flex flex-col gap-1 text-xs">
-          <span className={cn("inline-flex items-center gap-1", row.openCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
-            <Eye className="w-3.5 h-3.5" />
-            {row.openCount} recipient{row.openCount === 1 ? "" : "s"} opened
-          </span>
-          <span className={cn("inline-flex items-center gap-1", row.clickCount > 0 ? "text-primary" : "text-muted-foreground")}>
-            <MousePointerClick className="w-3.5 h-3.5" />
-            {row.clickCount} recipient{row.clickCount === 1 ? "" : "s"} clicked
-          </span>
-        </div>
+      <TableCell className="text-center">
+        <span className={cn("inline-flex items-center gap-1 text-sm font-medium", row.openCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/40")}>
+          <Eye className="w-3.5 h-3.5" />
+          {row.openCount}
+        </span>
+      </TableCell>
+
+      <TableCell className="text-center">
+        <span className={cn("inline-flex items-center gap-1 text-sm font-medium", row.clickCount > 0 ? "text-primary" : "text-muted-foreground/40")}>
+          <MousePointerClick className="w-3.5 h-3.5" />
+          {row.clickCount}
+        </span>
       </TableCell>
 
       <TableCell className="text-xs text-muted-foreground">
@@ -1512,10 +1542,9 @@ function OutreachRow({
 
       <TableCell className="font-medium max-w-[170px]">
         <div className="truncate text-sm">{item.companyName ?? item.recipientEmail}</div>
-        <div className="text-xs text-muted-foreground truncate font-mono">
-          {item.companyName ? item.recipientEmail : (item.campaignName ?? "")}
-        </div>
-        {item.listName && <div className="text-[10px] text-muted-foreground/70 truncate">List: {item.listName}</div>}
+        {item.campaignName && !item.companyName && (
+          <div className="text-xs text-muted-foreground truncate">{item.campaignName}</div>
+        )}
       </TableCell>
 
       <TableCell className="max-w-[220px]">

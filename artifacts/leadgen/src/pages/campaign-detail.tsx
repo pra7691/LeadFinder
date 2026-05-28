@@ -1,9 +1,9 @@
 import {
   useGetCampaign,
   useUpdateCampaign,
-  useTriggerCampaignPipeline,
   useListCampaignRuns,
   useCancelCampaignRun,
+  useDeleteCampaignRun,
   getListCampaignRunsQueryKey,
   getGetCampaignQueryKey,
   getListCampaignsQueryKey,
@@ -27,6 +27,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -35,7 +51,6 @@ import {
   Zap,
   Clock,
   Calendar,
-  Activity,
   Loader2,
   History,
   ArrowRight,
@@ -43,9 +58,10 @@ import {
   Trash2,
   RotateCcw,
   Square,
+  Settings,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
+import { format, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const DAYS_OF_WEEK = [
@@ -63,8 +79,6 @@ type FormData = {
   objective: string;
   isActive: boolean;
   minRelevanceScore: number;
-  maxSearchesPerDay: number;
-  maxEmailsPerDay: number;
   resultsPerSearch: number;
   queryRefreshDays: number;
   discoverySourceRefreshDays: number;
@@ -88,6 +102,7 @@ function RunStatusBadge({ status }: { status: CampaignRun["status"] }) {
     running: { label: "Running", cls: "bg-blue-500/10 text-blue-500" },
     completed: { label: "Completed", cls: "bg-emerald-500/10 text-emerald-500" },
     failed: { label: "Failed", cls: "bg-red-500/10 text-red-400" },
+    partial: { label: "Partial", cls: "bg-amber-500/10 text-amber-500" },
     cancelled: { label: "Cancelled", cls: "bg-amber-500/10 text-amber-500" },
   };
   const s = map[status] ?? { label: status, cls: "bg-muted/40 text-muted-foreground" };
@@ -276,6 +291,30 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
 
 // ── Campaign Runs history ────────────────────────────────────────────────────
 
+type RunWithList = CampaignRun & { totalAddedToList?: number };
+
+function isResumedRun(run: CampaignRun): boolean {
+  try {
+    if (!run.metadataJson) return false;
+    const meta = JSON.parse(run.metadataJson) as { resumedRun?: boolean };
+    return meta?.resumedRun === true;
+  } catch {
+    return false;
+  }
+}
+
+function getRunCrawlCounts(run: CampaignRun): { crawledCount: number; crawlFailedCount: number } | null {
+  try {
+    if (!run.metadataJson) return null;
+    const meta = JSON.parse(run.metadataJson) as { crawledCount?: number; crawlFailedCount?: number };
+    const crawledCount = typeof meta?.crawledCount === "number" ? meta.crawledCount : 0;
+    const crawlFailedCount = typeof meta?.crawlFailedCount === "number" ? meta.crawlFailedCount : 0;
+    return { crawledCount, crawlFailedCount };
+  } catch {
+    return null;
+  }
+}
+
 function CampaignRunsSection({ campaignId }: { campaignId: number }) {
   const params = { campaignId };
   const { data: runs, isLoading } = useListCampaignRuns(params, {
@@ -287,12 +326,33 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
       },
     },
   });
+  const deleteRun = useDeleteCampaignRun();
+  const qc = useQueryClient();
+  const { toast: toastRuns } = useToast();
+  const [deletingRunId, setDeletingRunId] = useState<number | null>(null);
 
-  const runRows = Array.isArray(runs) ? runs : [];
+  const handleDeleteRun = (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation();
+    if (!confirm("Delete this run? This cannot be undone.")) return;
+    setDeletingRunId(runId);
+    deleteRun.mutate(
+      { id: runId },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: getListCampaignRunsQueryKey(params) });
+          toastRuns({ title: "Run deleted." });
+        },
+        onError: () => toastRuns({ title: "Failed to delete run.", variant: "destructive" }),
+        onSettled: () => setDeletingRunId(null),
+      },
+    );
+  };
+
+  const runRows = (Array.isArray(runs) ? runs : []) as RunWithList[];
   const completedRuns = runRows.filter((r) => r.status !== "running");
 
   return (
-    <Card className="glass-card">
+    <Card className="glass-card overflow-hidden">
       <CardHeader className="border-b border-border/30 pb-4">
         <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
           <History className="w-4 h-4 text-muted-foreground" />
@@ -315,285 +375,156 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
             No runs yet. Click <strong>Run Campaign</strong> to get started.
           </div>
         ) : (
-          <div className="divide-y divide-border/30">
-            {completedRuns.map((run) => {
-              const startedAt = run.startedAt ? new Date(run.startedAt) : null;
-              const completedAt = run.completedAt ? new Date(run.completedAt) : null;
-              const dur = run.durationSeconds != null
-                ? (run.durationSeconds < 60
-                    ? `${run.durationSeconds}s`
-                    : `${Math.floor(run.durationSeconds / 60)}m ${run.durationSeconds % 60}s`)
-                : (startedAt ? durationStr(startedAt, completedAt) : null);
+          <Table>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="border-border/30 hover:bg-transparent">
+                <TableHead>Run Name</TableHead>
+                <TableHead className="w-[150px]">Date</TableHead>
+                <TableHead className="w-[80px] text-right">Leads</TableHead>
+                <TableHead className="w-[80px] text-right">Searches</TableHead>
+                <TableHead className="w-[80px] text-right">Sources</TableHead>
+                <TableHead className="w-[80px] text-right">Dupes</TableHead>
+                <TableHead className="w-[80px] text-right">Blocked</TableHead>
+                <TableHead className="w-[80px] text-right">Duration</TableHead>
+                <TableHead className="w-[100px] text-center">Status</TableHead>
+                <TableHead className="w-[80px] text-center">In List</TableHead>
+                <TableHead className="w-[40px]" />
+                <TableHead className="w-[48px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {completedRuns.map((run) => {
+                const startedAt = run.startedAt ? new Date(run.startedAt) : null;
+                const completedAt = run.completedAt ? new Date(run.completedAt) : null;
+                const dur = run.durationSeconds != null
+                  ? (run.durationSeconds < 60
+                      ? `${run.durationSeconds}s`
+                      : `${Math.floor(run.durationSeconds / 60)}m ${run.durationSeconds % 60}s`)
+                  : (startedAt ? durationStr(startedAt, completedAt) : null);
 
-              return (
-                <Link key={run.id} href={`/campaigns/${campaignId}/runs/${run.id}`}>
-                  <div className="flex items-center gap-3 px-5 py-3 hover:bg-muted/10 transition-colors cursor-pointer group">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                        {run.runName ?? `Run #${run.id}`}
-                      </p>
-                      {startedAt && (
-                        <p className="text-xs text-muted-foreground">
-                          {format(startedAt, "MMM d, yyyy · HH:mm")}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0 flex-wrap justify-end">
-                      {run.totalNewLeads != null && (
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3" />
-                          {run.totalNewLeads} leads
+                const resumed = isResumedRun(run);
+                const crawlCounts = resumed ? getRunCrawlCounts(run) : null;
+                const addedToList = (run as RunWithList).totalAddedToList ?? 0;
+
+                return (
+                  <TableRow
+                    key={run.id}
+                    className="border-border/30 hover:bg-muted/10 cursor-pointer group"
+                    onClick={() => window.location.href = `/campaigns/${campaignId}/runs/${run.id}`}
+                  >
+                    <TableCell>
+                      <Link href={`/campaigns/${campaignId}/runs/${run.id}`}>
+                        <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                          {run.runName ?? `Run #${run.id}`}
+                        </span>
+                      </Link>
+                      {resumed && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/10 text-violet-500">
+                          Resumed
                         </span>
                       )}
-                      {run.totalSearches != null && run.totalSearches > 0 && (
-                        <span>{run.totalSearches} searched</span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {startedAt ? format(startedAt, "MMM d, yyyy · HH:mm") : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-medium">
+                      {resumed
+                        ? (crawlCounts
+                            ? <span className="text-muted-foreground text-xs">{crawlCounts.crawledCount + crawlCounts.crawlFailedCount} crawled</span>
+                            : "—")
+                        : (run.totalNewLeads ?? 0)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {resumed ? "—" : (
+                        <>
+                          {run.totalSearches ?? 0}
+                          {(run.totalSearchesSkipped ?? 0) > 0 && (
+                            <span className="text-xs ml-1 opacity-60">+{run.totalSearchesSkipped}sk</span>
+                          )}
+                        </>
                       )}
-                      {(run.totalSearchesSkipped ?? 0) > 0 && (
-                        <span>{run.totalSearchesSkipped} skipped</span>
-                      )}
-                      {(run.totalDiscoverySourcesMined ?? 0) > 0 && (
-                        <span>{run.totalDiscoverySourcesMined} sources mined</span>
-                      )}
-                      {(run.totalBlocked ?? 0) > 0 && (
-                        <span>{run.totalBlocked} blocked</span>
-                      )}
-                      {(run.totalDuplicates ?? 0) > 0 && (
-                        <span>{run.totalDuplicates} dupes</span>
-                      )}
-                      {dur && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {dur}
-                        </span>
-                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {resumed ? "—" : ((run.totalDiscoverySourcesMined ?? 0) > 0 ? run.totalDiscoverySourcesMined : "—")}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {(run.totalDuplicates ?? 0) > 0 ? run.totalDuplicates : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {(run.totalBlocked ?? 0) > 0 ? run.totalBlocked : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">
+                      {dur ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-center">
                       <RunStatusBadge status={run.status} />
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 group-hover:text-primary transition-colors" />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {addedToList > 0 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600">
+                          <Users className="w-3 h-3" />
+                          {addedToList}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-primary transition-colors" />
+                    </TableCell>
+                    <TableCell className="pr-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 rounded-lg text-destructive/50 hover:text-destructive hover:bg-destructive/10"
+                        disabled={deletingRunId === run.id || run.status === "running"}
+                        onClick={(e) => handleDeleteRun(e, run.id)}
+                        title="Delete run"
+                      >
+                        {deletingRunId === run.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
   );
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ── Settings tab content ─────────────────────────────────────────────────────
 
-export function CampaignDetail() {
-  const { id } = useParams();
-  const campaignId = Number(id);
-  const { data: campaign, isLoading } = useGetCampaign(campaignId, {
-    query: { enabled: !!campaignId, queryKey: getGetCampaignQueryKey(campaignId) },
-  });
-  const updateCampaign = useUpdateCampaign();
-  const triggerPipeline = useTriggerCampaignPipeline();
-  const deleteCampaign = useDeleteCampaign();
-  const resetData = useResetCampaignData();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [, navigate] = useLocation();
+interface SettingsTabProps {
+  formData: FormData;
+  setFormData: React.Dispatch<React.SetStateAction<FormData>>;
+  selectedDays: string[];
+  toggleDay: (day: string) => void;
+  nextRunAt: Date | null;
+  campaign: Campaign;
+  handleSave: () => void;
+  isSaving: boolean;
+}
 
-  const [formData, setFormData] = useState<FormData>({
-    name: "",
-    objective: "",
-    isActive: true,
-    minRelevanceScore: 50,
-    maxSearchesPerDay: 10,
-    maxEmailsPerDay: 20,
-    resultsPerSearch: 10,
-    queryRefreshDays: 30,
-    discoverySourceRefreshDays: 30,
-    keywords: "",
-    countries: "",
-    scheduleType: "manual",
-    scheduleTime: "09:00",
-  });
-  const initialized = useRef(false);
-  const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
-  const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
-  const [resetDataOpen, setResetDataOpen] = useState(false);
-
-  useEffect(() => {
-    if (campaign && !initialized.current) {
-      const days = campaign.scheduleDays;
-      setSelectedDays(days ? days.split(",").map((d) => d.trim()) : ["mon"]);
-      setFormData({
-        name: campaign.name ?? "",
-        objective: campaign.objective ?? "",
-        isActive: campaign.isActive ?? true,
-        minRelevanceScore: campaign.minRelevanceScore ?? 50,
-        maxSearchesPerDay: campaign.maxSearchesPerDay ?? 10,
-        maxEmailsPerDay: campaign.maxEmailsPerDay ?? 20,
-        resultsPerSearch: campaign.resultsPerSearch ?? 10,
-        queryRefreshDays: campaign.queryRefreshDays ?? 30,
-        discoverySourceRefreshDays: campaign.discoverySourceRefreshDays ?? 30,
-        keywords: Array.isArray(campaign.keywords) ? campaign.keywords.join(", ") : (campaign.keywords ?? ""),
-        countries: Array.isArray(campaign.countries) ? campaign.countries.join(", ") : (campaign.countries ?? ""),
-        scheduleType: campaign.scheduleType ?? "manual",
-        scheduleTime: campaign.scheduleTime ?? "09:00",
-      });
-      initialized.current = true;
-    }
-  }, [campaign]);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
-    queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
-  };
-
-  const handleSave = () => {
-    updateCampaign.mutate(
-      {
-        id: campaignId,
-        data: {
-          ...formData,
-          resultsPerSearch: Math.min(50, Math.max(1, formData.resultsPerSearch || 10)),
-          keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
-          countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
-          scheduleDays: selectedDays.join(","),
-        } as Parameters<typeof updateCampaign.mutate>[0]["data"],
-      },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Campaign saved." });
-        },
-        onError: () => toast({ title: "Failed to save campaign.", variant: "destructive" }),
-      },
-    );
-  };
-
-  const handleTrigger = () => {
-    triggerPipeline.mutate(
-      { id: campaignId },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Campaign run started." });
-        },
-        onError: () => toast({ title: "Failed to start campaign run.", variant: "destructive" }),
-      },
-    );
-  };
-
-  const handleDeleteCampaign = () => {
-    deleteCampaign.mutate(
-      { id: campaignId },
-      {
-        onSuccess: () => {
-          toast({ title: "Campaign deleted." });
-          setDeleteCampaignOpen(false);
-          queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
-          navigate("/campaigns");
-        },
-        onError: () => toast({ title: "Failed to delete campaign.", variant: "destructive" }),
-      },
-    );
-  };
-
-  const handleResetData = () => {
-    resetData.mutate(
-      { id: campaignId },
-      {
-        onSuccess: (result) => {
-          toast({ title: `Reset complete: ${result.deletedRuns} run(s) and ${result.deletedLeads} lead(s) removed.` });
-          setResetDataOpen(false);
-          invalidate();
-        },
-        onError: () => toast({ title: "Failed to reset campaign data.", variant: "destructive" }),
-      },
-    );
-  };
-
-  const toggleDay = (day: string) => {
-    setSelectedDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
-    );
-  };
-
-  if (isLoading) return <div className="p-8 text-sm text-muted-foreground animate-pulse">Loading campaign...</div>;
-  if (!campaign) return <div className="p-8 text-sm text-destructive">Campaign not found.</div>;
-
-  const isRunning = triggerPipeline.isPending || campaign.lastRunStatus === "running";
-  const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
-
+function SettingsTab({
+  formData, setFormData, selectedDays, toggleDay, nextRunAt, campaign,
+  handleSave, isSaving,
+}: SettingsTabProps) {
   return (
-    <div className="space-y-6 max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <Link href="/campaigns" className="text-muted-foreground hover:text-foreground transition-colors p-2 rounded-full hover:bg-muted">
-          <ChevronLeft className="w-5 h-5" />
-        </Link>
-        <h1 className="text-3xl font-semibold tracking-tight flex-1">{campaign.name}</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            onClick={handleTrigger}
-            disabled={isRunning || !campaign.isActive}
-            variant="secondary"
-            className="rounded-xl shadow-sm gap-2 bg-primary/10 text-primary hover:bg-primary/20"
-            data-testid="button-run-campaign"
-          >
-            {isRunning ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Running…</>
-            ) : (
-              <><Zap className="w-4 h-4" /> Run Campaign</>
-            )}
-          </Button>
-          <Button onClick={handleSave} disabled={updateCampaign.isPending} className="rounded-xl shadow-sm" data-testid="button-save-campaign">
-            {updateCampaign.isPending ? "Saving…" : "Save Changes"}
-          </Button>
-          <Button
-            variant="outline"
-            className="rounded-xl shadow-sm gap-2 text-destructive border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
-            onClick={() => setDeleteCampaignOpen(true)}
-            data-testid="button-delete-campaign"
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </Button>
-        </div>
-      </div>
-
-      <ConfirmDialog
-        open={deleteCampaignOpen}
-        onOpenChange={setDeleteCampaignOpen}
-        title="Delete Campaign"
-        description={`This will permanently delete the campaign "${campaign?.name ?? ""}" along with all its runs, leads, and outreach data. This cannot be undone.`}
-        confirmText={campaign?.name ?? ""}
-        confirmLabel="Delete Campaign"
-        onConfirm={handleDeleteCampaign}
-        loading={deleteCampaign.isPending}
-      />
-
-      <ConfirmDialog
-        open={resetDataOpen}
-        onOpenChange={setResetDataOpen}
-        title="Reset Campaign Data"
-        description={`This will delete all runs and leads for "${campaign?.name ?? ""}" while keeping the campaign settings. This cannot be undone.`}
-        confirmText="RESET DATA"
-        confirmLabel="Reset Data"
-        onConfirm={handleResetData}
-        loading={resetData.isPending}
-      />
-
-      {/* Current Run live card (only shows when running) */}
-      <CurrentRunCard campaignId={campaignId} />
-
-      {/* Campaign Runs history */}
-      <CampaignRunsSection campaignId={campaignId} />
-
-      {/* Settings grid */}
+    <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* General settings */}
+        {/* General Settings */}
         <Card className="glass-card">
           <CardHeader className="border-b border-border/30 pb-3">
-            <h3 className="text-sm font-medium text-foreground">General Settings</h3>
+            <h3 className="text-sm font-medium text-foreground">General</h3>
           </CardHeader>
           <CardContent className="space-y-4 pt-5">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Name</Label>
+              <Label className="text-xs font-medium text-muted-foreground">Campaign Name</Label>
               <Input
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -638,27 +569,22 @@ export function CampaignDetail() {
           </CardContent>
         </Card>
 
-        {/* Other Settings */}
-        <Card className="glass-card md:col-span-2">
+        {/* Search & Scoring + Scheduler Settings */}
+        <Card className="glass-card">
           <CardHeader className="border-b border-border/30 pb-3">
-            <h3 className="text-sm font-medium text-foreground">Other Settings</h3>
+            <h3 className="text-sm font-medium text-foreground">Search & Scoring</h3>
           </CardHeader>
-          <CardContent className="space-y-6 pt-5">
-            {/* Fields grid */}
+          <CardContent className="space-y-4 pt-5">
             <div className="grid grid-cols-2 gap-3">
-              {([
-                { label: "Min Relevance Score", key: "minRelevanceScore" },
-              ] as const).map((f) => (
-                <div key={f.key} className="space-y-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">{f.label}</Label>
-                  <Input
-                    type="number"
-                    value={formData[f.key]}
-                    onChange={(e) => setFormData({ ...formData, [f.key]: Number(e.target.value) })}
-                    className="rounded-xl bg-background/50"
-                  />
-                </div>
-              ))}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Min Relevance Score</Label>
+                <Input
+                  type="number"
+                  value={formData.minRelevanceScore}
+                  onChange={(e) => setFormData({ ...formData, minRelevanceScore: Number(e.target.value) })}
+                  className="rounded-xl bg-background/50"
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">Results Per Search</Label>
                 <Input
@@ -670,10 +596,10 @@ export function CampaignDetail() {
                   placeholder="10"
                   className="rounded-xl bg-background/50"
                 />
-                <p className="text-[11px] text-muted-foreground/70">
-                  Serper results per search query. Maximum is 50.
-                </p>
+                <p className="text-[11px] text-muted-foreground/70">Max 50 per query</p>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">Query Refresh (days)</Label>
                 <Select
@@ -689,9 +615,7 @@ export function CampaignDetail() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground/70">
-                  Days before re-searching the same keyword
-                </p>
+                <p className="text-[11px] text-muted-foreground/70">Days before re-searching same keyword</p>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">Source Refresh (days)</Label>
@@ -708,18 +632,16 @@ export function CampaignDetail() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground/70">
-                  Days before re-mining a discovery source URL
-                </p>
+                <p className="text-[11px] text-muted-foreground/70">Days before re-mining a source URL</p>
               </div>
             </div>
 
             {/* Scheduler */}
-            <div className="border-t border-border/30 pt-5 space-y-4">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <div className="border-t border-border/30 pt-4 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-primary" /> Scheduler
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              </p>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Schedule Type</Label>
                   <Select
@@ -750,19 +672,12 @@ export function CampaignDetail() {
                 )}
 
                 {nextRunAt && formData.scheduleType !== "manual" && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 col-span-2">
                     <Label className="text-xs font-medium text-muted-foreground">Next Run</Label>
-                    <div className="flex items-center gap-1.5 text-sm font-medium text-primary pt-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
                       <Clock className="w-3.5 h-3.5" />
                       {format(nextRunAt, "MMM d, HH:mm")}
                     </div>
-                  </div>
-                )}
-
-                {formData.scheduleType === "manual" && (
-                  <div className="space-y-1.5 sm:col-span-3">
-                    <Label className="text-xs font-medium text-muted-foreground">Schedule</Label>
-                    <p className="text-sm text-muted-foreground pt-2">Manual — click <strong>Run Campaign</strong> above to run.</p>
                   </div>
                 )}
               </div>
@@ -793,6 +708,278 @@ export function CampaignDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Save button */}
+      <div className="flex justify-end pt-2">
+        <Button onClick={handleSave} disabled={isSaving} className="rounded-xl shadow-sm">
+          {isSaving ? "Saving…" : "Save Changes"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
+export function CampaignDetail() {
+  const { id } = useParams();
+  const campaignId = Number(id);
+  const { data: campaign, isLoading } = useGetCampaign(campaignId, {
+    query: { enabled: !!campaignId, queryKey: getGetCampaignQueryKey(campaignId) },
+  });
+  const updateCampaign = useUpdateCampaign();
+  const deleteCampaign = useDeleteCampaign();
+  const resetData = useResetCampaignData();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const [formData, setFormData] = useState<FormData>({
+    name: "",
+    objective: "",
+    isActive: true,
+    minRelevanceScore: 50,
+    resultsPerSearch: 10,
+    queryRefreshDays: 30,
+    discoverySourceRefreshDays: 30,
+    keywords: "",
+    countries: "",
+    scheduleType: "manual",
+    scheduleTime: "09:00",
+  });
+  const initialized = useRef(false);
+  const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
+  const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
+  const [resetDataOpen, setResetDataOpen] = useState(false);
+
+  // Run name dialog state
+  const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [runName, setRunName] = useState("");
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  useEffect(() => {
+    if (campaign && !initialized.current) {
+      const days = campaign.scheduleDays;
+      setSelectedDays(days ? days.split(",").map((d) => d.trim()) : ["mon"]);
+      setFormData({
+        name: campaign.name ?? "",
+        objective: campaign.objective ?? "",
+        isActive: campaign.isActive ?? true,
+        minRelevanceScore: campaign.minRelevanceScore ?? 50,
+        resultsPerSearch: campaign.resultsPerSearch ?? 10,
+        queryRefreshDays: campaign.queryRefreshDays ?? 30,
+        discoverySourceRefreshDays: campaign.discoverySourceRefreshDays ?? 30,
+        keywords: Array.isArray(campaign.keywords) ? campaign.keywords.join(", ") : (campaign.keywords ?? ""),
+        countries: Array.isArray(campaign.countries) ? campaign.countries.join(", ") : (campaign.countries ?? ""),
+        scheduleType: campaign.scheduleType ?? "manual",
+        scheduleTime: campaign.scheduleTime ?? "09:00",
+      });
+      initialized.current = true;
+    }
+  }, [campaign]);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
+    queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+  };
+
+  const handleSave = () => {
+    updateCampaign.mutate(
+      {
+        id: campaignId,
+        data: {
+          ...formData,
+          resultsPerSearch: Math.min(50, Math.max(1, formData.resultsPerSearch || 10)),
+          keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
+          countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
+          scheduleDays: selectedDays.join(","),
+        } as Parameters<typeof updateCampaign.mutate>[0]["data"],
+      },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Campaign saved." });
+        },
+        onError: () => toast({ title: "Failed to save campaign.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const openRunDialog = () => {
+    setRunName(`Campaign Run – ${new Date().toISOString().slice(0, 10)}`);
+    setRunDialogOpen(true);
+  };
+
+  const handleTrigger = async () => {
+    setIsTriggering(true);
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/campaigns/${campaignId}/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runName: runName.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setRunDialogOpen(false);
+      invalidate();
+      toast({ title: "Campaign run started." });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : "Failed to start campaign run.", variant: "destructive" });
+    } finally {
+      setIsTriggering(false);
+    }
+  };
+
+  const handleDeleteCampaign = () => {
+    deleteCampaign.mutate(
+      { id: campaignId },
+      {
+        onSuccess: () => {
+          toast({ title: "Campaign deleted." });
+          setDeleteCampaignOpen(false);
+          queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey() });
+          navigate("/campaigns");
+        },
+        onError: () => toast({ title: "Failed to delete campaign.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleResetData = () => {
+    resetData.mutate(
+      { id: campaignId },
+      {
+        onSuccess: (result) => {
+          toast({ title: `Reset complete: ${result.deletedRuns} run(s) and ${result.deletedLeads} lead(s) removed.` });
+          setResetDataOpen(false);
+          invalidate();
+        },
+        onError: () => toast({ title: "Failed to reset campaign data.", variant: "destructive" }),
+      },
+    );
+  };
+
+  const toggleDay = (day: string) => {
+    setSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
+    );
+  };
+
+  if (isLoading) return <div className="p-8 text-sm text-muted-foreground animate-pulse">Loading campaign...</div>;
+  if (!campaign) return <div className="p-8 text-sm text-destructive">Campaign not found.</div>;
+
+  const isRunning = isTriggering || campaign.lastRunStatus === "running";
+  const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
+
+  return (
+    <div className="space-y-6 max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Header */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <Link href="/campaigns" className="text-muted-foreground hover:text-foreground transition-colors p-2 rounded-full hover:bg-muted">
+          <ChevronLeft className="w-5 h-5" />
+        </Link>
+        <h1 className="text-3xl font-semibold tracking-tight flex-1">{campaign.name}</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            onClick={openRunDialog}
+            disabled={isRunning || !campaign.isActive}
+            variant="secondary"
+            className="rounded-xl shadow-sm gap-2 bg-primary/10 text-primary hover:bg-primary/20"
+            data-testid="button-run-campaign"
+          >
+            {isRunning ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Running…</>
+            ) : (
+              <><Zap className="w-4 h-4" /> Run Campaign</>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Run name dialog */}
+      <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Start Campaign Run</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label className="text-xs font-medium text-muted-foreground">Run Name</Label>
+            <Input
+              value={runName}
+              onChange={(e) => setRunName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !isTriggering) handleTrigger(); }}
+              className="rounded-xl bg-background/50"
+              placeholder="Campaign Run – 2026-05-28"
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Give this run a descriptive name so you can identify it in the history.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="rounded-xl" onClick={() => setRunDialogOpen(false)} disabled={isTriggering}>
+              Cancel
+            </Button>
+            <Button className="rounded-xl gap-2" onClick={handleTrigger} disabled={isTriggering}>
+              {isTriggering ? <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</> : <><Zap className="w-4 h-4" /> Start Run</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteCampaignOpen}
+        onOpenChange={setDeleteCampaignOpen}
+        title="Delete Campaign"
+        description={`This will permanently delete the campaign "${campaign?.name ?? ""}" along with all its runs, leads, and outreach data. This cannot be undone.`}
+        confirmText={campaign?.name ?? ""}
+        confirmLabel="Delete Campaign"
+        onConfirm={handleDeleteCampaign}
+        loading={deleteCampaign.isPending}
+      />
+
+      <ConfirmDialog
+        open={resetDataOpen}
+        onOpenChange={setResetDataOpen}
+        title="Reset Campaign Data"
+        description={`This will delete all runs and leads for "${campaign?.name ?? ""}" while keeping the campaign settings. This cannot be undone.`}
+        confirmText="RESET DATA"
+        confirmLabel="Reset Data"
+        onConfirm={handleResetData}
+        loading={resetData.isPending}
+      />
+
+      {/* Tabs */}
+      <Tabs defaultValue="runs">
+        <TabsList className="rounded-xl">
+          <TabsTrigger value="runs" className="rounded-lg gap-1.5">
+            <History className="w-3.5 h-3.5" /> Runs
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="rounded-lg gap-1.5">
+            <Settings className="w-3.5 h-3.5" /> Settings
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="runs" className="space-y-5 mt-4">
+          <CurrentRunCard campaignId={campaignId} />
+          <CampaignRunsSection campaignId={campaignId} />
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab
+            formData={formData}
+            setFormData={setFormData}
+            selectedDays={selectedDays}
+            toggleDay={toggleDay}
+            nextRunAt={nextRunAt}
+            campaign={campaign}
+            handleSave={handleSave}
+            isSaving={updateCampaign.isPending}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

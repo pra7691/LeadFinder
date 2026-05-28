@@ -248,10 +248,7 @@ export function Campaigns() {
             <TableHeader>
               <TableRow>
                 <TableHead>Campaign</TableHead>
-                <TableHead>Objective</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Schedule</TableHead>
-                <TableHead>Keywords</TableHead>
                 <TableHead>Last Run</TableHead>
                 <TableHead>Next Run</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -260,7 +257,7 @@ export function Campaigns() {
             <TableBody>
               {Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 5 }).map((__, j) => (
                     <TableCell key={j}>
                       <div className="h-4 rounded bg-muted/60 animate-pulse" />
                     </TableCell>
@@ -276,10 +273,7 @@ export function Campaigns() {
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-[220px]">Campaign</TableHead>
-                <TableHead className="min-w-[240px]">Objective</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Schedule</TableHead>
-                <TableHead className="min-w-[180px]">Keywords</TableHead>
                 <TableHead>Last Run</TableHead>
                 <TableHead>Next Run</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -292,8 +286,6 @@ export function Campaigns() {
                 const isPaused = Boolean(campaign.isPaused);
                 const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
                 const lastRunAt = campaign.lastRunAt ? new Date(campaign.lastRunAt) : null;
-                const { dot, label: dotLabel } = getStatusDot(lastRunStatus, campaign.isActive);
-                const keywords = campaign.keywords || [];
 
                 return (
                   <TableRow
@@ -314,15 +306,6 @@ export function Campaigns() {
                         {campaign.name}
                       </span>
                     </TableCell>
-                    <TableCell className="max-w-[320px] text-sm text-muted-foreground">
-                      <span className="line-clamp-2">{campaign.objective}</span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium">
-                        <span className={cn("h-2 w-2 rounded-full", dot)} />
-                        {lastRunStatus === "running" ? "Running" : isPaused ? "Paused" : dotLabel}
-                      </span>
-                    </TableCell>
                     <TableCell className="text-sm">
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
@@ -331,23 +314,6 @@ export function Campaigns() {
                       {scheduleType !== "manual" && campaign.scheduleTime && (
                         <p className="mt-1 text-xs text-muted-foreground">@ {campaign.scheduleTime}</p>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex max-w-[220px] flex-wrap gap-1.5">
-                        {keywords.slice(0, 3).map((kw, i) => (
-                          <span key={i} className="rounded-md bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                            {kw}
-                          </span>
-                        ))}
-                        {keywords.length > 3 && (
-                          <span className="rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground">
-                            +{keywords.length - 3}
-                          </span>
-                        )}
-                        {!keywords.length && (
-                          <span className="text-xs italic text-muted-foreground/60">No keywords</span>
-                        )}
-                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {lastRunAt ? formatDistanceToNow(lastRunAt, { addSuffix: true }) : "Never"}

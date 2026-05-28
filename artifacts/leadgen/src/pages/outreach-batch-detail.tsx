@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Eye, Mail, MousePointerClick, Users, Trash2, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Eye, Mail, MousePointerClick, Users, Trash2, Loader2, RefreshCw } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,16 @@ import {
   type OutreachDisplayRow,
   type OutreachItem,
 } from "@/pages/outreach";
+import { saveTextExportToServer } from "@/lib/export-files";
+
+function csvEscape(value: unknown): string {
+  if (value == null) return "";
+  const str = String(value);
+  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
 
 function findBatch(rows: OutreachDisplayRow[], batchId: string | undefined): OutreachDisplayRow | null {
   if (!batchId) return null;
@@ -36,6 +46,8 @@ export function OutreachBatchDetail() {
   const deleteMut = useDeleteOutreach();
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const { data: rawItems, isLoading } = useListOutreach();
   const outreachItems = Array.isArray(rawItems) ? (rawItems as OutreachItem[]) : [];
@@ -43,6 +55,34 @@ export function OutreachBatchDetail() {
   const batch = findBatch(rows, params.batchId);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
+
+  const handleExport = async () => {
+    if (!batch) return;
+    setExporting(true);
+    try {
+      const header = ["Company", "Email", "Status", "Opens", "Clicks", "Sent At", "First Opened", "Last Opened", "Last Clicked"];
+      const dataRows = batch.items.map((item) => [
+        item.companyName ?? "",
+        item.recipientEmail,
+        getDisplayStatus(item),
+        item.openCount ?? 0,
+        item.clickCount ?? 0,
+        item.sentAt ?? "",
+        item.firstOpenedAt ?? "",
+        item.lastOpenedAt ?? "",
+        item.lastClickedAt ?? "",
+      ]);
+      const csv = [header, ...dataRows].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
+      const filename = `outreach-${batch.id}-${new Date().toISOString().slice(0, 10)}.csv`;
+      const saved = await saveTextExportToServer(filename, csv);
+      toast({ title: `Export saved to ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleDeleteItem = (id: number) => {
     if (!confirm("Remove this item from the queue?")) return;
@@ -67,6 +107,52 @@ export function OutreachBatchDetail() {
       toast({ title: "Some items could not be deleted.", variant: "destructive" });
     } finally {
       setDeletingAll(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!batch) return;
+    const resendable = batch.items.filter((i) => i.status === "failed" || i.status === "pending_review" || i.status === "approved");
+    if (resendable.length === 0) {
+      toast({ title: "No failed or pending items to resend." });
+      return;
+    }
+    setResending(true);
+    try {
+      // 1. Reset failed/pending items back to approved
+      const resetRes = await fetch(`${import.meta.env.BASE_URL}api/outreach/resend-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batchId: batch.id }),
+      });
+      if (!resetRes.ok) {
+        const err = await resetRes.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? `Reset failed (${resetRes.status})`);
+      }
+      const { reset, ids } = await resetRes.json() as { reset: number; ids: number[] };
+      if (reset === 0) {
+        toast({ title: "No failed or pending items found to resend." });
+        return;
+      }
+      // 2. Trigger send-batch for just those ids
+      const sendRes = await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!sendRes.ok) {
+        const err = await sendRes.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? `Send failed (${sendRes.status})`);
+      }
+      const result = await sendRes.json() as { sent: number; failed: number; skipped: number };
+      invalidate();
+      toast({
+        title: `Resend complete: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped.`,
+      });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : "Resend failed.", variant: "destructive" });
+    } finally {
+      setResending(false);
     }
   };
 
@@ -118,6 +204,37 @@ export function OutreachBatchDetail() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={batch.status} />
+          {(() => {
+            const resendableCount = batch.items.filter(
+              (i) => i.status === "failed" || i.status === "pending_review" || i.status === "approved"
+            ).length;
+            return resendableCount > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 text-primary/80 hover:text-primary border-primary/20 hover:border-primary/50"
+                onClick={handleResend}
+                disabled={resending}
+              >
+                {resending
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />}
+                Resend ({resendableCount})
+              </Button>
+            ) : null;
+          })()}
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl gap-1.5"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Download className="w-3.5 h-3.5" />}
+            Export CSV
+          </Button>
           <Button
             variant="outline"
             size="sm"

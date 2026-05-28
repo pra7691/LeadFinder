@@ -9,6 +9,7 @@ import {
   leadListsTable,
   leadListItemsTable,
   emailAccountsTable,
+  appSettingsTable,
 } from "@workspace/db";
 import { eq, and, inArray, or, isNull, desc } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
@@ -30,6 +31,8 @@ import { analyzeQuality } from "../services/quality-analyzer";
 import { getPrimaryLeadEmail, parseLeadEmails } from "../services/lead-emails";
 import { isEmailUnsubscribed } from "./unsubscribe";
 import { isEmailHardBounced } from "./outreach-send";
+import { isEmailBlacklisted } from "../services/email-blacklist";
+import { domainMatchesBlockedList, parseBlockedDomains } from "../services/domain-blocklist";
 
 const router = Router();
 
@@ -293,12 +296,23 @@ router.post("/outreach/from-list", async (req, res) => {
     ));
   const alreadyQueued = new Set(existingForList.map((r) => r.recipientEmail.toLowerCase()));
 
+  // Load blocked domains once for the whole batch
+  const [blockedDomainsRow1] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "blocked_domains"));
+  const blockedDomainSet1 = parseBlockedDomains(blockedDomainsRow1?.value);
+
   for (const lead of leads) {
     const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
     // Skip invalid email format
     if (classifyEmail(recipientEmail).isRejected) { skipped++; continue; }
+
+    // Skip blacklisted emails (exact match)
+    if (await isEmailBlacklisted(recipientEmail)) { skipped++; continue; }
+
+    // Skip blocked domains and their subdomains
+    const recipientDomain1 = recipientEmail.trim().toLowerCase().split("@")[1];
+    if (recipientDomain1 && domainMatchesBlockedList(recipientDomain1, blockedDomainSet1)) { skipped++; continue; }
 
     // Skip unsubscribed recipients
     if (await isEmailUnsubscribed(recipientEmail)) { skipped++; continue; }
@@ -352,12 +366,23 @@ router.post("/outreach/bulk-queue", async (req, res) => {
   let skipped = 0;
   const items: (typeof outreachQueueTable.$inferSelect)[] = [];
 
+  // Load blocked domains once for the whole batch
+  const [blockedDomainsRow2] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "blocked_domains"));
+  const blockedDomainSet2 = parseBlockedDomains(blockedDomainsRow2?.value);
+
   for (const lead of leads) {
     const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
     // Skip invalid email format
     if (classifyEmail(recipientEmail).isRejected) { skipped++; continue; }
+
+    // Skip blacklisted emails (exact match)
+    if (await isEmailBlacklisted(recipientEmail)) { skipped++; continue; }
+
+    // Skip blocked domains and their subdomains
+    const recipientDomain2 = recipientEmail.trim().toLowerCase().split("@")[1];
+    if (recipientDomain2 && domainMatchesBlockedList(recipientDomain2, blockedDomainSet2)) { skipped++; continue; }
 
     // Skip unsubscribed recipients
     if (await isEmailUnsubscribed(recipientEmail)) { skipped++; continue; }

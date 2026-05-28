@@ -10,7 +10,7 @@ import {
   logsTable,
   appSettingsTable,
 } from "@workspace/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { decrypt, isEncrypted } from "../lib/crypto";
 import {
   SendOutreachItemParams,
@@ -20,6 +20,8 @@ import {
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
 import { buildUnsubscribeUrl, isEmailUnsubscribed } from "./unsubscribe";
+import { isEmailBlacklisted } from "../services/email-blacklist";
+import { domainMatchesBlockedList, parseBlockedDomains } from "../services/domain-blocklist";
 import { toNodemailerAttachments } from "../services/email-template-attachments";
 import {
   addTrackingToHtml,
@@ -40,10 +42,12 @@ function delay(ms: number) {
 
 let batchSendRunning = false;
 let batchSendCancelRequested = false;
+let currentBatchId: string | null = null;
 
 function resetBatchSendState() {
   batchSendRunning = false;
   batchSendCancelRequested = false;
+  currentBatchId = null;
 }
 
 function interruptibleDelay(ms: number) {
@@ -203,6 +207,15 @@ async function doSend(
   account: typeof emailAccountsTable.$inferSelect,
   campaign?: typeof campaignsTable.$inferSelect,
 ): Promise<boolean> {
+  // Skip if recipient is on the email blacklist
+  if (await isEmailBlacklisted(item.recipientEmail)) {
+    await db.update(outreachQueueTable)
+      .set({ status: "rejected", failureReason: "skipped:blacklisted" })
+      .where(eq(outreachQueueTable.id, item.id));
+    await logSend(item.campaignId, "send_skip", `Skipped: ${item.recipientEmail} is blacklisted`, { outreachId: item.id });
+    return false;
+  }
+
   // Skip if recipient has unsubscribed
   if (await isEmailUnsubscribed(item.recipientEmail)) {
     await db.update(outreachQueueTable)
@@ -215,7 +228,11 @@ async function doSend(
   // Append unsubscribe link to body
   const unsubscribeUrl = await buildUnsubscribeUrl(item.id, item.recipientEmail);
   const bodyWithUnsub = unsubscribeUrl
-    ? appendUnsubscribeFooter(item.body, `To unsubscribe from future emails, click here: ${unsubscribeUrl}`)
+    ? appendUnsubscribeFooter(
+        item.body,
+        `To unsubscribe from future emails, click here: ${unsubscribeUrl}`,
+        `<a href="${unsubscribeUrl}" style="color:#666;">Unsubscribe from future emails</a>`,
+      )
     : item.body;
   const fullBody = appendUnsubscribeFooter(bodyWithUnsub, campaign?.unsubscribeFooter);
 
@@ -327,6 +344,19 @@ async function antiSpamCheck(
     return { ok: false, reason: "Lead has been rejected or marked invalid" };
   }
 
+  // Check recipient domain against blocked_domains (includes subdomain matching)
+  const recipientDomain = item.recipientEmail.trim().toLowerCase().split("@")[1];
+  if (recipientDomain) {
+    const [domainRow] = await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "blocked_domains"));
+    const blockedDomains = parseBlockedDomains(domainRow?.value);
+    if (domainMatchesBlockedList(recipientDomain, blockedDomains)) {
+      return { ok: false, reason: "skipped:blocked_domain" };
+    }
+  }
+
   // No duplicate sends — check if same lead+campaign already sent (only when campaign is set)
   if (item.campaignId !== null) {
     const duplicate = await db
@@ -366,10 +396,15 @@ router.post("/outreach/send-batch", async (req, res) => {
   const approvedConditions = [eq(outreachQueueTable.status, "approved")];
   if (ids.length > 0) approvedConditions.push(inArray(outreachQueueTable.id, ids));
 
+  // ORDER BY id ASC so items are always processed top-to-bottom
   const approved = await db
     .select()
     .from(outreachQueueTable)
-    .where(and(...approvedConditions));
+    .where(and(...approvedConditions))
+    .orderBy(asc(outreachQueueTable.id));
+
+  // Capture the batchId so the status endpoint can tell the frontend which batch is active
+  currentBatchId = approved[0]?.batchId ?? null;
 
   if (approved.length === 0) {
     resetBatchSendState();
@@ -513,6 +548,12 @@ router.post("/outreach/send-batch", async (req, res) => {
   } finally {
     resetBatchSendState();
   }
+});
+
+// ── GET /outreach/send-batch/status ────────────────────────────────────────
+
+router.get("/outreach/send-batch/status", (_req, res) => {
+  res.json({ running: batchSendRunning, batchId: currentBatchId });
 });
 
 // ── POST /outreach/send-batch/cancel ───────────────────────────────────────
@@ -729,6 +770,40 @@ router.post("/outreach/:id/send", async (req, res) => {
   res.json(await enrichItem(updated!));
 });
 
+// ── POST /outreach/resend-batch ─────────────────────────────────────────────
+// Resets all failed/pending_review items in a batch back to approved so
+// the caller can immediately trigger send-batch to re-send them.
+
+router.post("/outreach/resend-batch", async (req, res) => {
+  const batchId = (req.body as { batchId?: unknown })?.batchId;
+  if (!batchId || typeof batchId !== "string") {
+    res.status(400).json({ error: "batchId is required" });
+    return;
+  }
+
+  const resendable = await db
+    .select({ id: outreachQueueTable.id })
+    .from(outreachQueueTable)
+    .where(and(
+      eq(outreachQueueTable.batchId, batchId),
+      inArray(outreachQueueTable.status, ["failed", "pending_review", "approved"]),
+    ));
+
+  if (resendable.length === 0) {
+    res.json({ reset: 0, ids: [] });
+    return;
+  }
+
+  const ids = resendable.map((r) => r.id);
+
+  await db
+    .update(outreachQueueTable)
+    .set({ status: "approved", failureReason: null })
+    .where(inArray(outreachQueueTable.id, ids));
+
+  res.json({ reset: ids.length, ids });
+});
+
 // ── POST /outreach/:id/retry ────────────────────────────────────────────────
 
 router.post("/outreach/:id/retry", async (req, res) => {
@@ -798,5 +873,108 @@ router.post("/outreach/:id/retry", async (req, res) => {
 
   res.json(await enrichItem(updated!));
 });
+
+// ── Exported helper: resume any stuck approved items on server startup ───────
+
+/**
+ * Called once at startup by recoverStuckState().
+ * If there are outreach items stuck in "approved" (server crashed mid-send),
+ * this automatically re-fires the batch send for them so they don't stay stuck.
+ */
+export async function resumeStuckOutreach(): Promise<void> {
+  if (batchSendRunning) return; // already running, nothing to do
+
+  const stuckItems = await db
+    .select({ id: outreachQueueTable.id })
+    .from(outreachQueueTable)
+    .where(eq(outreachQueueTable.status, "approved"))
+    .orderBy(asc(outreachQueueTable.id));
+
+  if (stuckItems.length === 0) return;
+
+  // Fire-and-forget: don't await — the server must finish starting first.
+  // Delay slightly so routes are fully registered before the first send attempt.
+  setTimeout(() => {
+    if (batchSendRunning) return; // race guard
+    batchSendRunning = true;
+    batchSendCancelRequested = false;
+
+    const ids = stuckItems.map((r) => r.id);
+
+    db.select()
+      .from(outreachQueueTable)
+      .where(and(eq(outreachQueueTable.status, "approved"), inArray(outreachQueueTable.id, ids)))
+      .orderBy(asc(outreachQueueTable.id))
+      .then(async (approved) => {
+        currentBatchId = approved[0]?.batchId ?? null;
+        if (approved.length === 0) { resetBatchSendState(); return; }
+
+        const campaignCache = new Map<number, typeof campaignsTable.$inferSelect>();
+        const accountCache  = new Map<number, typeof emailAccountsTable.$inferSelect>();
+        const accountSentToday = new Map<number, number>();
+        const globalEmailLimit = await getGlobalEmailLimit();
+        let globalSentToday = await getGlobalSentToday();
+
+        const [delayMinRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_min_seconds"));
+        const [delayMaxRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_max_seconds"));
+        const sendDelayMinMs = Math.max(1000, (parseInt(delayMinRow?.value ?? "30", 10) || 30) * 1000);
+        const sendDelayMaxMs = Math.max(sendDelayMinMs, (parseInt(delayMaxRow?.value ?? "120", 10) || 120) * 1000);
+
+        for (const item of approved) {
+          if (batchSendCancelRequested) break;
+          if (globalSentToday >= globalEmailLimit) break;
+
+          const spamCheck = await antiSpamCheck(item);
+          if (!spamCheck.ok) {
+            if (spamCheck.reason?.startsWith("skipped:")) {
+              await db.update(outreachQueueTable)
+                .set({ status: "rejected", failureReason: spamCheck.reason })
+                .where(eq(outreachQueueTable.id, item.id));
+            }
+            continue;
+          }
+
+          let campaign: typeof campaignsTable.$inferSelect | undefined;
+          if (item.campaignId !== null) {
+            if (!campaignCache.has(item.campaignId)) {
+              const [c] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, item.campaignId));
+              if (c) campaignCache.set(item.campaignId, c);
+            }
+            campaign = campaignCache.get(item.campaignId);
+          }
+
+          const accountId = item.emailAccountId;
+          if (!accountId) continue;
+          if (!accountCache.has(accountId)) {
+            const [a] = await db.select().from(emailAccountsTable).where(eq(emailAccountsTable.id, accountId));
+            if (a) accountCache.set(accountId, a);
+          }
+          const account = accountCache.get(accountId);
+          if (!account || !account.isActive) continue;
+
+          if (!accountSentToday.has(accountId)) accountSentToday.set(accountId, await getAccountSentToday(account));
+          const acctSent = accountSentToday.get(accountId) ?? 0;
+          if (acctSent >= account.dailySendLimit) continue;
+
+          if (globalSentToday > 0) await randomInterruptibleDelay(sendDelayMinMs, sendDelayMaxMs);
+          if (batchSendCancelRequested) break;
+
+          const success = await doSend(item, account, campaign);
+          if (success) { globalSentToday++; accountSentToday.set(accountId, acctSent + 1); }
+        }
+      })
+      .catch((err) => {
+        const { logger } = require("../lib/logger") as typeof import("../lib/logger");
+        logger.error({ err }, "Auto-resume of stuck outreach failed");
+      })
+      .finally(() => resetBatchSendState());
+  }, 5000); // 5s after startup
+
+  const { logger } = await import("../lib/logger");
+  logger.warn(
+    { count: stuckItems.length },
+    `Startup: found ${stuckItems.length} approved outreach item(s) stuck from previous run — auto-resuming in 5s`,
+  );
+}
 
 export default router;

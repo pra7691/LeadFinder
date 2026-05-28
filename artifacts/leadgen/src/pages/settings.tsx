@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, CheckCircle2, XCircle, BrainCircuit, Shield, Activity, RefreshCw, AlertTriangle, Search, Mail, FileText, HelpCircle, Download, MousePointerClick, Gauge } from "lucide-react";
 import { EmailAccounts } from "@/pages/email-accounts";
 import { EmailTemplates } from "@/pages/email-templates";
+import { Logs } from "@/pages/logs";
 import { saveTextExportToServer } from "@/lib/export-files";
 
 // ---------------------------------------------------------------------------
@@ -235,6 +236,7 @@ const SETTINGS_TABS = [
   { value: "email-templates", path: "/settings/email-templates", label: "Email Templates", icon: FileText },
   { value: "email-accounts", path: "/settings/email-accounts", label: "Email Accounts", icon: Mail },
   { value: "email-tracking", path: "/settings/email-tracking", label: "Email Tracking", icon: MousePointerClick },
+  { value: "logs", path: "/settings/logs", label: "Activity Logs", icon: Activity },
   { value: "help", path: "/settings/help", label: "Help", icon: HelpCircle },
 ] as const;
 
@@ -257,6 +259,7 @@ export function Settings() {
 
   // Global filters
   const [blockedDomains, setBlockedDomains] = useState("");
+  const [blockedEmails, setBlockedEmails] = useState("");
 
   // Search API settings
   const [serperKey, setSerperKey] = useState("");
@@ -291,6 +294,8 @@ export function Settings() {
       const find = (key: string) => settingRows.find((s) => s.key === key)?.value;
       const domains = find("blocked_domains");
       if (domains) setBlockedDomains(domains);
+      const emails = find("blocked_emails");
+      if (emails) setBlockedEmails(emails);
       setSerperKey(find("serper_api_key") ?? "");
       setAiEnabled(find("ai_enabled") === "true");
       setAiScoringEnabled(find("ai_scoring_enabled") === "true");
@@ -321,6 +326,7 @@ export function Settings() {
 
   const handleSaveFilters = async () => {
     await save("blocked_domains", blockedDomains);
+    await save("blocked_emails", blockedEmails);
     queryClient.invalidateQueries({ queryKey: getListSettingsQueryKey() });
     toast({ title: "Settings saved." });
   };
@@ -518,6 +524,30 @@ export function Settings() {
                     data-testid="textarea-blocked-domains"
                   />
                 </div>
+                <div className="space-y-3 pt-6 border-t border-border/30">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium">Blacklisted Emails</Label>
+                    {(() => {
+                      const count = blockedEmails.split(/[\n,]/).map(e => e.trim()).filter(Boolean).length;
+                      return count > 0 ? (
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                          {count}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Emails on this list will never be sent to — useful for bounce addresses and opt-outs you manage externally.
+                    Enter one email address per line.
+                  </p>
+                  <Textarea
+                    value={blockedEmails}
+                    onChange={(e) => setBlockedEmails(e.target.value)}
+                    className="rounded-xl bg-background/50 min-h-[180px] font-mono text-sm leading-relaxed"
+                    placeholder={"bounced@example.com\nnoreply@company.com"}
+                    data-testid="textarea-blocked-emails"
+                  />
+                </div>
                 <div className="flex flex-col-reverse gap-3 pt-4 border-t border-border/30 sm:flex-row sm:justify-end">
                   <Button
                     type="button"
@@ -536,10 +566,10 @@ export function Settings() {
                     data-testid="button-export-blocked-domains"
                   >
                     <Download className="w-4 h-4" />
-                    Export CSV
+                    Export Domains CSV
                   </Button>
                   <Button onClick={handleSaveFilters} disabled={upsertSetting.isPending} className="rounded-xl px-6" data-testid="button-save-settings">
-                    {upsertSetting.isPending ? "Saving…" : "Save Domains"}
+                    {upsertSetting.isPending ? "Saving…" : "Save"}
                   </Button>
                 </div>
               </CardContent>
@@ -778,6 +808,10 @@ export function Settings() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-0">
+          <Logs />
         </TabsContent>
 
         <TabsContent value="help" className="mt-0 max-w-3xl">

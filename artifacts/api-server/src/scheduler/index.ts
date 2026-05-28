@@ -9,6 +9,7 @@ import { campaignsTable, leadsTable, campaignRunsTable } from "@workspace/db";
 import { and, eq, lte, ne } from "drizzle-orm";
 import { runPipeline } from "./pipeline";
 import { logger } from "../lib/logger";
+import { resumeStuckOutreach } from "../routes/outreach-send";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ async function tick() {
         const workCompleted =
           result.discoveryLeadsCreated > 0 ||
           result.crawledCount > 0 ||
+          result.crawlFailedCount > 0 ||
           result.scoredCount > 0 ||
           result.emailsSent > 0;
         const status = result.failed > 0
@@ -206,6 +208,9 @@ async function recoverStuckState() {
         `Startup recovery: reset ${stuckLeads.length} lead(s) from "crawling" → "pending"`,
       );
     }
+
+    // 4. Resume any outreach items stuck in "approved" from a previous interrupted send
+    await resumeStuckOutreach();
   } catch (err) {
     logger.error({ err }, "Startup recovery failed — continuing anyway");
   }

@@ -42,12 +42,18 @@ export function toTextEmail(value: string): string {
   );
 }
 
-export function appendUnsubscribeFooter(body: string, unsubscribeFooter: string | null | undefined): string {
-  if (!unsubscribeFooter) return body;
+export function appendUnsubscribeFooter(
+  body: string,
+  unsubscribeFooter: string | null | undefined,
+  /** Optional HTML-formatted version of the footer — used instead of escaping the plain-text version when the body is HTML. */
+  htmlFooter?: string,
+): string {
+  if (!unsubscribeFooter && !htmlFooter) return body;
 
   if (isHtmlEmailBody(body)) {
-    return `${body}<hr><p>${escapeHtml(unsubscribeFooter).replace(/\n/g, "<br>")}</p>`;
+    const htmlContent = htmlFooter ?? escapeHtml(unsubscribeFooter ?? "").replace(/\n/g, "<br>");
+    return `${body}<hr><p style="font-size:12px;color:#666;">${htmlContent}</p>`;
   }
 
-  return `${body}\n\n---\n${unsubscribeFooter}`;
+  return `${body}\n\n---\n${unsubscribeFooter ?? ""}`;
 }

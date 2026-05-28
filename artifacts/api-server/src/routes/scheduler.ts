@@ -74,12 +74,17 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
     return;
   }
 
+  // Accept an optional runName from the request body
+  const bodyRunName = typeof req.body?.runName === "string" && req.body.runName.trim()
+    ? req.body.runName.trim()
+    : null;
+
   // Create a campaign_run record immediately so the UI can show it right away
   const [campaignRun] = await db
     .insert(campaignRunsTable)
     .values({
       campaignId,
-      runName: `Campaign Run – ${new Date().toISOString().slice(0, 10)}`,
+      runName: bodyRunName ?? `Campaign Run – ${new Date().toISOString().slice(0, 10)}`,
       runType: "manual",
       status: "running",
     })
@@ -111,6 +116,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
       const workCompleted =
         result.discoveryLeadsCreated > 0 ||
         result.crawledCount > 0 ||
+        result.crawlFailedCount > 0 ||
         result.scoredCount > 0 ||
         result.emailsSent > 0;
       const status =

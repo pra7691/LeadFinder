@@ -217,7 +217,7 @@ export function CampaignRunDetail() {
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   type StatusFilter = "all" | "unreviewed" | "qualified" | "rejected";
-  type LeadFilter = "hasEmail" | "hasPhone" | "aboveMinScore" | "belowMinScore" | "notInList";
+  type LeadFilter = "hasEmail" | "hasNoEmail" | "hasPhone" | "aboveMinScore" | "belowMinScore" | "notInList";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
   const [minScoreFilter, setMinScoreFilter] = useState<string>("");
@@ -283,6 +283,37 @@ export function CampaignRunDetail() {
   const [unblockingResultId, setUnblockingResultId] = useState<number | null>(null);
   const [bulkUnblockingResults, setBulkUnblockingResults] = useState(false);
 
+  // Run rename state
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [savingName, setSavingName] = useState(false);
+
+  const openEditName = () => {
+    setEditNameValue(run?.runName ?? `Run #${runIdNum}`);
+    setEditingName(true);
+  };
+
+  const saveRunName = async () => {
+    if (!editNameValue.trim()) return;
+    setSavingName(true);
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/campaign-runs/${runIdNum}/name`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runName: editNameValue.trim() }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
+      queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+      toast({ title: "Run renamed." });
+      setEditingName(false);
+    } catch {
+      toast({ title: "Failed to rename run.", variant: "destructive" });
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   const filteredLeads = useMemo(() => {
     return leadRows.filter((l) => {
       if (searchQuery) {
@@ -293,6 +324,7 @@ export function CampaignRunDetail() {
       if (statusFilter === "rejected" && l.qualificationStatus !== "rejected") return false;
       if (statusFilter === "unreviewed" && (l.qualificationStatus === "qualified" || l.qualificationStatus === "rejected")) return false;
       if (leadFilters.has("hasEmail") && !l.emails) return false;
+      if (leadFilters.has("hasNoEmail") && l.emails) return false;
       if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
       if (leadFilters.has("aboveMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore < minRelevanceScore)) return false;
       if (leadFilters.has("belowMinScore") && (typeof l.relevanceScore !== "number" || l.relevanceScore >= minRelevanceScore)) return false;
@@ -612,7 +644,7 @@ export function CampaignRunDetail() {
   const crawlFailedCount = metadata.crawlFailedCount ?? crawlSummary.failed;
   const runErrorSummary = run.errorMessage
     ? crawlFailedCount > 0
-      ? `${crawlFailedCount} website${crawlFailedCount !== 1 ? "s" : ""} failed to crawl. Review the detailed failure list in Failed Logs.`
+      ? `${crawlFailedCount} website${crawlFailedCount !== 1 ? "s" : ""} failed to crawl.`
       : run.errorMessage
     : null;
 
@@ -629,8 +661,10 @@ export function CampaignRunDetail() {
   };
 
   type ResultFilterKey = "blocked" | "duplicate" | "rejected";
+  // Prefer the stored counter; fall back to actual lead count if counter was never written (e.g. partial run).
+  const displayedNewLeads = (run.totalNewLeads && run.totalNewLeads > 0) ? run.totalNewLeads : leadRows.length;
   const stats: { label: string; value: number; icon: React.ReactNode; filterKey?: ResultFilterKey }[] = [
-    { label: "New Leads", value: run.totalNewLeads ?? 0, icon: <Users className="w-4 h-4" /> },
+    { label: "New Leads", value: displayedNewLeads, icon: <Users className="w-4 h-4" /> },
     { label: "Searches", value: run.totalSearches ?? 0, icon: <Search className="w-4 h-4" /> },
     { label: "Duplicates", value: run.totalDuplicates ?? 0, icon: <Copy className="w-4 h-4" />, filterKey: "duplicate" },
     { label: "Blocked", value: run.totalBlocked ?? 0, icon: <Ban className="w-4 h-4" />, filterKey: "blocked" },
@@ -644,6 +678,7 @@ export function CampaignRunDetail() {
   ];
   const LEAD_FILTER_TABS: { key: LeadFilter; label: string }[] = [
     { key: "hasEmail", label: "Has Email" },
+    { key: "hasNoEmail", label: "No Email" },
     { key: "hasPhone", label: "Has Phone" },
     { key: "aboveMinScore", label: `Score ≥ ${minRelevanceScore}` },
     { key: "belowMinScore", label: `Score < ${minRelevanceScore}` },
@@ -662,15 +697,61 @@ export function CampaignRunDetail() {
             <ChevronLeft className="w-5 h-5" />
           </Link>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight truncate">
-              {run.runName ?? `Run #${run.id}`}
-            </h1>
-            {startedAt && (
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {format(startedAt, "MMM d, yyyy · HH:mm")} ·{" "}
-                {formatDistanceToNow(startedAt, { addSuffix: true })}
-              </p>
+            {editingName ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={editNameValue}
+                  onChange={(e) => setEditNameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveRunName();
+                    if (e.key === "Escape") setEditingName(false);
+                  }}
+                  className="rounded-xl bg-background/50 h-9 text-lg font-semibold w-72"
+                  autoFocus
+                />
+                <Button size="sm" className="rounded-xl" onClick={saveRunName} disabled={savingName}>
+                  {savingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => setEditingName(false)}>
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <h1
+                className="text-2xl font-semibold tracking-tight truncate cursor-pointer hover:text-primary transition-colors group flex items-center gap-2"
+                onClick={openEditName}
+                title="Click to rename"
+              >
+                {run.runName ?? `Run #${run.id}`}
+                <span className="opacity-0 group-hover:opacity-50 text-sm font-normal">(click to rename)</span>
+              </h1>
             )}
+            <div className="flex items-center gap-3 flex-wrap mt-0.5">
+              {startedAt && (
+                <p className="text-sm text-muted-foreground">
+                  {format(startedAt, "MMM d, yyyy · HH:mm")} ·{" "}
+                  {formatDistanceToNow(startedAt, { addSuffix: true })}
+                </p>
+              )}
+              {durationLabel && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 border border-border/40 px-2.5 py-0.5 rounded-full">
+                  <Clock className="w-3 h-3" />
+                  {durationLabel}
+                </span>
+              )}
+              {runErrorSummary && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {runErrorSummary}
+                </span>
+              )}
+              {run.status === "running" && run.currentStage && STAGE_LABELS[run.currentStage] && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-blue-500 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  {STAGE_LABELS[run.currentStage]}
+                </span>
+              )}
+            </div>
           </div>
           <RunStatusBadge status={run.status} />
           {run.status === "running" && (
@@ -713,108 +794,84 @@ export function CampaignRunDetail() {
               Resume Run
             </Button>
           )}
-          {run.status !== "running" && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-xl gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/50"
-              onClick={() => { setDeleteRunTyped(""); setDeleteRunOpen(true); }}
-              data-testid="button-delete-run"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete Run
-            </Button>
+        </div>
+
+        {/* Stats — discovery + crawl side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Discovery stats */}
+          <div className="grid grid-cols-2 gap-4">
+            {stats.map((s) => {
+              const isActive = s.filterKey ? resultFilter === s.filterKey : false;
+              const isClickable = !!s.filterKey;
+              return isClickable ? (
+                <button
+                  key={s.label}
+                  onClick={() => {
+                    setResultFilter(isActive ? null : s.filterKey!);
+                    setBlockReasonFilter("all");
+                    setResultSearchQuery("");
+                    setSelectedBlockedResultIds(new Set());
+                  }}
+                  className={cn(
+                    "text-left rounded-2xl border transition-all focus:outline-none",
+                    isActive
+                      ? "border-primary/50 bg-primary/10 ring-1 ring-primary/30"
+                      : "border-border/50 bg-card hover:border-primary/30 hover:bg-primary/5",
+                  )}
+                >
+                  <div className="p-5">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      {s.icon}
+                      <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
+                      {isActive && <X className="w-3 h-3 ml-auto text-primary" />}
+                    </div>
+                    <p className="text-3xl font-semibold">{s.value}</p>
+                  </div>
+                </button>
+              ) : (
+                <Card key={s.label} className="glass-card">
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      {s.icon}
+                      <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
+                    </div>
+                    <p className="text-3xl font-semibold">{s.value}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Crawl stats */}
+          {leadRows.length > 0 && (
+            <Card className="glass-card">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Globe className="w-4 h-4 text-muted-foreground" />
+                  Crawl Stats
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Crawled</p>
+                    <p className="mt-1 text-xl font-semibold">{crawlSummary.crawled}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Currently Crawling</p>
+                    <p className="mt-1 text-xl font-semibold">{crawlSummary.crawling}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Pending</p>
+                    <p className="mt-1 text-xl font-semibold">{crawlSummary.pending}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/40 bg-background/40 p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Failed</p>
+                    <p className="mt-1 text-xl font-semibold">{crawlSummary.failed}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map((s) => {
-            const isActive = s.filterKey ? resultFilter === s.filterKey : false;
-            const isClickable = !!s.filterKey;
-            return isClickable ? (
-              <button
-                key={s.label}
-                onClick={() => {
-                  setResultFilter(isActive ? null : s.filterKey!);
-                  setBlockReasonFilter("all");
-                  setResultSearchQuery("");
-                  setSelectedBlockedResultIds(new Set());
-                }}
-                className={cn(
-                  "text-left rounded-2xl border transition-all focus:outline-none",
-                  isActive
-                    ? "border-primary/50 bg-primary/10 ring-1 ring-primary/30"
-                    : "border-border/50 bg-card hover:border-primary/30 hover:bg-primary/5",
-                )}
-              >
-                <div className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    {s.icon}
-                    <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
-                    {isActive && <X className="w-3 h-3 ml-auto text-primary" />}
-                  </div>
-                  <p className="text-3xl font-semibold">{s.value}</p>
-                </div>
-              </button>
-            ) : (
-              <Card key={s.label} className="glass-card">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    {s.icon}
-                    <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
-                  </div>
-                  <p className="text-3xl font-semibold">{s.value}</p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {leadRows.length > 0 && (
-          <Card className="glass-card">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Globe className="w-4 h-4 text-muted-foreground" />
-                    Crawl Progress
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {crawlSummary.finished} of {crawlSummary.total} websites finished crawling.
-                  </p>
-                </div>
-                <span className="text-sm font-semibold tabular-nums">{crawlSummary.progress}%</span>
-              </div>
-
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${crawlSummary.progress}%` }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Crawled</p>
-                  <p className="mt-1 text-xl font-semibold">{crawlSummary.crawled}</p>
-                </div>
-                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Currently Crawling</p>
-                  <p className="mt-1 text-xl font-semibold">{crawlSummary.crawling}</p>
-                </div>
-                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Pending</p>
-                  <p className="mt-1 text-xl font-semibold">{crawlSummary.pending}</p>
-                </div>
-                <div className="rounded-xl border border-border/40 bg-background/40 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Failed</p>
-                  <p className="mt-1 text-xl font-semibold">{crawlSummary.failed}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Results panel (blocked / duplicates) */}
         {resultFilter !== null && (
@@ -1037,128 +1094,11 @@ export function CampaignRunDetail() {
           </Card>
         )}
 
-        {/* Status pills */}
-        <div className="flex flex-wrap gap-3">
-          {durationLabel && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 border border-border/50 px-4 py-2 rounded-xl">
-              <Clock className="w-4 h-4" />
-              Duration: <span className="font-medium text-foreground">{durationLabel}</span>
-            </div>
-          )}
-          {run.status === "running" && (
-            <div className="flex items-center gap-2 text-sm text-blue-500 bg-blue-500/10 border border-blue-500/20 px-4 py-2 rounded-xl">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {run.currentStage && STAGE_LABELS[run.currentStage]
-                ? STAGE_LABELS[run.currentStage]
-                : "Campaign is running — leads will appear as they are discovered"}
-            </div>
-          )}
-          {runErrorSummary && (
-            <div className="flex items-center gap-3 text-sm text-amber-700 bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-xl">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span className="min-w-0">{runErrorSummary}</span>
-              {crawlFailedCount > 0 && (
-                <Link
-                  href="/failed-logs"
-                  className="ml-auto shrink-0 rounded-lg border border-amber-500/30 px-2.5 py-1 text-xs font-medium hover:bg-amber-500/10"
-                >
-                  View Failed Logs
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Leads table */}
         <Card className="glass-card">
-          <CardHeader className="border-b border-border/30 pb-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Users className="w-4 h-4 text-muted-foreground" />
-                Leads from this run
-                {leads && (
-                  <span className="text-muted-foreground font-normal">
-                    ({filteredLeads.length}{filteredLeads.length !== leads.length ? ` of ${leads.length}` : ""})
-                  </span>
-                )}
-              </CardTitle>
-              <div className="flex items-center gap-2 flex-wrap">
-                {selectedIds.size > 0 && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
-                      onClick={() => bulkLeadAction.mutate(
-                        { data: { action: "qualify", leadIds: Array.from(selectedIds) } },
-                        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
-                      )}
-                      disabled={bulkLeadAction.isPending}
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" />
-                      Qualify {selectedIds.size}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8 border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
-                      onClick={() => bulkLeadAction.mutate(
-                        { data: { action: "disqualify", leadIds: Array.from(selectedIds) } },
-                        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
-                      )}
-                      disabled={bulkLeadAction.isPending}
-                    >
-                      <ThumbsDown className="w-3.5 h-3.5" />
-                      Disqualify {selectedIds.size}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8"
-                      onClick={() => setAddToListOpen(true)}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add {selectedIds.size} to List
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
-                      onClick={() => setBulkDeleteOpen(true)}
-                      data-testid="button-bulk-delete-leads"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete {selectedIds.size}
-                    </Button>
-                  </>
-                )}
-                {filteredLeads.length > 0 && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8"
-                      onClick={() => handleExport("csv")}
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      CSV
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl gap-2 text-xs h-8"
-                      onClick={() => handleExport("xlsx")}
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      XLSX
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Search + filter */}
-            <div className="flex items-center gap-3 mt-3 flex-wrap">
+          <div className="px-5 py-4 border-b border-border/30 space-y-3">
+            {/* Search row + export buttons */}
+            <div className="flex items-center gap-3 flex-wrap">
               <div className="relative flex-1 min-w-[180px] max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                 <Input
@@ -1191,7 +1131,33 @@ export function CampaignRunDetail() {
                   className="w-14 h-8 text-xs rounded-xl bg-background/50 text-center px-1"
                 />
               </div>
-              <div className="flex gap-1.5 flex-wrap">
+              {/* Export buttons — right side */}
+              {filteredLeads.length > 0 && (
+                <div className="ml-auto flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8"
+                    onClick={() => handleExport("csv")}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    CSV
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8"
+                    onClick={() => handleExport("xlsx")}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    XLSX
+                  </Button>
+                </div>
+              )}
+            </div>
+            {/* Filter pills + bulk actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex gap-1.5 flex-wrap flex-1">
                 {STATUS_TABS.map((tab) => (
                   <button
                     key={tab.key}
@@ -1225,8 +1191,57 @@ export function CampaignRunDetail() {
                   </button>
                 ))}
               </div>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
+                    onClick={() => bulkLeadAction.mutate(
+                      { data: { action: "qualify", leadIds: Array.from(selectedIds) } },
+                      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
+                    )}
+                    disabled={bulkLeadAction.isPending}
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    Qualify {selectedIds.size}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8 border-orange-500/30 text-orange-500 hover:bg-orange-500/10"
+                    onClick={() => bulkLeadAction.mutate(
+                      { data: { action: "disqualify", leadIds: Array.from(selectedIds) } },
+                      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) }) }
+                    )}
+                    disabled={bulkLeadAction.isPending}
+                  >
+                    <ThumbsDown className="w-3.5 h-3.5" />
+                    Disqualify {selectedIds.size}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8"
+                    onClick={() => setAddToListOpen(true)}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add {selectedIds.size} to List
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl gap-2 text-xs h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    data-testid="button-bulk-delete-leads"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete {selectedIds.size}
+                  </Button>
+                </div>
+              )}
             </div>
-          </CardHeader>
+          </div>
 
           <CardContent className="p-0">
             {leadsLoading ? (

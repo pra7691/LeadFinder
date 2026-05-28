@@ -1,7 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Activity,
   AlertTriangle,
   BarChart,
   Briefcase,
@@ -27,34 +26,55 @@ const NAV_ITEMS = [
   { href: "/campaigns", label: "Campaigns", icon: Briefcase },
   { href: "/lists", label: "Lists", icon: BookMarked },
   { href: "/outreach", label: "Outreach", icon: Send },
+];
+
+// Bottom utility links — shown above system links
+const BOTTOM_NAV_ITEMS = [
   { href: "/unsubscribes", label: "Unsubscribes", icon: MailX },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/no-email-leads", label: "No Email Leads", icon: Mail },
+  { href: "/failed-logs", label: "Failed Logs", icon: AlertTriangle, prefix: true },
 ];
 
 function TodayStatsBar() {
   const { data } = useGetDashboardStats({ query: { refetchInterval: 60_000, staleTime: 30_000 } });
-  if (!data) return null;
-  const searches = data.searchesToday ?? 0;
-  const maxSearches = data.globalMaxSearches ?? 10;
-  const qualifiedLeads = data.qualifiedLeadsToday ?? 0;
-  const emails = data.emailsSentToday ?? 0;
-  const maxEmails = data.globalMaxEmails ?? 20;
+  const { theme, setTheme } = useTheme();
+  const searches = data?.searchesToday ?? 0;
+  const maxSearches = data?.globalMaxSearches ?? 10;
+  const qualifiedLeads = data?.qualifiedLeadsToday ?? 0;
+  const emails = data?.emailsSentToday ?? 0;
+  const maxEmails = data?.globalMaxEmails ?? 20;
 
   return (
     <div className="sticky top-0 z-10 hidden lg:flex items-center gap-4 px-6 h-10 border-b border-border/30 bg-background/80 backdrop-blur-xl shrink-0 text-xs text-muted-foreground">
-      <div className="flex items-center gap-1.5">
-        <Search className="w-3 h-3 opacity-60" />
-        <span>Searches today: <strong className="text-foreground">{searches}</strong><span className="opacity-50"> / {maxSearches}</span></span>
-      </div>
-      <div className="w-px h-4 bg-border/50" />
-      <div className="flex items-center gap-1.5">
-        <Users className="w-3 h-3 opacity-60" />
-        <span>Qualified leads today: <strong className="text-foreground">{qualifiedLeads}</strong></span>
-      </div>
-      <div className="w-px h-4 bg-border/50" />
-      <div className="flex items-center gap-1.5">
-        <Mail className="w-3 h-3 opacity-60" />
-        <span>Emails sent today: <strong className="text-foreground">{emails}</strong><span className="opacity-50"> / {maxEmails}</span></span>
+      {data && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <Search className="w-3 h-3 opacity-60" />
+            <span>Searches today: <strong className="text-foreground">{searches}</strong><span className="opacity-50"> / {maxSearches}</span></span>
+          </div>
+          <div className="w-px h-4 bg-border/50" />
+          <div className="flex items-center gap-1.5">
+            <Users className="w-3 h-3 opacity-60" />
+            <span>Qualified leads today: <strong className="text-foreground">{qualifiedLeads}</strong></span>
+          </div>
+          <div className="w-px h-4 bg-border/50" />
+          <div className="flex items-center gap-1.5">
+            <Mail className="w-3 h-3 opacity-60" />
+            <span>Emails sent today: <strong className="text-foreground">{emails}</strong><span className="opacity-50"> / {maxEmails}</span></span>
+          </div>
+        </>
+      )}
+      <div className="ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          data-testid="button-theme-toggle"
+          className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </Button>
       </div>
     </div>
   );
@@ -143,91 +163,34 @@ export function Layout({ children }: { children: ReactNode }) {
           })}
         </div>
 
-        <div className="p-4 mt-auto space-y-3">
-          <Link
-            href="/no-email-leads"
-            data-testid="nav-no email leads"
-            onClick={closeSidebar}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
-              location === "/no-email-leads"
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-            )}
-          >
-            <MailX
-              className={cn(
-                "w-4 h-4",
-                location === "/no-email-leads"
-                  ? "text-primary-foreground"
-                  : "text-muted-foreground",
-              )}
-            />
-            No Email Leads
-          </Link>
-          <Link
-            href="/failed-logs"
-            data-testid="nav-failed logs"
-            onClick={closeSidebar}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
-              location === "/failed-logs" || location.startsWith("/failed-logs/")
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-            )}
-          >
-            <AlertTriangle
-              className={cn(
-                "w-4 h-4",
-                location === "/failed-logs" || location.startsWith("/failed-logs/")
-                  ? "text-primary-foreground"
-                  : "text-muted-foreground",
-              )}
-            />
-            Failed Logs
-          </Link>
-          <Link
-            href="/logs"
-            data-testid="nav-activity logs"
-            onClick={closeSidebar}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
-              location === "/logs" || location.startsWith("/logs/")
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-            )}
-          >
-            <Activity
-              className={cn(
-                "w-4 h-4",
-                location === "/logs" || location.startsWith("/logs/")
-                  ? "text-primary-foreground"
-                  : "text-muted-foreground",
-              )}
-            />
-            Activity Logs
-          </Link>
-          <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border/50">
-            <div className="flex flex-col">
-              <span className="text-xs font-medium">Operator</span>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                ID: 0x8A49
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              data-testid="button-theme-toggle"
-              className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? (
-                <Sun className="w-4 h-4" />
-              ) : (
-                <Moon className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
+        <div className="p-4 mt-auto space-y-1">
+          {BOTTOM_NAV_ITEMS.map((item) => {
+            const isActive = item.prefix
+              ? location === item.href || location.startsWith(item.href + "/")
+              : location === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                data-testid={`nav-${item.label.toLowerCase()}`}
+                onClick={closeSidebar}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                )}
+              >
+                <item.icon
+                  className={cn(
+                    "w-4 h-4",
+                    isActive ? "text-primary-foreground" : "text-muted-foreground",
+                  )}
+                />
+                {item.label}
+              </Link>
+            );
+          })}
         </div>
       </aside>
 
@@ -254,6 +217,17 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
             <span className="font-semibold text-sm tracking-tight">LeadGen</span>
+          </div>
+          <div className="ml-auto">
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="button-theme-toggle-mobile"
+              className="rounded-full w-9 h-9 text-muted-foreground hover:text-foreground"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </Button>
           </div>
         </div>
 

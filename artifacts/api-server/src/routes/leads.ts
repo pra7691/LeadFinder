@@ -137,7 +137,8 @@ router.get("/leads", async (req, res) => {
 });
 
 router.get("/leads/failed-crawls/groups", async (_req, res) => {
-  const blockedDomains = await getBlockedDomains();
+  // Blocked-domain filter is intentionally excluded here — this is a diagnostic
+  // page and failed crawls on blocked domains are still useful to see.
   const rows = await db
     .select({
       campaignId: leadsTable.campaignId,
@@ -154,7 +155,7 @@ router.get("/leads/failed-crawls/groups", async (_req, res) => {
     .from(leadsTable)
     .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
     .leftJoin(campaignRunsTable, eq(leadsTable.campaignRunId, campaignRunsTable.id))
-    .where(and(...failedCrawlConditions({}, blockedDomains)))
+    .where(and(...failedCrawlConditions({})))
     .groupBy(
       leadsTable.campaignId,
       leadsTable.campaignRunId,
@@ -173,8 +174,8 @@ router.get("/leads/failed-crawls/groups", async (_req, res) => {
 router.get("/leads/failed-crawls", async (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 500;
   const offset = req.query.offset ? Number(req.query.offset) : 0;
-  const blockedDomains = await getBlockedDomains();
-  const conditions = failedCrawlConditions(req.query, blockedDomains);
+  // Blocked-domain filter intentionally excluded — diagnostic page should show all failures.
+  const conditions = failedCrawlConditions(req.query);
   const rows = await db
     .select({
       id: leadsTable.id,
@@ -204,8 +205,8 @@ router.get("/leads/failed-crawls/export", async (req, res) => {
   const campaignRunId = parsePositiveNumber(req.query.campaignRunId);
   const campaignId = parsePositiveNumber(req.query.campaignId);
   const saveToFile = req.query.save === "1" || req.query.save === "true";
-  const blockedDomains = await getBlockedDomains();
-  const conditions = failedCrawlConditions(req.query, blockedDomains);
+  // Blocked-domain filter intentionally excluded — export should include all failed crawls.
+  const conditions = failedCrawlConditions(req.query);
   const rows = await db
     .select({
       id: leadsTable.id,

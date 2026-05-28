@@ -1154,12 +1154,21 @@ async function runScore(
             ? "low_relevance"
             : lead.reviewStatus;
 
+        // Automatically qualify / reject based on the min relevance threshold
+        const qualificationStatus =
+          failed
+            ? lead.qualificationStatus  // keep existing if scoring failed
+            : result.score! >= campaign.minRelevanceScore
+              ? "qualified"
+              : "rejected";
+
         await db.update(leadsTable)
           .set({
             relevanceScore: result.score,
             relevanceReason: result.reason,
             scoringMethod: result.scoringMethod,
             reviewStatus,
+            qualificationStatus,
           })
           .where(eq(leadsTable.id, lead.id));
 

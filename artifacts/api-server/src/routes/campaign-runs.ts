@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
-import { eq, desc, and, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, inArray, getTableColumns } from "drizzle-orm";
 import { requestCancellation, runPipeline } from "../scheduler/pipeline";
 import { computeNextRunAt } from "../scheduler/index";
 import { classifyLeadType } from "../services/lead-classifier";
@@ -125,6 +125,13 @@ async function crawlAndScoreRecoveredLead(
       ? "low_relevance"
       : updatedLead.reviewStatus;
 
+  const qualificationStatus =
+    scoreResult.score == null
+      ? updatedLead.qualificationStatus
+      : scoreResult.score >= campaign.minRelevanceScore
+        ? "qualified"
+        : "rejected";
+
   await db
     .update(leadsTable)
     .set({
@@ -132,6 +139,7 @@ async function crawlAndScoreRecoveredLead(
       relevanceReason: scoreResult.reason,
       scoringMethod: scoreResult.scoringMethod,
       reviewStatus,
+      qualificationStatus,
     })
     .where(eq(leadsTable.id, updatedLead.id));
 
@@ -338,7 +346,15 @@ router.get("/campaign-runs", async (req, res) => {
   const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
 
   const runs = await db
-    .select()
+    .select({
+      ...getTableColumns(campaignRunsTable),
+      totalAddedToList: sql<number>`(
+        SELECT COALESCE(COUNT(DISTINCT lli.id), 0)::int
+        FROM leads l
+        JOIN lead_list_items lli ON lli.lead_id = l.id
+        WHERE l.campaign_run_id = campaign_runs.id
+      )`,
+    })
     .from(campaignRunsTable)
     .where(campaignId !== undefined ? eq(campaignRunsTable.campaignId, campaignId) : undefined)
     .orderBy(desc(campaignRunsTable.startedAt));
@@ -355,7 +371,15 @@ router.get("/campaign-runs/:id", async (req, res) => {
   }
 
   const [run] = await db
-    .select()
+    .select({
+      ...getTableColumns(campaignRunsTable),
+      totalAddedToList: sql<number>`(
+        SELECT COALESCE(COUNT(DISTINCT lli.id), 0)::int
+        FROM leads l
+        JOIN lead_list_items lli ON lli.lead_id = l.id
+        WHERE l.campaign_run_id = campaign_runs.id
+      )`,
+    })
     .from(campaignRunsTable)
     .where(eq(campaignRunsTable.id, id));
 
@@ -636,6 +660,34 @@ router.delete("/campaign-runs/:id", async (req, res) => {
   res.status(204).send();
 });
 
+// Rename a campaign run
+router.patch("/campaign-runs/:id/name", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+
+  const newName = typeof req.body?.runName === "string" ? req.body.runName.trim() : null;
+  if (!newName) {
+    res.status(400).json({ error: "runName is required and must be a non-empty string" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(campaignRunsTable)
+    .set({ runName: newName })
+    .where(eq(campaignRunsTable.id, id))
+    .returning({ id: campaignRunsTable.id, runName: campaignRunsTable.runName });
+
+  if (!updated) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
+
+  res.json(updated);
+});
+
 // Cancel a running campaign run
 router.post("/campaign-runs/:id/cancel", async (req, res) => {
   const id = Number(req.params.id);
@@ -767,6 +819,7 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     .then(async (result) => {
       const workCompleted =
         result.crawledCount > 0 ||
+        result.crawlFailedCount > 0 ||
         result.scoredCount > 0 ||
         result.emailsSent > 0;
       const status =
@@ -789,8 +842,8 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
             status,
             currentStage: status,
             completedAt: new Date(),
-            totalNewLeads: result.discoveryLeadsCreated,
-            totalSearches: result.discoverySearchesPerformed,
+            // Don't overwrite totalNewLeads/totalSearches for resumed runs — discovery was skipped
+            // so those counts belong to the original run and should be preserved in the DB.
             totalRejected: result.failed,
             errorMessage: result.errors.length > 0 ? result.errors.join("; ") : null,
             metadataJson: JSON.stringify({
