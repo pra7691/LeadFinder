@@ -18,6 +18,9 @@ export interface LeadList {
   campaignName?: string | null;
   listStatus: LeadListListStatus;
   leadCount: number;
+  leadsWithEmail?: number;
+  hasOutreach?: boolean;
+  campaignRunNames?: string | null;
   createdAt: string;
   updatedAt: string;
 }

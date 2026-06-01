@@ -404,8 +404,8 @@ router.get("/campaign-runs/:id/leads", async (req, res) => {
       lead: leadsTable,
       addedToList: sql<boolean>`exists (
         select 1
-        from ${leadListItemsTable}
-        where ${leadListItemsTable.leadId} = ${leadsTable.id}
+        from lead_list_items
+        where lead_list_items.lead_id = leads.id
       )`,
     })
     .from(leadsTable)

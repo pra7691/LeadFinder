@@ -381,7 +381,7 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                 <TableHead>Run Name</TableHead>
                 <TableHead className="w-[150px]">Date</TableHead>
                 <TableHead className="w-[80px] text-right">Leads</TableHead>
-                <TableHead className="w-[80px] text-right">Searches</TableHead>
+                <TableHead className="w-[80px] text-right">Queries</TableHead>
                 <TableHead className="w-[80px] text-right">Sources</TableHead>
                 <TableHead className="w-[80px] text-right">Dupes</TableHead>
                 <TableHead className="w-[80px] text-right">Blocked</TableHead>
@@ -435,17 +435,13 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                         : (run.totalNewLeads ?? 0)}
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
-                      {resumed ? "—" : (
-                        <>
-                          {run.totalSearches ?? 0}
-                          {(run.totalSearchesSkipped ?? 0) > 0 && (
-                            <span className="text-xs ml-1 opacity-60">+{run.totalSearchesSkipped}sk</span>
-                          )}
-                        </>
+                      {run.totalSearches ?? 0}
+                      {(run.totalSearchesSkipped ?? 0) > 0 && (
+                        <span className="text-xs ml-1 opacity-60">+{run.totalSearchesSkipped}sk</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
-                      {resumed ? "—" : ((run.totalDiscoverySourcesMined ?? 0) > 0 ? run.totalDiscoverySourcesMined : "—")}
+                      {(run.totalDiscoverySourcesMined ?? 0) > 0 ? run.totalDiscoverySourcesMined : "—"}
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {(run.totalDuplicates ?? 0) > 0 ? run.totalDuplicates : "—"}

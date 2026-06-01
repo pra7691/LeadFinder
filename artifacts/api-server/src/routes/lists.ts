@@ -5,9 +5,10 @@ import {
   leadListItemsTable,
   leadsTable,
   campaignsTable,
+  campaignRunsTable,
   outreachQueueTable,
 } from "@workspace/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, sql, desc } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
 import { parseLeadEmails } from "../services/lead-emails";
 
@@ -38,6 +39,25 @@ router.get("/lists", async (req, res) => {
       createdAt: leadListsTable.createdAt,
       updatedAt: leadListsTable.updatedAt,
       leadCount: sql<number>`cast(count(${leadListItemsTable.id}) as int)`,
+      leadsWithEmail: sql<number>`cast((
+        select count(*)
+        from lead_list_items lli2
+        inner join leads l on l.id = lli2.lead_id
+        where lli2.list_id = ${leadListsTable.id}
+          and l.emails is not null and l.emails != ''
+      ) as int)`,
+      hasOutreach: sql<boolean>`exists (
+        select 1 from outreach_queue oq
+        where oq.list_id = ${leadListsTable.id}
+      )`,
+      campaignRunNames: sql<string>`(
+        select string_agg(distinct cr.run_name, ', ' order by cr.run_name)
+        from lead_list_items lli2
+        join leads l on l.id = lli2.lead_id
+        join campaign_runs cr on cr.id = l.campaign_run_id
+        where lli2.list_id = ${leadListsTable.id}
+          and cr.run_name is not null
+      )`,
     })
     .from(leadListsTable)
     .leftJoin(campaignsTable, eq(leadListsTable.campaignId, campaignsTable.id))
@@ -53,7 +73,7 @@ router.get("/lists", async (req, res) => {
       leadListsTable.createdAt,
       leadListsTable.updatedAt,
     )
-    .orderBy(leadListsTable.updatedAt);
+    .orderBy(desc(leadListsTable.createdAt));
 
   res.json(rows.map((r) => ({ ...r, leadCount: r.leadCount ?? 0 })));
 });

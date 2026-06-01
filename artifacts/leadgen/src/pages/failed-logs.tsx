@@ -239,9 +239,9 @@ export function FailedLogs() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[280px]">Failed Log Collection</TableHead>
+              <TableHead className="min-w-[200px]">Campaign Run</TableHead>
               <TableHead>Campaign</TableHead>
-              <TableHead>Run Status</TableHead>
+              <TableHead>Started</TableHead>
               <TableHead>Failed Crawls</TableHead>
               <TableHead>Latest Failure</TableHead>
               <TableHead className="text-right">Export</TableHead>
@@ -268,15 +268,10 @@ export function FailedLogs() {
                   <TableCell>
                     {group.campaignRunId ? (
                       <Link href={`/failed-logs/runs/${group.campaignRunId}`} className="font-medium text-primary hover:underline">
-                        {collectionName(group)}
+                        {group.runName || `Run #${group.campaignRunId}`}
                       </Link>
                     ) : (
-                      <span className="font-medium">{collectionName(group)}</span>
-                    )}
-                    {group.runStartedAt && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Started {formatDistanceToNow(new Date(group.runStartedAt), { addSuffix: true })}
-                      </p>
+                      <span className="font-medium text-muted-foreground">No run</span>
                     )}
                   </TableCell>
                   <TableCell className="text-sm">
@@ -284,8 +279,8 @@ export function FailedLogs() {
                       {group.campaignName || `Campaign #${group.campaignId}`}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-sm capitalize text-muted-foreground">
-                    {group.runStatus || "-"}
+                  <TableCell className="text-sm text-muted-foreground">
+                    {group.runStartedAt ? format(new Date(group.runStartedAt), "MMM d, yyyy · HH:mm") : "—"}
                   </TableCell>
                   <TableCell className="text-sm font-medium">{group.failedCount}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">

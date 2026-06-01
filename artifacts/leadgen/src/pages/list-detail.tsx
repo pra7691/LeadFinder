@@ -60,12 +60,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-const REVIEW_BADGE: Record<string, { label: string; className: string }> = {
-  pending:   { label: "Pending",  className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
-  approved:  { label: "Approved", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
-  rejected:  { label: "Rejected", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-};
-
 const QUAL_BADGE: Record<string, { label: string; className: string }> = {
   unqualified: { label: "Unqualified", className: "bg-muted text-muted-foreground" },
   qualified:   { label: "Qualified",   className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
@@ -90,7 +84,6 @@ function LeadRow({ lead, listId, onRemoved }: { lead: Lead; listId: number; onRe
     );
   };
 
-  const rev = REVIEW_BADGE[lead.reviewStatus] ?? { label: lead.reviewStatus, className: "bg-muted text-muted-foreground" };
   const qual = QUAL_BADGE[lead.qualificationStatus] ?? { label: lead.qualificationStatus, className: "bg-muted text-muted-foreground" };
 
   return (
@@ -108,11 +101,6 @@ function LeadRow({ lead, listId, onRemoved }: { lead: Lead; listId: number; onRe
         </a>
       </td>
       <td className="py-3 px-4 text-sm text-muted-foreground">{lead.country ?? "—"}</td>
-      <td className="py-3 px-4">
-        <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", rev.className)}>
-          {rev.label}
-        </span>
-      </td>
       <td className="py-3 px-4">
         <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", qual.className)}>
           {qual.label}
@@ -503,7 +491,6 @@ export function ListDetail() {
                 <tr className="border-b border-border/50">
                   <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Company</th>
                   <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Country</th>
-                  <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Review</th>
                   <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Qualification</th>
                   <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Email</th>
                   <th className="py-3 px-4 text-left text-xs font-medium text-muted-foreground">Score</th>

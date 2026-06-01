@@ -39,12 +39,14 @@ import {
   Users,
   Download,
   Loader2,
+  Mail,
+  Send,
 } from "lucide-react";
 
 function SkeletonRow() {
   return (
     <TableRow>
-      {Array.from({ length: 4 }).map((_, i) => (
+      {Array.from({ length: 7 }).map((_, i) => (
         <TableCell key={i}>
           <div className="h-4 rounded bg-muted/60 animate-pulse" />
         </TableCell>
@@ -280,8 +282,11 @@ export function Lists() {
             <TableHeader>
               <TableRow>
                 <TableHead>List</TableHead>
-                <TableHead>Leads</TableHead>
-                <TableHead>Campaign</TableHead>
+                <TableHead>Total Leads</TableHead>
+                <TableHead>With Emails</TableHead>
+                <TableHead>Outreach</TableHead>
+                <TableHead>Campaign Run</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -297,9 +302,12 @@ export function Lists() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-[280px]">List</TableHead>
-                <TableHead>Leads</TableHead>
-                <TableHead>Campaign</TableHead>
+                <TableHead className="min-w-[240px]">List</TableHead>
+                <TableHead>Total Leads</TableHead>
+                <TableHead>With Emails</TableHead>
+                <TableHead>Outreach</TableHead>
+                <TableHead>Campaign Run</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -329,19 +337,41 @@ export function Lists() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className="inline-flex items-center gap-1.5 text-sm">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-medium">
                       <Users className="w-3.5 h-3.5 text-muted-foreground" />
-                      {list.leadCount} lead{list.leadCount !== 1 ? "s" : ""}
+                      {list.leadCount}
                     </span>
                   </TableCell>
                   <TableCell>
-                    {list.campaignName ? (
-                      <Badge variant="secondary" className="rounded-md">
-                        {list.campaignName}
-                      </Badge>
+                    <span className="inline-flex items-center gap-1.5 text-sm">
+                      <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className={(list.leadsWithEmail ?? 0) > 0 ? "text-emerald-600 font-medium" : "text-muted-foreground"}>
+                        {list.leadsWithEmail ?? 0}
+                      </span>
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {list.hasOutreach ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                        <Send className="w-3 h-3" />
+                        Created
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {list.campaignRunNames ? (
+                      <span className="text-xs text-foreground">{list.campaignRunNames}</span>
                     ) : (
                       <span className="text-sm text-muted-foreground">—</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(list.createdAt).toLocaleString(undefined, {
+                      year: "numeric", month: "short", day: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">

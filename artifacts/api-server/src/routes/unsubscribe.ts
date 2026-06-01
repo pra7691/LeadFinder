@@ -184,23 +184,22 @@ router.post("/unsubscribes/sync", async (_req, res) => {
       res.status(400).json({ error: "Unsubscribe Page URL is not configured in Settings → Email Tracking." });
       return;
     }
-    if (!adminSecret) {
-      res.status(400).json({ error: "Unsubscribe Admin Secret is not configured in Settings → Email Tracking." });
-      return;
-    }
 
-    const adminUrl = new URL(phpUrl);
-    adminUrl.searchParams.set("admin", adminSecret);
+    // If admin secret is set, append it as ?admin=SECRET (PHP handler mode).
+    // If no secret, fetch the URL directly — used when pointing at unsubscribes.json.
+    const fetchUrl = adminSecret
+      ? (() => { const u = new URL(phpUrl); u.searchParams.set("admin", adminSecret); return u.toString(); })()
+      : phpUrl;
 
     let remoteRows: Array<{ email: string; company_name: string | null; token: string; unsubscribed_at: string }>;
     try {
-      const fetchRes = await fetch(adminUrl.toString());
+      const fetchRes = await fetch(fetchUrl);
       if (!fetchRes.ok) throw new Error(`Server returned ${fetchRes.status}`);
       remoteRows = await fetchRes.json();
-      if (!Array.isArray(remoteRows)) throw new Error("Unexpected response format");
+      if (!Array.isArray(remoteRows)) throw new Error("Unexpected response format — expected a JSON array");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(502).json({ error: `Could not reach unsubscribe page: ${msg}` });
+      res.status(502).json({ error: `Could not fetch unsubscribes: ${msg}` });
       return;
     }
 

@@ -197,10 +197,6 @@ export function OutreachBatchDetail() {
             </Button>
           </Link>
           <h1 className="text-3xl font-semibold tracking-tight">{batch.title}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {batch.count} recipient{batch.count === 1 ? "" : "s"}
-            {batch.templateName && <> · {batch.templateName}</>}
-          </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={batch.status} />
@@ -280,6 +276,9 @@ export function OutreachBatchDetail() {
             <Mail className="w-4 h-4" /> Subject
           </div>
           <p className="mt-2 text-sm font-medium line-clamp-2">{batch.subject}</p>
+          {batch.templateName && (
+            <p className="mt-1 text-xs text-muted-foreground">Template: {batch.templateName}</p>
+          )}
         </div>
       </div>
 

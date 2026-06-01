@@ -4,6 +4,7 @@ import {
   useDeleteLead,
   useListCampaigns,
   useListLeadLists,
+  useListCampaignRuns,
   getListLeadsQueryKey,
 } from "@workspace/api-client-react";
 import type { Lead } from "@workspace/api-client-react";
@@ -215,10 +216,151 @@ function CampaignList({
   );
 }
 
+// ── Campaign Run listing (second level) ──────────────────────────────────────
+
+function CampaignRunList({
+  campaignId,
+  allLeads,
+  campaignName,
+  onSelectRun,
+  onBack,
+}: {
+  campaignId: number | null;
+  allLeads: Lead[];
+  campaignName: string;
+  onSelectRun: (runId: number | null, runName: string) => void;
+  onBack: () => void;
+}) {
+  const { data: runs } = useListCampaignRuns(
+    campaignId !== null ? { campaignId } : undefined,
+  );
+  const runRows = Array.isArray(runs) ? runs : [];
+
+  // Filter leads for this campaign
+  const campaignLeads = useMemo(
+    () => allLeads.filter((l) => campaignId === null ? l.campaignId == null : l.campaignId === campaignId),
+    [allLeads, campaignId],
+  );
+
+  type RunStat = {
+    runId: number | null;
+    runName: string;
+    count: number;
+    qualified: number;
+    rejected: number;
+    crawlFailed: number;
+    startedAt: string | null;
+  };
+
+  const stats = useMemo((): RunStat[] => {
+    const map = new Map<number | null, Lead[]>();
+    for (const l of campaignLeads) {
+      const key = (l as Lead & { campaignRunId?: number | null }).campaignRunId ?? null;
+      map.set(key, [...(map.get(key) ?? []), l]);
+    }
+    const rows: RunStat[] = [];
+    for (const [runId, leads] of map.entries()) {
+      const run = runId !== null ? runRows.find((r) => r.id === runId) : null;
+      rows.push({
+        runId,
+        runName: run?.runName ?? (runId === null ? "No run" : `Run #${runId}`),
+        count: leads.length,
+        qualified: leads.filter((l) => l.qualificationStatus === "qualified").length,
+        rejected: leads.filter((l) => l.qualificationStatus === "rejected").length,
+        crawlFailed: leads.filter((l) => l.crawlStatus === "failed").length,
+        startedAt: run?.startedAt ?? null,
+      });
+    }
+    return rows.sort((a, b) => {
+      if (a.startedAt && b.startedAt) return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+      return b.count - a.count;
+    });
+  }, [campaignLeads, runRows]);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+        >
+          <ChevronLeft className="w-4 h-4" /> Back to campaigns
+        </button>
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <MailX className="w-5 h-5 text-amber-500" />
+          {campaignName}
+        </h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Select a campaign run to view its no-email leads</p>
+      </div>
+      <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[200px]">Campaign Run</TableHead>
+              <TableHead className="text-center">No Email</TableHead>
+              <TableHead className="text-center">Qualified</TableHead>
+              <TableHead className="text-center">Rejected</TableHead>
+              <TableHead className="text-center">Crawl Failed</TableHead>
+              <TableHead>Started</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {stats.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                  No leads missing emails in this campaign.
+                </TableCell>
+              </TableRow>
+            ) : (
+              stats.map((row) => (
+                <TableRow
+                  key={String(row.runId)}
+                  className="cursor-pointer hover:bg-muted/30"
+                  role="button" tabIndex={0}
+                  onClick={() => onSelectRun(row.runId, row.runName)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectRun(row.runId, row.runName); } }}
+                >
+                  <TableCell>
+                    <span className="font-medium text-sm">{row.runName}</span>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-600">
+                      {row.count}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {row.qualified > 0
+                      ? <span className="text-sm font-medium text-emerald-600">{row.qualified}</span>
+                      : <span className="text-muted-foreground text-sm">0</span>}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {row.rejected > 0
+                      ? <span className="text-sm font-medium text-red-500">{row.rejected}</span>
+                      : <span className="text-muted-foreground text-sm">0</span>}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {row.crawlFailed > 0
+                      ? <span className="text-sm font-medium text-orange-500">{row.crawlFailed}</span>
+                      : <span className="text-muted-foreground text-sm">0</span>}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {row.startedAt ? new Date(row.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 // ── Campaign lead table ───────────────────────────────────────────────────────
 
 function CampaignLeadTable({
   campaignId,
+  runId,
   allLeads,
   isLoading,
   refetch,
@@ -227,6 +369,7 @@ function CampaignLeadTable({
   onBack,
 }: {
   campaignId: number | null;
+  runId?: number | null;
   allLeads: Lead[];
   isLoading: boolean;
   refetch: () => void;
@@ -252,10 +395,17 @@ function CampaignLeadTable({
 
   const deleteMut = useDeleteLead();
 
-  // Filter to this campaign
+  // Filter to this campaign (and optionally run)
   const campaignLeads = useMemo(
-    () => allLeads.filter((l) => (campaignId === null ? l.campaignId == null : l.campaignId === campaignId)),
-    [allLeads, campaignId],
+    () => allLeads.filter((l) => {
+      if (campaignId === null ? l.campaignId != null : l.campaignId !== campaignId) return false;
+      if (runId !== undefined) {
+        const leadRunId = (l as Lead & { campaignRunId?: number | null }).campaignRunId ?? null;
+        if (runId === null ? leadRunId !== null : leadRunId !== runId) return false;
+      }
+      return true;
+    }),
+    [allLeads, campaignId, runId],
   );
 
   const qualCounts = useMemo(() => ({
@@ -338,7 +488,7 @@ function CampaignLeadTable({
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Button variant="outline" size="sm" className="rounded-xl gap-2 mb-3" onClick={onBack}>
-            <ChevronLeft className="w-4 h-4" /> Back to campaigns
+            <ChevronLeft className="w-4 h-4" /> {runId !== undefined ? "Back to runs" : "Back to campaigns"}
           </Button>
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <MailX className="w-5 h-5 text-amber-500" />
@@ -531,8 +681,9 @@ function CampaignLeadTable({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function NoEmailLeads() {
+  // Navigation: undefined = campaign list; number|null = campaign selected; then run selected
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null | undefined>(undefined);
-  // undefined = no campaign selected (list view); null = "no campaign" leads; number = specific campaign
+  const [selectedRun, setSelectedRun] = useState<{ id: number | null; name: string } | undefined>(undefined);
 
   const params = { hasEmail: false, limit: 2000 } as const;
   const { data: leads, isLoading, refetch, isFetching } = useListLeads(params, {
@@ -553,6 +704,24 @@ export function NoEmailLeads() {
     return campaignMap.get(selectedCampaignId) ?? `Campaign #${selectedCampaignId}`;
   }, [selectedCampaignId, campaignMap]);
 
+  const handleSelectCampaign = (id: number | null) => {
+    setSelectedCampaignId(id);
+    setSelectedRun(undefined);
+  };
+
+  const handleSelectRun = (runId: number | null, runName: string) => {
+    setSelectedRun({ id: runId, name: runName });
+  };
+
+  const handleBackFromRun = () => {
+    setSelectedRun(undefined);
+  };
+
+  const handleBackFromCampaign = () => {
+    setSelectedCampaignId(undefined);
+    setSelectedRun(undefined);
+  };
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -570,7 +739,9 @@ export function NoEmailLeads() {
           <p className="text-sm text-muted-foreground mt-0.5">
             {selectedCampaignId === undefined
               ? "Select a campaign to review leads missing an email address"
-              : "Leads missing an email address in this campaign"}
+              : selectedRun === undefined
+                ? "Select a campaign run to drill into its leads"
+                : "Leads missing an email address in this run"}
           </p>
         </div>
       </div>
@@ -592,18 +763,27 @@ export function NoEmailLeads() {
         </div>
       )}
 
-      {/* Campaign list or lead table */}
+      {/* Three-level navigation */}
       {selectedCampaignId === undefined ? (
-        <CampaignList allLeads={allRows} isLoading={isLoading} onSelect={setSelectedCampaignId} />
+        <CampaignList allLeads={allRows} isLoading={isLoading} onSelect={handleSelectCampaign} />
+      ) : selectedRun === undefined ? (
+        <CampaignRunList
+          campaignId={selectedCampaignId}
+          allLeads={allRows}
+          campaignName={campaignName}
+          onSelectRun={handleSelectRun}
+          onBack={handleBackFromCampaign}
+        />
       ) : (
         <CampaignLeadTable
           campaignId={selectedCampaignId}
+          runId={selectedRun.id}
           allLeads={allRows}
           isLoading={isLoading}
           refetch={refetch}
           isFetching={isFetching}
-          campaignName={campaignName}
-          onBack={() => setSelectedCampaignId(undefined)}
+          campaignName={`${campaignName} › ${selectedRun.name}`}
+          onBack={handleBackFromRun}
         />
       )}
     </div>

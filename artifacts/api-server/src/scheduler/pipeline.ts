@@ -1121,6 +1121,11 @@ async function runScore(
       or(
         isNull(leadsTable.scoringMethod),
         like(leadsTable.scoringMethod, "failed%"),
+        // Re-score leads that were scored but qualification_status was never set correctly
+        and(
+          eq(leadsTable.qualificationStatus, "unqualified"),
+          sql`${leadsTable.scoringMethod} is not null`,
+        ),
       ),
     ];
     if (campaignRunId != null) {
@@ -1456,31 +1461,35 @@ async function autoBlockLowRelevanceDomains(
 
   if (lowScoreDomains.length === 0) return 0;
 
+  // Fetch current blocked domains to avoid adding duplicates
   const [blockedSetting] = await db
-    .select()
+    .select({ value: appSettingsTable.value })
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "blocked_domains"));
 
-  const existing = Array.from(parseBlockedDomains(blockedSetting?.value));
-
-  const blockedDomains = new Set(existing);
+  const existingSet = parseBlockedDomains(blockedSetting?.value);
   const addedDomains: string[] = [];
   for (const domain of lowScoreDomains) {
-    if (!blockedDomains.has(domain)) {
-      blockedDomains.add(domain);
+    if (!existingSet.has(domain)) {
+      existingSet.add(domain);
       addedDomains.push(domain);
     }
   }
 
   if (addedDomains.length === 0) return 0;
 
-  const nextValue = Array.from(blockedDomains).join("\n");
+  // Use atomic SQL append instead of read-modify-write to avoid overwriting
+  // domains that the user may have added manually between our read and write.
+  const appendValue = addedDomains.join("\n");
   await db
     .insert(appSettingsTable)
-    .values({ key: "blocked_domains", value: nextValue })
+    .values({ key: "blocked_domains", value: appendValue })
     .onConflictDoUpdate({
       target: appSettingsTable.key,
-      set: { value: nextValue, updatedAt: new Date() },
+      set: {
+        value: sql`${appSettingsTable.value} || E'\n' || ${appendValue}`,
+        updatedAt: new Date(),
+      },
     });
 
   // Also disqualify all existing leads for these domains across this campaign

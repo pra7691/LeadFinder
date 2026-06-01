@@ -651,6 +651,9 @@ export const ListLeadListsResponseItem = zod.object({
   "campaignName": zod.string().nullish(),
   "listStatus": zod.enum(['active', 'archived']),
   "leadCount": zod.number(),
+  "leadsWithEmail": zod.number().optional(),
+  "hasOutreach": zod.boolean().optional(),
+  "campaignRunNames": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
