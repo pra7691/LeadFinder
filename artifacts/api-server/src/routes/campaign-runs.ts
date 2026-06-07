@@ -762,7 +762,9 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     return;
   }
 
-  const resumable: string[] = ["failed", "partial", "cancelled"];
+  // "completed" is included because normalizeRunStatus maps it to "partial" for display
+  // when the run has errors — the UI correctly shows the Resume button in that case.
+  const resumable: string[] = ["failed", "partial", "cancelled", "completed"];
   if (!resumable.includes(run.status)) {
     res.status(400).json({
       error: `Cannot resume a run with status "${run.status}". Only failed, partial, or cancelled runs can be resumed.`,
@@ -879,6 +881,113 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     });
 
   res.status(202).json({ status: "resumed", campaignId: campaign.id, runId: id });
+});
+
+// ── GET /blocked-results — list blocked results grouped by run ──────────────
+
+router.get("/blocked-results", async (req, res) => {
+  const campaignRunId = req.query.runId ? Number(req.query.runId) : undefined;
+
+  if (campaignRunId) {
+    // Detail: all blocked results for a specific run
+    const rows = await db
+      .select({
+        id: campaignRunResultsTable.id,
+        campaignId: campaignRunResultsTable.campaignId,
+        campaignRunId: campaignRunResultsTable.campaignRunId,
+        url: campaignRunResultsTable.url,
+        rootDomain: campaignRunResultsTable.rootDomain,
+        title: campaignRunResultsTable.title,
+        sourceQuery: campaignRunResultsTable.sourceQuery,
+        reason: campaignRunResultsTable.reason,
+        createdAt: campaignRunResultsTable.createdAt,
+        campaignName: campaignsTable.name,
+        runName: campaignRunsTable.runName,
+      })
+      .from(campaignRunResultsTable)
+      .leftJoin(campaignsTable, eq(campaignRunResultsTable.campaignId, campaignsTable.id))
+      .leftJoin(campaignRunsTable, eq(campaignRunResultsTable.campaignRunId, campaignRunsTable.id))
+      .where(and(
+        eq(campaignRunResultsTable.resultStatus, "blocked"),
+        eq(campaignRunResultsTable.campaignRunId, campaignRunId),
+      ))
+      .orderBy(desc(campaignRunResultsTable.createdAt))
+      .limit(2000);
+    res.json(rows);
+    return;
+  }
+
+  // Summary: grouped by run
+  const groups = await db
+    .select({
+      campaignRunId: campaignRunResultsTable.campaignRunId,
+      campaignId: campaignRunResultsTable.campaignId,
+      campaignName: campaignsTable.name,
+      runName: campaignRunsTable.runName,
+      runStartedAt: campaignRunsTable.startedAt,
+      blockedCount: sql<number>`cast(count(*) as int)`,
+    })
+    .from(campaignRunResultsTable)
+    .leftJoin(campaignsTable, eq(campaignRunResultsTable.campaignId, campaignsTable.id))
+    .leftJoin(campaignRunsTable, eq(campaignRunResultsTable.campaignRunId, campaignRunsTable.id))
+    .where(eq(campaignRunResultsTable.resultStatus, "blocked"))
+    .groupBy(
+      campaignRunResultsTable.campaignRunId,
+      campaignRunResultsTable.campaignId,
+      campaignsTable.name,
+      campaignRunsTable.runName,
+      campaignRunsTable.startedAt,
+    )
+    .orderBy(desc(campaignRunsTable.startedAt));
+  res.json(groups);
+});
+
+// ── GET /blocked-results/export — CSV export ────────────────────────────────
+
+router.get("/blocked-results/export", async (req, res) => {
+  const campaignRunId = req.query.runId ? Number(req.query.runId) : undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [eq(campaignRunResultsTable.resultStatus, "blocked")];
+  if (campaignRunId) conditions.push(eq(campaignRunResultsTable.campaignRunId, campaignRunId));
+
+  const rows = await db
+    .select({
+      url: campaignRunResultsTable.url,
+      rootDomain: campaignRunResultsTable.rootDomain,
+      title: campaignRunResultsTable.title,
+      reason: campaignRunResultsTable.reason,
+      sourceQuery: campaignRunResultsTable.sourceQuery,
+      createdAt: campaignRunResultsTable.createdAt,
+      campaignName: campaignsTable.name,
+      runName: campaignRunsTable.runName,
+    })
+    .from(campaignRunResultsTable)
+    .leftJoin(campaignsTable, eq(campaignRunResultsTable.campaignId, campaignsTable.id))
+    .leftJoin(campaignRunsTable, eq(campaignRunResultsTable.campaignRunId, campaignRunsTable.id))
+    .where(and(...conditions))
+    .orderBy(desc(campaignRunResultsTable.createdAt))
+    .limit(10000);
+
+  const header = ["Campaign", "Run", "Domain", "Title", "Reason", "Source Query", "Date"];
+  const escape = (v: unknown) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [header, ...rows.map((r) => [r.campaignName, r.runName, r.rootDomain, r.title, r.reason, r.sourceQuery, r.createdAt].map(escape))].map((r) => r.join(",")).join("\r\n");
+
+  // Support ?save=1 for saveExportToServer (saves to disk, returns JSON path)
+  const saveToFile = req.query.save === "1" || req.query.save === "true";
+  if (saveToFile) {
+    const filename = `blocked-results-${new Date().toISOString().slice(0, 10)}.csv`;
+    const saved = await saveExportFile(filename, csv);
+    res.json({ saved: true, ...saved, rows: rows.length });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="blocked-results.csv"`);
+  res.send(csv);
 });
 
 export default router;

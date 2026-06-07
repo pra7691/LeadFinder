@@ -17,7 +17,7 @@ import {
   RetryOutreachItemParams,
   SendTestEmailBody,
 } from "@workspace/api-zod";
-import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
+import { appendUnsubscribeFooter, isHtmlEmailBody, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
 import { buildUnsubscribeUrl, isEmailUnsubscribed } from "./unsubscribe";
 import { isEmailBlacklisted } from "../services/email-blacklist";
@@ -40,12 +40,12 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-let batchSendRunning = false;
+const activeBatches = new Set<string>();
 let batchSendCancelRequested = false;
 let currentBatchId: string | null = null;
 
-function resetBatchSendState() {
-  batchSendRunning = false;
+function resetBatchSendState(batchId?: string | null) {
+  if (batchId) activeBatches.delete(batchId);
   batchSendCancelRequested = false;
   currentBatchId = null;
 }
@@ -167,10 +167,9 @@ async function logSend(
 }
 
 async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
-  const [lead] = await db
-    .select({ companyName: leadsTable.companyName })
-    .from(leadsTable)
-    .where(eq(leadsTable.id, item.leadId));
+  const [lead] = item.leadId !== null
+    ? await db.select({ companyName: leadsTable.companyName }).from(leadsTable).where(eq(leadsTable.id, item.leadId))
+    : [];
   let campaignName: string | null = null;
   if (item.campaignId !== null) {
     const [campaign] = await db
@@ -225,9 +224,12 @@ async function doSend(
     return false;
   }
 
-  // Append unsubscribe link to body
+  // Append unsubscribe link to body and headers — both controlled by the toggle
   const unsubscribeUrl = await buildUnsubscribeUrl(item.id, item.recipientEmail);
-  const bodyWithUnsub = unsubscribeUrl
+  const [unsubLinkRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "unsubscribe_link_enabled"));
+  const unsubLinkEnabled = unsubLinkRow?.value !== "false";
+  const unsubActive = !!(unsubscribeUrl && unsubLinkEnabled);
+  const bodyWithUnsub = unsubActive
     ? appendUnsubscribeFooter(
         item.body,
         `To unsubscribe from future emails, click here: ${unsubscribeUrl}`,
@@ -239,23 +241,56 @@ async function doSend(
   try {
     const attachments = await getTemplateAttachments(item.emailTemplateId);
     const transporter = await getTransporter(account);
+
+    // Determine send format from the template; fall back to body-content detection
+    let sendFormat: "plain_text" | "html" = isHtmlEmailBody(fullBody) ? "html" : "plain_text";
+    if (item.emailTemplateId) {
+      const [tmpl] = await db
+        .select({ sendFormat: emailTemplatesTable.sendFormat })
+        .from(emailTemplatesTable)
+        .where(eq(emailTemplatesTable.id, item.emailTemplateId));
+      if (tmpl?.sendFormat === "html" || tmpl?.sendFormat === "plain_text") {
+        sendFormat = tmpl.sendFormat;
+      }
+    }
+
     const trackingSettings = await getTrackingSettings();
-    const trackingId = trackingSettings.trackerUrl ? await ensureTrackingId(item) : null;
-    const html = toHtmlEmail(fullBody);
-    await transporter.sendMail({
-      from: fromHeader(account),
-      to: item.recipientEmail,
-      subject: item.subject,
-      text: toTextEmail(fullBody),
-      html: trackingSettings.trackerUrl && trackingId
-        ? addTrackingToHtml(html, trackingSettings.trackerUrl, trackingId)
-        : html,
-      attachments: attachments.length ? attachments : undefined,
-      headers: unsubscribeUrl ? {
-        "List-Unsubscribe": `<${unsubscribeUrl}>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-      } : undefined,
-    });
+    // Tracking pixels don't render in plain-text emails — disable for plain_text mode
+    const trackingActive = sendFormat === "html" && trackingSettings.trackingEnabled && !!trackingSettings.trackerUrl;
+    const trackingId = trackingActive ? await ensureTrackingId(item) : null;
+
+    if (sendFormat === "plain_text") {
+      // True plain-text email: single text/plain part, no HTML wrapper
+      const plainBody = toTextEmail(fullBody).replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+      await transporter.sendMail({
+        from: fromHeader(account),
+        to: item.recipientEmail,
+        subject: item.subject,
+        text: plainBody,
+        attachments: attachments.length ? attachments : undefined,
+        headers: unsubActive ? {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        } : undefined,
+      });
+    } else {
+      // HTML email: multipart/alternative with text + html parts
+      const html = toHtmlEmail(fullBody);
+      await transporter.sendMail({
+        from: fromHeader(account),
+        to: item.recipientEmail,
+        subject: item.subject,
+        text: toTextEmail(fullBody),
+        html: trackingActive && trackingId
+          ? addTrackingToHtml(html, trackingSettings.trackerUrl!, trackingId)
+          : html,
+        attachments: attachments.length ? attachments : undefined,
+        headers: unsubActive ? {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        } : undefined,
+      });
+    }
 
     const now = new Date();
     await db
@@ -335,13 +370,14 @@ async function antiSpamCheck(
   }
 
   // Check lead not rejected/invalid
-  const [lead] = await db
-    .select({ reviewStatus: leadsTable.reviewStatus, leadStatus: leadsTable.leadStatus })
-    .from(leadsTable)
-    .where(eq(leadsTable.id, item.leadId));
-
-  if (lead?.reviewStatus === "rejected" || lead?.leadStatus === "invalid") {
-    return { ok: false, reason: "Lead has been rejected or marked invalid" };
+  if (item.leadId !== null) {
+    const [lead] = await db
+      .select({ reviewStatus: leadsTable.reviewStatus, leadStatus: leadsTable.leadStatus })
+      .from(leadsTable)
+      .where(eq(leadsTable.id, item.leadId));
+    if (lead?.reviewStatus === "rejected" || lead?.leadStatus === "invalid") {
+      return { ok: false, reason: "Lead has been rejected or marked invalid" };
+    }
   }
 
   // Check recipient domain against blocked_domains (includes subdomain matching)
@@ -357,8 +393,8 @@ async function antiSpamCheck(
     }
   }
 
-  // No duplicate sends — check if same lead+campaign already sent (only when campaign is set)
-  if (item.campaignId !== null) {
+  // No duplicate sends — check if same lead+campaign already sent (only when campaign and lead are set)
+  if (item.campaignId !== null && item.leadId !== null) {
     const duplicate = await db
       .select({ id: outreachQueueTable.id })
       .from(outreachQueueTable)
@@ -381,20 +417,33 @@ async function antiSpamCheck(
 // ── POST /outreach/send-batch ───────────────────────────────────────────────
 
 router.post("/outreach/send-batch", async (req, res) => {
-  if (batchSendRunning) {
-    res.status(409).json({ error: "A batch send is already running" });
-    return;
-  }
-
-  batchSendRunning = true;
-  batchSendCancelRequested = false;
-
   const rawIds = (req.body as { ids?: unknown } | undefined)?.ids;
   const ids = Array.isArray(rawIds)
     ? rawIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
     : [];
+
+  // Clear the paused_by_user marker when user explicitly triggers a send.
+  // This converts "stopped" items back to active so this send picks them up.
+  if (ids.length > 0) {
+    await db
+      .update(outreachQueueTable)
+      .set({ failureReason: null })
+      .where(and(
+        inArray(outreachQueueTable.id, ids),
+        eq(outreachQueueTable.status, "approved"),
+        eq(outreachQueueTable.failureReason, "paused_by_user"),
+      ));
+  }
+
   const approvedConditions = [eq(outreachQueueTable.status, "approved")];
   if (ids.length > 0) approvedConditions.push(inArray(outreachQueueTable.id, ids));
+  // When no specific IDs are provided, skip user-paused items so the global Send
+  // button doesn't sweep up batches the user explicitly stopped.
+  if (ids.length === 0) {
+    approvedConditions.push(
+      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+    );
+  }
 
   // ORDER BY id ASC so items are always processed top-to-bottom
   const approved = await db
@@ -404,13 +453,22 @@ router.post("/outreach/send-batch", async (req, res) => {
     .orderBy(asc(outreachQueueTable.id));
 
   // Capture the batchId so the status endpoint can tell the frontend which batch is active
-  currentBatchId = approved[0]?.batchId ?? null;
+  const thisBatchId = approved[0]?.batchId ?? null;
 
   if (approved.length === 0) {
-    resetBatchSendState();
     res.json({ sent: 0, failed: 0, skipped: 0, items: [] });
     return;
   }
+
+  // Per-batch deduplication: reject if this exact batch is already running
+  if (thisBatchId && activeBatches.has(thisBatchId)) {
+    res.status(409).json({ error: "This batch is already being sent" });
+    return;
+  }
+
+  if (thisBatchId) activeBatches.add(thisBatchId);
+  currentBatchId = thisBatchId;
+  batchSendCancelRequested = false;
 
   let sent = 0;
   let failed = 0;
@@ -544,28 +602,59 @@ router.post("/outreach/send-batch", async (req, res) => {
     if (updated) resultItems.push(updated);
   }
 
-  res.json({ sent, failed, skipped, stopped, items: resultItems });
+  const limitHit = skipped > 0 && sent === 0 && !stopped && globalSentToday >= globalEmailLimit;
+  res.json({ sent, failed, skipped, stopped, items: resultItems, limitHit, globalLimit: globalEmailLimit, emailsSentToday: globalSentToday });
   } finally {
-    resetBatchSendState();
+    resetBatchSendState(thisBatchId);
   }
 });
 
 // ── GET /outreach/send-batch/status ────────────────────────────────────────
 
 router.get("/outreach/send-batch/status", (_req, res) => {
-  res.json({ running: batchSendRunning, batchId: currentBatchId });
+  res.json({ running: activeBatches.size > 0, batchId: currentBatchId });
 });
 
 // ── POST /outreach/send-batch/cancel ───────────────────────────────────────
 
-router.post("/outreach/send-batch/cancel", async (_req, res) => {
-  if (!batchSendRunning) {
-    res.json({ ok: true, running: false, message: "No batch send is currently running." });
+router.post("/outreach/send-batch/cancel", async (req, res) => {
+  // Mark any not-yet-processed approved items as paused so the cron auto-resume
+  // won't immediately restart them. Optional batchId scopes to one batch;
+  // omitting it pauses all active batches.
+  const batchId = (req.body as { batchId?: unknown })?.batchId;
+  const pauseConditions = [
+    eq(outreachQueueTable.status, "approved"),
+    // Don't overwrite a real failureReason; only set on rows where it's empty
+    sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} = '')`,
+  ];
+  if (typeof batchId === "string" && batchId.length > 0) {
+    pauseConditions.push(eq(outreachQueueTable.batchId, batchId));
+  }
+  const pausedRows = await db
+    .update(outreachQueueTable)
+    .set({ failureReason: "paused_by_user" })
+    .where(and(...pauseConditions))
+    .returning({ id: outreachQueueTable.id });
+
+  if (activeBatches.size === 0) {
+    res.json({
+      ok: true,
+      running: false,
+      paused: pausedRows.length,
+      message: pausedRows.length > 0
+        ? `Marked ${pausedRows.length} item(s) as paused.`
+        : "No batch send is currently running.",
+    });
     return;
   }
 
   batchSendCancelRequested = true;
-  res.json({ ok: true, running: true, message: "Batch send stop requested. The current email will finish, then sending will stop." });
+  res.json({
+    ok: true,
+    running: true,
+    paused: pausedRows.length,
+    message: "Batch send stop requested. The current email will finish, then sending will stop.",
+  });
 });
 
 // ── POST /outreach/send-test ────────────────────────────────────────────────
@@ -877,17 +966,35 @@ router.post("/outreach/:id/retry", async (req, res) => {
 // ── Exported helper: resume any stuck approved items on server startup ───────
 
 /**
- * Called once at startup by recoverStuckState().
- * If there are outreach items stuck in "approved" (server crashed mid-send),
- * this automatically re-fires the batch send for them so they don't stay stuck.
+ * Auto-resumes any outreach items sitting in "approved" status.
+ *
+ * Called:
+ *   • Once at server startup by recoverStuckState()
+ *   • Every minute by the scheduler tick — so items blocked by the daily email
+ *     limit automatically resume after IST midnight when the counter resets,
+ *     without any user action.
+ *
+ * Early-exits if a batch is already running, so periodic calls are cheap.
  */
 export async function resumeStuckOutreach(): Promise<void> {
-  if (batchSendRunning) return; // already running, nothing to do
+  if (activeBatches.size > 0) return; // already running, nothing to do
 
+  // Auto-resume only "stranded" items: approved AND not user-paused
+  // AND belonging to a batch that has at least one already-sent sibling.
+  // This prevents NEWLY APPROVED batches (no sent siblings yet) from
+  // auto-starting without the user clicking Send.
   const stuckItems = await db
     .select({ id: outreachQueueTable.id })
     .from(outreachQueueTable)
-    .where(eq(outreachQueueTable.status, "approved"))
+    .where(and(
+      eq(outreachQueueTable.status, "approved"),
+      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+      sql`EXISTS (
+        SELECT 1 FROM outreach_queue AS sib
+        WHERE sib.batch_id = ${outreachQueueTable.batchId}
+          AND sib.status = 'sent'
+      )`,
+    ))
     .orderBy(asc(outreachQueueTable.id));
 
   if (stuckItems.length === 0) return;
@@ -895,19 +1002,26 @@ export async function resumeStuckOutreach(): Promise<void> {
   // Fire-and-forget: don't await — the server must finish starting first.
   // Delay slightly so routes are fully registered before the first send attempt.
   setTimeout(() => {
-    if (batchSendRunning) return; // race guard
-    batchSendRunning = true;
-    batchSendCancelRequested = false;
+    if (activeBatches.size > 0) return; // race guard
 
     const ids = stuckItems.map((r) => r.id);
+    let resumeBatchId: string | null = null;
 
     db.select()
       .from(outreachQueueTable)
-      .where(and(eq(outreachQueueTable.status, "approved"), inArray(outreachQueueTable.id, ids)))
+      .where(and(
+        eq(outreachQueueTable.status, "approved"),
+        sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+        inArray(outreachQueueTable.id, ids),
+      ))
       .orderBy(asc(outreachQueueTable.id))
       .then(async (approved) => {
-        currentBatchId = approved[0]?.batchId ?? null;
-        if (approved.length === 0) { resetBatchSendState(); return; }
+        resumeBatchId = approved[0]?.batchId ?? null;
+        if (approved.length === 0) { return; }
+        if (resumeBatchId && activeBatches.has(resumeBatchId)) return; // race guard
+        if (resumeBatchId) activeBatches.add(resumeBatchId);
+        currentBatchId = resumeBatchId;
+        batchSendCancelRequested = false;
 
         const campaignCache = new Map<number, typeof campaignsTable.$inferSelect>();
         const accountCache  = new Map<number, typeof emailAccountsTable.$inferSelect>();
@@ -967,7 +1081,7 @@ export async function resumeStuckOutreach(): Promise<void> {
         const { logger } = require("../lib/logger") as typeof import("../lib/logger");
         logger.error({ err }, "Auto-resume of stuck outreach failed");
       })
-      .finally(() => resetBatchSendState());
+      .finally(() => resetBatchSendState(resumeBatchId));
   }, 5000); // 5s after startup
 
   const { logger } = await import("../lib/logger");

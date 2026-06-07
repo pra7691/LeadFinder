@@ -90,6 +90,14 @@ export interface Campaign {
   lastRunAt?: string | null;
   lastRunStatus?: CampaignLastRunStatus;
   isPaused?: boolean;
+  /** Newline-separated list of paths to always crawl */
+  crawlPaths?: string;
+  /** Newline-separated keywords used to filter internal links for follow-up crawling */
+  internalLinkKeywords?: string;
+  /** Hard cap on total pages crawled per lead */
+  maxPagesPerDomain?: number;
+  /** 0 = only configured paths, 1 = paths + internal links, 2 = + links-of-links */
+  maxCrawlDepth?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -137,6 +145,10 @@ export interface CampaignInput {
   scheduleDays?: string;
   scheduleTime?: string;
   isPaused?: boolean;
+  crawlPaths?: string;
+  internalLinkKeywords?: string;
+  maxPagesPerDomain?: number;
+  maxCrawlDepth?: number;
 }
 
 export type CampaignPatchScheduleType = typeof CampaignPatchScheduleType[keyof typeof CampaignPatchScheduleType];
@@ -186,6 +198,10 @@ export interface CampaignPatch {
   /** @nullable */
   scheduleTime?: string | null;
   isPaused?: boolean;
+  crawlPaths?: string;
+  internalLinkKeywords?: string;
+  maxPagesPerDomain?: number;
+  maxCrawlDepth?: number;
 }
 
 export interface SchedulerStatus {
@@ -969,6 +985,8 @@ export interface EmailTemplate {
   personalizationPrompt?: string | null;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" — defaults to "plain_text" */
+  sendFormat?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -984,6 +1002,8 @@ export interface EmailTemplateInput {
   personalizationPrompt?: string;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" — defaults to "plain_text" */
+  sendFormat?: string;
   isActive?: boolean;
 }
 
@@ -995,6 +1015,8 @@ export interface EmailTemplatePatch {
   personalizationPrompt?: string | null;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" */
+  sendFormat?: string;
   isActive?: boolean;
 }
 

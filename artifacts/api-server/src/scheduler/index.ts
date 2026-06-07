@@ -69,6 +69,17 @@ export function computeNextRunAt(
 async function tick() {
   const now = new Date();
 
+  // Resume any approved outreach items that are sitting idle (no active send loop).
+  // This handles:
+  //   • daily email limit reset (the previous loop stopped when the cap was hit;
+  //     the next tick after IST midnight picks them up again automatically)
+  //   • new approvals when no loop is running
+  //   • any other case where items got stranded in "approved"
+  // The function early-exits if a batch is already running, so this is cheap.
+  resumeStuckOutreach().catch((err) =>
+    logger.error({ err }, "Scheduler tick: resumeStuckOutreach failed"),
+  );
+
   // Find campaigns that are due: scheduled, not paused, not already running, nextRunAt <= now
   const dueCampaigns = await db
     .select({

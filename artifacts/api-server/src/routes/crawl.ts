@@ -39,8 +39,18 @@ router.post("/leads/:id/run-crawl", async (req, res) => {
     metadataJson: JSON.stringify({ leadId, url: lead.websiteUrl }),
   });
 
+  // Load campaign so we can pass its crawler configuration through
+  const [campaign] = lead.campaignId != null
+    ? await db.select().from(campaignsTable).where(eq(campaignsTable.id, lead.campaignId))
+    : [undefined];
+
   try {
-    const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
+    const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain, campaign ? {
+      crawlPaths: campaign.crawlPaths,
+      internalLinkKeywords: campaign.internalLinkKeywords,
+      maxPagesPerDomain: campaign.maxPagesPerDomain,
+      maxCrawlDepth: campaign.maxCrawlDepth,
+    } : undefined);
 
     if (data.pagesSucceeded === 0) {
       await db
@@ -168,6 +178,15 @@ router.post("/leads/bulk-crawl", async (req, res) => {
   const CAP = 20;
   const toProcess = targetLeads.slice(0, CAP);
 
+  // Pre-load campaign configs for all unique campaign IDs in this batch
+  const uniqueCampaignIds = Array.from(
+    new Set(toProcess.map((l) => l.campaignId).filter((id): id is number => id != null)),
+  );
+  const campaignList = uniqueCampaignIds.length > 0
+    ? await db.select().from(campaignsTable).where(inArray(campaignsTable.id, uniqueCampaignIds))
+    : [];
+  const campaignById = new Map(campaignList.map((c) => [c.id, c] as const));
+
   const results: Array<{
     leadId: number;
     success: boolean;
@@ -187,7 +206,13 @@ router.post("/leads/bulk-crawl", async (req, res) => {
     });
 
     try {
-      const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain);
+      const campaign = lead.campaignId != null ? campaignById.get(lead.campaignId) : undefined;
+      const data = await crawlWebsite(lead.websiteUrl, lead.rootDomain, campaign ? {
+        crawlPaths: campaign.crawlPaths,
+        internalLinkKeywords: campaign.internalLinkKeywords,
+        maxPagesPerDomain: campaign.maxPagesPerDomain,
+        maxCrawlDepth: campaign.maxCrawlDepth,
+      } : undefined);
       const ok = data.pagesSucceeded > 0;
 
       const updates: Record<string, unknown> = {

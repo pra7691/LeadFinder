@@ -271,15 +271,18 @@ router.post("/outreach/from-list", async (req, res) => {
   const [tmpl] = await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, body.emailTemplateId));
   if (!tmpl) { res.status(404).json({ error: "Email template not found" }); return; }
 
+  // Fetch list items with their per-item email override.
+  // New items have email set (one item per address); legacy items have email=null.
   const listItems = await db
-    .select({ leadId: leadListItemsTable.leadId })
+    .select({ leadId: leadListItemsTable.leadId, email: leadListItemsTable.email })
     .from(leadListItemsTable)
     .where(eq(leadListItemsTable.listId, body.listId));
 
   if (listItems.length === 0) { res.json({ queued: 0, skipped: 0, items: [] }); return; }
 
-  const leadIds = listItems.map((li) => li.leadId);
+  const leadIds = [...new Set(listItems.map((li) => li.leadId))];
   const leads = await db.select().from(leadsTable).where(inArray(leadsTable.id, leadIds));
+  const leadById = new Map(leads.map((l) => [l.id, l]));
 
   let queued = 0;
   let skipped = 0;
@@ -300,8 +303,14 @@ router.post("/outreach/from-list", async (req, res) => {
   const [blockedDomainsRow1] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "blocked_domains"));
   const blockedDomainSet1 = parseBlockedDomains(blockedDomainsRow1?.value);
 
-  for (const lead of leads) {
-    const recipientEmail = getPrimaryLeadEmail(lead.emails) ?? "";
+  // Iterate list items — each item may have its own email (multi-email leads or manual imports).
+  // Manual items have leadId=null; legacy items with email=null fall back to the lead's primary email.
+  for (const listItem of listItems) {
+    const lead = listItem.leadId ? leadById.get(listItem.leadId) : null;
+    // If leadId is set but lead not found, skip
+    if (listItem.leadId && !lead) { skipped++; continue; }
+
+    const recipientEmail = (listItem.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "";
     if (!recipientEmail) { skipped++; continue; }
 
     // Skip invalid email format
@@ -320,11 +329,24 @@ router.post("/outreach/from-list", async (req, res) => {
     // Skip previously hard-bounced recipients
     if (await isEmailHardBounced(recipientEmail)) { skipped++; continue; }
 
-    // Duplicate protection
+    // Duplicate protection (same email can't appear twice in same batch)
     if (alreadyQueued.has(recipientEmail.toLowerCase())) { skipped++; continue; }
 
+    // For manual items (no lead record), build a minimal stub so template vars resolve.
+    const leadForTemplate = lead ?? ({
+      companyName: listItem.companyName || recipientEmail.split("@")[1]?.split(".")[0] || "there",
+      websiteUrl: null,
+      rootDomain: recipientEmail.split("@")[1] ?? "",
+      emails: recipientEmail,
+      country: null,
+      sourceCountry: null,
+      campaignId: null,
+      campaignRunId: null,
+      id: 0,
+    } as typeof leadsTable.$inferSelect);
+
     const { subject, body: emailBody } = await resolveEmailContent(
-      lead,
+      leadForTemplate,
       body.emailTemplateId,
       null,
       { listName: list.name },
@@ -332,7 +354,7 @@ router.post("/outreach/from-list", async (req, res) => {
 
     const [item] = await db.insert(outreachQueueTable).values({
       campaignId: null,
-      leadId: lead.id,
+      leadId: lead?.id ?? null,
       emailAccountId: body.emailAccountId ?? null,
       emailTemplateId: body.emailTemplateId,
       listId: body.listId,
@@ -347,8 +369,7 @@ router.post("/outreach/from-list", async (req, res) => {
     queued++;
   }
 
-  skipped += leadIds.length - leads.length;
-  await logAction(null, "outreach", `Queued ${queued} leads from list "${list.name}" (${skipped} skipped)`, { queued, skipped, listId: body.listId });
+  await logAction(null, "outreach", `Queued ${queued} emails from list "${list.name}" (${skipped} skipped)`, { queued, skipped, listId: body.listId });
 
   res.json({ queued, skipped, items: await enrichItems(items) });
 });

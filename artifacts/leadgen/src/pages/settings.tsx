@@ -273,8 +273,10 @@ export function Settings() {
   const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Email tracking
+  const [emailTrackingEnabled, setEmailTrackingEnabled] = useState(true);
   const [emailTrackerUrl, setEmailTrackerUrl] = useState("");
   const [emailTrackerSecret, setEmailTrackerSecret] = useState("");
+  const [unsubscribeLinkEnabled, setUnsubscribeLinkEnabled] = useState(true);
   const [unsubscribePageUrl, setUnsubscribePageUrl] = useState("");
   const [unsubscribeAdminSecret, setUnsubscribeAdminSecret] = useState("");
 
@@ -301,8 +303,11 @@ export function Settings() {
       setAiScoringEnabled(find("ai_scoring_enabled") === "true");
       setOpenaiKey(find("openai_api_key") ?? "");
       setOpenaiModel(find("openai_model") ?? "gpt-4o-mini");
+      // Default to enabled if the key has never been saved
+      setEmailTrackingEnabled(find("email_tracking_enabled") !== "false");
       setEmailTrackerUrl(find("email_tracker_url") ?? "");
       setEmailTrackerSecret(find("email_tracker_admin_secret") ?? "");
+      setUnsubscribeLinkEnabled(find("unsubscribe_link_enabled") !== "false");
       setUnsubscribePageUrl(find("unsubscribe_page_url") ?? "");
       setUnsubscribeAdminSecret(find("unsubscribe_admin_secret") ?? "");
       setGlobalMaxSearches(find("global_max_searches_per_day") ?? "10");
@@ -379,6 +384,8 @@ export function Settings() {
   };
 
   const handleSaveEmailTracking = async () => {
+    await save("email_tracking_enabled", emailTrackingEnabled ? "true" : "false");
+    await save("unsubscribe_link_enabled", unsubscribeLinkEnabled ? "true" : "false");
     await save("email_tracker_url", emailTrackerUrl.trim());
     if (!emailTrackerSecret.startsWith("••••••••")) {
       await save("email_tracker_admin_secret", emailTrackerSecret.trim());
@@ -741,15 +748,39 @@ export function Settings() {
               </CardHeader>
               <CardContent className="space-y-6 pt-6">
 
+                {/* ── Enable / Disable toggle ───────────────────────────── */}
+                <div className="flex items-center justify-between rounded-xl border border-border/40 p-4 bg-muted/20">
+                  <div>
+                    <p className="text-sm font-semibold">Enable Email Tracking</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      When off, the open-tracking pixel and click-tracking links are not embedded in outgoing emails.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={emailTrackingEnabled}
+                    onCheckedChange={setEmailTrackingEnabled}
+                    data-testid="toggle-email-tracking-enabled"
+                  />
+                </div>
+
                 {/* ── Unsubscribe Page ──────────────────────────────────── */}
                 <div className="rounded-xl border border-border/40 p-4 space-y-4 bg-muted/20">
-                  <div>
-                    <p className="text-sm font-semibold">Unsubscribe Page (FTP Hosting)</p>
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Upload <code className="bg-muted px-1 rounded font-mono">unsubscribe.php</code> to your web hosting via FTP,
-                      then enter its URL and the admin secret you set inside the file.
-                      LeadFinder will embed a unique unsubscribe link in every outgoing email.
-                    </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">Unsubscribe Page (FTP Hosting)</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Upload <code className="bg-muted px-1 rounded font-mono">unsubscribe.php</code> to your web hosting via FTP,
+                        then enter its URL and the admin secret you set inside the file.
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0 ml-4">
+                      <Switch
+                        checked={unsubscribeLinkEnabled}
+                        onCheckedChange={setUnsubscribeLinkEnabled}
+                        data-testid="toggle-unsubscribe-link-enabled"
+                      />
+                      <p className="text-[10px] text-muted-foreground">{unsubscribeLinkEnabled ? "Link in emails" : "No link in emails"}</p>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Unsubscribe Page URL</Label>

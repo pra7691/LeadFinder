@@ -19,6 +19,8 @@ import {
   searchQueryHistoryTable,
   searchResultHistoryTable,
   discoverySourceHistoryTable,
+  leadListsTable,
+  leadListItemsTable,
 } from "@workspace/db";
 import { eq, and, or, sql, desc, isNull, like } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
@@ -31,6 +33,7 @@ import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { buildUnsubscribeUrl, isEmailUnsubscribed } from "../routes/unsubscribe";
+import { parseLeadEmails } from "../services/lead-emails";
 import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
 
 // ── Cancellation registry ─────────────────────────────────────────────────
@@ -1038,12 +1041,17 @@ async function runCrawl(
           .set({ crawlStatus: "crawling", crawlError: null })
           .where(eq(leadsTable.id, lead.id));
 
-        // Hard per-lead deadline: 7 pages × 15 s each + some buffer = 120 s max.
-        // Without this, a single site that hangs at the TCP/body level could
-        // block the entire crawl batch indefinitely.
-        const LEAD_TIMEOUT_MS = 120_000;
+        // Hard per-lead deadline. Scales with maxPagesPerDomain so deep crawls
+        // (up to 30 pages × 15 s each) get enough headroom; minimum 120s.
+        const perLeadBudgetSec = Math.max(120, (campaign.maxPagesPerDomain ?? 10) * 18);
+        const LEAD_TIMEOUT_MS = perLeadBudgetSec * 1000;
         const data = await Promise.race([
-          crawlWebsite(lead.websiteUrl, lead.rootDomain),
+          crawlWebsite(lead.websiteUrl, lead.rootDomain, {
+            crawlPaths: campaign.crawlPaths,
+            internalLinkKeywords: campaign.internalLinkKeywords,
+            maxPagesPerDomain: campaign.maxPagesPerDomain,
+            maxCrawlDepth: campaign.maxCrawlDepth,
+          }),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`Crawl timed out after ${LEAD_TIMEOUT_MS / 1000}s`)), LEAD_TIMEOUT_MS),
           ),
@@ -1194,6 +1202,63 @@ async function runScore(
 
   await schedulerLog(campaign.id, `Scoring complete: ${scoredCount} leads scored`);
   return { scoredCount, failedCount };
+}
+
+// ── Step 3b: Auto-List qualified leads with emails ──────────────────────────
+
+async function runAutoList(
+  campaign: typeof campaignsTable.$inferSelect,
+  campaignRunId: number | undefined,
+  _errors: string[],
+): Promise<void> {
+  // Find qualified leads with emails from this run
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [
+    eq(leadsTable.campaignId, campaign.id),
+    eq(leadsTable.qualificationStatus, "qualified"),
+    sql`${leadsTable.emails} IS NOT NULL AND ${leadsTable.emails} != ''`,
+  ];
+  if (campaignRunId != null) conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
+
+  const eligibleLeads = await db
+    .select({ id: leadsTable.id, emails: leadsTable.emails })
+    .from(leadsTable)
+    .where(and(...conditions));
+  if (eligibleLeads.length === 0) return;
+
+  // Create or find list for this run
+  const runRow = campaignRunId != null
+    ? (await db.select({ runName: campaignRunsTable.runName }).from(campaignRunsTable).where(eq(campaignRunsTable.id, campaignRunId)))[0]
+    : null;
+  const listName = runRow?.runName ? `${campaign.name} – ${runRow.runName}` : campaign.name;
+
+  // Insert list
+  const [list] = await db.insert(leadListsTable).values({
+    name: listName,
+    campaignId: campaign.id,
+    listStatus: "active",
+  }).returning();
+  if (!list) return;
+
+  // Expand each lead into one list item per email address.
+  // If a lead has 3 emails → 3 items, each with a specific email.
+  const listItemRows: { listId: number; leadId: number; email: string }[] = [];
+  for (const lead of eligibleLeads) {
+    const emails = parseLeadEmails(lead.emails);
+    for (const email of emails) {
+      listItemRows.push({ listId: list.id, leadId: lead.id, email });
+    }
+  }
+
+  if (listItemRows.length > 0) {
+    await db.insert(leadListItemsTable).values(listItemRows).onConflictDoNothing();
+  }
+
+  await schedulerLog(
+    campaign.id,
+    `Auto-list "${listName}": added ${eligibleLeads.length} leads → ${listItemRows.length} email items`,
+    { listId: list.id, leads: eligibleLeads.length, emailItems: listItemRows.length },
+  );
 }
 
 // ── Step 4: Queue & Send Emails ─────────────────────────────────────────────
@@ -1633,6 +1698,13 @@ export async function runPipeline(
     errors.push(`Scoring failed: ${msg}`);
     result.failed++;
     logger.error({ err, campaignId }, "Scheduler: score step failed");
+  }
+
+  // After scoring: auto-add qualified+email leads to a named list
+  try {
+    if (campaignRunId != null) await runAutoList(campaign, campaignRunId, errors);
+  } catch (err) {
+    logger.error({ err, campaignId }, "Scheduler: auto-list step failed");
   }
 
   try {

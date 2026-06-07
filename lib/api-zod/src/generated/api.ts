@@ -34,7 +34,8 @@ export const GetDashboardStatsResponse = zod.object({
   "searchesToday": zod.number(),
   "qualifiedLeadsToday": zod.number(),
   "globalMaxSearches": zod.number(),
-  "globalMaxEmails": zod.number()
+  "globalMaxEmails": zod.number(),
+  "activeRun": zod.object({ runName: zod.string().nullable(), campaignName: zod.string().nullable() }).nullable().optional()
 })
 
 
@@ -110,7 +111,11 @@ export const CreateCampaignBody = zod.object({
   "scheduleType": zod.enum(['manual', 'daily', 'weekly']).optional(),
   "scheduleDays": zod.string().optional(),
   "scheduleTime": zod.string().optional(),
-  "isPaused": zod.boolean().optional()
+  "isPaused": zod.boolean().optional(),
+  "crawlPaths": zod.string().optional(),
+  "internalLinkKeywords": zod.string().optional(),
+  "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
+  "maxCrawlDepth": zod.number().min(0).max(2).optional()
 })
 
 
@@ -149,6 +154,10 @@ export const GetCampaignResponse = zod.object({
   "lastRunAt": zod.string().nullish(),
   "lastRunStatus": zod.enum(['idle', 'running', 'success', 'failed']).optional(),
   "isPaused": zod.boolean().optional(),
+  "crawlPaths": zod.string().optional(),
+  "internalLinkKeywords": zod.string().optional(),
+  "maxPagesPerDomain": zod.number().optional(),
+  "maxCrawlDepth": zod.number().optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -185,7 +194,11 @@ export const UpdateCampaignBody = zod.object({
   "scheduleType": zod.enum(['manual', 'daily', 'weekly']).optional(),
   "scheduleDays": zod.string().nullish(),
   "scheduleTime": zod.string().nullish(),
-  "isPaused": zod.boolean().optional()
+  "isPaused": zod.boolean().optional(),
+  "crawlPaths": zod.string().optional(),
+  "internalLinkKeywords": zod.string().optional(),
+  "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
+  "maxCrawlDepth": zod.number().min(0).max(2).optional()
 })
 
 export const updateCampaignResponseResultsPerSearchDefault = 10;
@@ -555,6 +568,7 @@ export const CreateEmailTemplateBody = zod.object({
   "body": zod.string().min(1),
   "personalizationPrompt": zod.string().optional(),
   "attachmentsJson": zod.string().nullish(),
+  "sendFormat": zod.enum(["plain_text", "html"]).default("plain_text"),
   "isActive": zod.boolean().default(createEmailTemplateBodyIsActiveDefault)
 })
 
@@ -573,6 +587,7 @@ export const GetEmailTemplateResponse = zod.object({
   "body": zod.string(),
   "personalizationPrompt": zod.string().nullish(),
   "attachmentsJson": zod.string().nullish(),
+  "sendFormat": zod.string().optional(),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -592,6 +607,7 @@ export const UpdateEmailTemplateBody = zod.object({
   "body": zod.string().optional(),
   "personalizationPrompt": zod.string().nullish(),
   "attachmentsJson": zod.string().nullish(),
+  "sendFormat": zod.enum(["plain_text", "html"]).optional(),
   "isActive": zod.boolean().optional()
 })
 
@@ -602,6 +618,7 @@ export const UpdateEmailTemplateResponse = zod.object({
   "body": zod.string(),
   "personalizationPrompt": zod.string().nullish(),
   "attachmentsJson": zod.string().nullish(),
+  "sendFormat": zod.string().optional(),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()

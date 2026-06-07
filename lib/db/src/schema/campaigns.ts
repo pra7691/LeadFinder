@@ -23,6 +23,18 @@ export const campaignsTable = pgTable("campaigns", {
   subjectTemplate: text("subject_template"),
   emailTemplate: text("email_template"),
   unsubscribeFooter: text("unsubscribe_footer"),
+  // ── Crawler configuration (per-campaign) ──
+  // Newline-separated path list. Crawled first, before internal-link expansion.
+  crawlPaths: text("crawl_paths").notNull().default("/\n/contact\n/contact-us\n/about\n/about-us\n/team"),
+  // Newline-separated keywords. Internal links whose URL or anchor text contains
+  // one of these (case-insensitive) are eligible for follow-up crawling.
+  internalLinkKeywords: text("internal_link_keywords").notNull().default(
+    "contact\nabout\nteam\npeople\nresearch\nproject\nprojects\nlab\nlabs\nfaculty\npublication\npublications\nrobotics\nvision\nperception\negocentric\nembodied\ndataset"
+  ),
+  // Hard cap on total pages crawled per lead (configured paths + followed links).
+  maxPagesPerDomain: integer("max_pages_per_domain").notNull().default(10),
+  // 0 = only the configured paths. 1 = paths + their internal links. 2 = paths + links + links-of-links.
+  maxCrawlDepth: integer("max_crawl_depth").notNull().default(1),
   // Scheduler fields
   scheduleType: text("schedule_type").notNull().default("manual"), // manual | daily | weekly
   scheduleDays: text("schedule_days"), // weekly: comma-sep "mon,wed,fri"

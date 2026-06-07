@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 let emailTemplateAttachmentColumnPromise: Promise<void> | null = null;
+let sendFormatColumnPromise: Promise<void> | null = null;
 let outreachTrackingColumnsPromise: Promise<void> | null = null;
 let unsubscribeSchemaPromise: Promise<void> | null = null;
 
@@ -18,6 +19,19 @@ export function ensureEmailTemplateAttachmentColumn(): Promise<void> {
   }
 
   return emailTemplateAttachmentColumnPromise;
+}
+
+export function ensureSendFormatColumn(): Promise<void> {
+  if (!sendFormatColumnPromise) {
+    sendFormatColumnPromise = db
+      .execute(sql`ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS send_format text NOT NULL DEFAULT 'plain_text'`)
+      .then(() => undefined)
+      .catch((err) => {
+        sendFormatColumnPromise = null;
+        throw err;
+      });
+  }
+  return sendFormatColumnPromise;
 }
 
 export function ensureOutreachTrackingColumns(): Promise<void> {

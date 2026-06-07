@@ -13,7 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { renderTemplate } from "../services/email-generator";
 import { parseLeadEmails } from "../services/lead-emails";
-import { ensureEmailTemplateAttachmentColumn } from "../lib/schema-guards";
+import { ensureEmailTemplateAttachmentColumn, ensureSendFormatColumn } from "../lib/schema-guards";
 import { normalizeTemplateAttachmentsJson } from "../services/email-template-attachments";
 
 const router = Router();
@@ -21,6 +21,7 @@ const router = Router();
 router.use(async (_req, _res, next) => {
   try {
     await ensureEmailTemplateAttachmentColumn();
+    await ensureSendFormatColumn();
     next();
   } catch (error) {
     next(error);
@@ -47,6 +48,7 @@ router.post("/email-templates", async (req, res) => {
     body: body.body,
     personalizationPrompt: body.personalizationPrompt ?? null,
     attachmentsJson: normalizeTemplateAttachmentsJson(body.attachmentsJson),
+    sendFormat: (body.sendFormat === "html" ? "html" : "plain_text"),
     isActive: body.isActive ?? true,
   }).returning();
   res.status(201).json(row);
@@ -69,6 +71,7 @@ router.patch("/email-templates/:id", async (req, res) => {
     ...body,
     attachmentsJson:
       "attachmentsJson" in body ? normalizeTemplateAttachmentsJson(body.attachmentsJson) : undefined,
+    sendFormat: "sendFormat" in body && body.sendFormat ? (body.sendFormat === "html" ? "html" : "plain_text") : undefined,
     updatedAt: new Date(),
   };
   const [row] = await db

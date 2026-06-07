@@ -32,6 +32,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ChevronLeft,
   Clock,
   CheckCircle2,
@@ -213,10 +219,9 @@ export function CampaignRunDetail() {
   const resumeRun = useResumeCampaignRun();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [addToListOpen, setAddToListOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  type StatusFilter = "all" | "unreviewed" | "qualified" | "rejected";
+  type StatusFilter = "all" | "qualified" | "rejected";
   type LeadFilter = "hasEmail" | "hasNoEmail" | "hasPhone" | "aboveMinScore" | "belowMinScore" | "notInList";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [leadFilters, setLeadFilters] = useState<Set<LeadFilter>>(new Set());
@@ -322,7 +327,6 @@ export function CampaignRunDetail() {
       }
       if (statusFilter === "qualified" && l.qualificationStatus !== "qualified") return false;
       if (statusFilter === "rejected" && l.qualificationStatus !== "rejected") return false;
-      if (statusFilter === "unreviewed" && (l.qualificationStatus === "qualified" || l.qualificationStatus === "rejected")) return false;
       if (leadFilters.has("hasEmail") && !l.emails) return false;
       if (leadFilters.has("hasNoEmail") && l.emails) return false;
       if (leadFilters.has("hasPhone") && !l.phoneNumbers) return false;
@@ -417,7 +421,6 @@ export function CampaignRunDetail() {
       {
         onSuccess: (result) => {
           toast({ title: `Added ${result.added} lead${result.added !== 1 ? "s" : ""} to list.` });
-          setAddToListOpen(false);
           setSelectedIds(new Set());
           queryClient.invalidateQueries({ queryKey: getGetCampaignRunLeadsQueryKey(runIdNum) });
           queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(listId) });
@@ -672,7 +675,6 @@ export function CampaignRunDetail() {
 
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: "all", label: "All" },
-    { key: "unreviewed", label: "Unreviewed" },
     { key: "qualified", label: "Qualified" },
     { key: "rejected", label: "Rejected" },
   ];
@@ -1219,15 +1221,30 @@ export function CampaignRunDetail() {
                     <ThumbsDown className="w-3.5 h-3.5" />
                     Disqualify {selectedIds.size}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl gap-2 text-xs h-8"
-                    onClick={() => setAddToListOpen(true)}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add {selectedIds.size} to List
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl gap-2 text-xs h-8"
+                        disabled={addLeadsToList.isPending}
+                      >
+                        {addLeadsToList.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Add {selectedIds.size} to List
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {!listRows.length ? (
+                        <DropdownMenuItem disabled>No lists — create one first</DropdownMenuItem>
+                      ) : (
+                        listRows.map((list) => (
+                          <DropdownMenuItem key={list.id} onClick={() => handleAddToList(list.id)}>
+                            {list.name}
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     size="sm"
                     variant="outline"
@@ -1278,6 +1295,7 @@ export function CampaignRunDetail() {
                   />
                   <span className="flex-1">Company</span>
                   <span className="w-36 hidden md:block">Domain</span>
+                  <span className="w-20 hidden md:block text-xs text-muted-foreground">Country</span>
                   <span className="w-12 hidden sm:block text-center">Score</span>
                   <span className="w-14 hidden sm:block text-center">Email</span>
                   <span className="w-16 hidden md:block text-center">In List</span>
@@ -1321,9 +1339,6 @@ export function CampaignRunDetail() {
                               Pending crawl
                             </span>
                           )}
-                          {lead.sourceCountry && (
-                            <p className="text-xs text-muted-foreground truncate">{lead.sourceCountry}</p>
-                          )}
                           {lead.leadType && lead.leadType !== "company" && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium capitalize">
                               {lead.leadType.replace("_", " ")}
@@ -1341,6 +1356,9 @@ export function CampaignRunDetail() {
                         <Globe className="w-3 h-3 shrink-0 opacity-60" />
                         {lead.rootDomain}
                       </a>
+                      <span className="w-20 hidden md:block text-xs text-muted-foreground truncate">
+                        {lead.sourceCountry || "—"}
+                      </span>
                       <span className="w-12 hidden sm:block text-center">
                         {(lead.relevanceScore != null || lead.scoringMethod?.startsWith("failed")) ? (
                           <ScoreBadge score={lead.relevanceScore} reason={lead.relevanceReason} scoringMethod={lead.scoringMethod} />
@@ -1403,42 +1421,6 @@ export function CampaignRunDetail() {
           </CardContent>
         </Card>
 
-        {/* Add to List dialog */}
-        <Dialog open={addToListOpen} onOpenChange={setAddToListOpen}>
-          <DialogContent className="sm:max-w-[380px] rounded-2xl border-border/50 bg-background/80 backdrop-blur-2xl">
-            <DialogHeader>
-              <DialogTitle>Add {selectedIds.size} Lead{selectedIds.size !== 1 ? "s" : ""} to List</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2 mt-2">
-              {!listRows.length ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No lists yet — create one in the Lists section first.
-                </p>
-              ) : (
-                listRows.map((list) => (
-                  <button
-                    key={list.id}
-                    onClick={() => handleAddToList(list.id)}
-                    disabled={addLeadsToList.isPending}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-colors text-left"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{list.name}</p>
-                      {list.description && (
-                        <p className="text-xs text-muted-foreground">{list.description}</p>
-                      )}
-                    </div>
-                    {addLeadsToList.isPending ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                    ) : (
-                      <Plus className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Stop Run confirm */}

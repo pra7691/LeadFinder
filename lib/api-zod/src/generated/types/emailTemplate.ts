@@ -15,6 +15,8 @@ export interface EmailTemplate {
   personalizationPrompt?: string | null;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" — defaults to "plain_text" */
+  sendFormat?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

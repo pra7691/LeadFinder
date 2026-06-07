@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, Globe, SearchX } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, Globe, Loader2, SearchX } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { saveExportToServer } from "@/lib/export-files";
@@ -107,6 +108,8 @@ export function FailedLogs() {
   const byCampaign = new Set(sortedGroups.map((group) => group.campaignId)).size;
   const detailWithError = sortedFailedLeads.filter((lead) => Boolean(lead.crawlError?.trim())).length;
 
+  const [exportingAll, setExportingAll] = useState(false);
+
   const handleExportFailedLogs = async (campaignRunId: number) => {
     try {
       const saved = await saveExportToServer(exportUrl(campaignRunId));
@@ -114,6 +117,19 @@ export function FailedLogs() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Export failed";
       toast({ title: message, variant: "destructive" });
+    }
+  };
+
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const saved = await saveExportToServer("/api/leads/failed-crawls/export");
+      toast({ title: `Export saved to ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setExportingAll(false);
     }
   };
 
@@ -222,11 +238,22 @@ export function FailedLogs() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Failed Logs</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Failed crawl collections grouped by campaign run. Open a collection to export only that run.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Failed Logs</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Failed crawl collections grouped by campaign run. Open a collection to export only that run.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          className="rounded-xl gap-2 shrink-0"
+          onClick={handleExportAll}
+          disabled={exportingAll}
+        >
+          {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          Export All
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

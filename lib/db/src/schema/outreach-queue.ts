@@ -18,8 +18,8 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   id: serial("id").primaryKey(),
   campaignId: integer("campaign_id")
     .references(() => campaignsTable.id, { onDelete: "set null" }),
+  /** NULL for manual-import items that have no lead record. */
   leadId: integer("lead_id")
-    .notNull()
     .references(() => leadsTable.id, { onDelete: "cascade" }),
   emailAccountId: integer("email_account_id").references(
     () => emailAccountsTable.id,

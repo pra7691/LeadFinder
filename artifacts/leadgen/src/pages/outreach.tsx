@@ -58,6 +58,7 @@ import {
   Filter,
   X,
   ChevronRight,
+  Mail,
   MailOpen,
   RefreshCw,
   Zap,
@@ -71,6 +72,8 @@ import {
   Users,
   MailX,
   SkipForward,
+  Pause,
+  Play,
 } from "lucide-react";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -197,6 +200,11 @@ const STATUS_CONFIG: Record<
     color: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
     icon: <CheckCircle className="w-3 h-3" />,
   },
+  stopped: {
+    label: "Stopped",
+    color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    icon: <Pause className="w-3 h-3" />,
+  },
   // ── Derived display statuses ───────────────────────────────────────────────
   opened: {
     label: "Opened",
@@ -231,7 +239,10 @@ const STATUS_CONFIG: Record<
 };
 
 const ALL_STATUSES = [
-  "pending_review", "approved", "sent", "opened", "clicked",
+  // Note: "clicked" is intentionally omitted — engagement state collapses
+  // into "opened" (see getDisplayStatus). Click counts are shown in their
+  // own column, not as a separate status filter.
+  "pending_review", "approved", "sent", "opened",
   "unsubscribed", "failed", "bounced", "rejected",
   "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid",
   "draft", "queued",
@@ -260,10 +271,13 @@ export function getDisplayStatus(item: OutreachItem): string {
   if (item.failureReason === "skipped:invalid_email") return "skipped_invalid";
   // Post-send unsubscribe (recipient clicked the link after receiving the email)
   if (item.status === "sent" && item.failureReason === "unsubscribed") return "unsubscribed";
-  // Engagement states (only meaningful once sent)
-  if (item.status === "sent") {
-    if ((item.clickCount ?? 0) > 0) return "clicked";
-    if ((item.openCount ?? 0) > 0) return "opened";
+  // Engagement state (only meaningful once sent).
+  // We collapse "opened" and "clicked" into a single "opened" badge so that
+  // a batch with a mix of opens and clicks still aggregates correctly (the
+  // aggregate badge stays "Opened" instead of falling through to "Completed").
+  // Per-item click counts are still shown separately in the Clicked column.
+  if (item.status === "sent" && ((item.openCount ?? 0) > 0 || (item.clickCount ?? 0) > 0)) {
+    return "opened";
   }
   return item.status;
 }
@@ -324,6 +338,14 @@ const TERMINAL_STATUSES = new Set([
 ]);
 
 export function aggregateStatus(items: OutreachItem[]): string {
+  // A batch is "stopped" when the user has paused at least one of its pending items
+  // (marker written by /outreach/send-batch/cancel). Show the badge accordingly so
+  // the user can distinguish a paused batch from a completed one.
+  const hasPaused = items.some(
+    (item) => item.status === "approved" && item.failureReason === "paused_by_user",
+  );
+  if (hasPaused) return "stopped";
+
   const displayStatuses = items.map((item) => getDisplayStatus(item));
   const statusSet = new Set(displayStatuses);
 
@@ -842,7 +864,7 @@ export function Outreach() {
   // Derived statuses are computed client-side from status + failureReason + tracking counts.
   // They must not be sent to the API as a server-side filter.
   const DERIVED_STATUSES = useMemo(
-    () => new Set(["opened", "clicked", "unsubscribed", "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid"]),
+    () => new Set(["opened", "unsubscribed", "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid"]),
     [],
   );
 
@@ -985,7 +1007,15 @@ export function Outreach() {
   const handleStopBatch = async () => {
     setStoppingBatch(true);
     try {
-      await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch/cancel`, { method: "POST" });
+      await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Scope the cancel to just the currently-running batch (if known) so
+        // other concurrent batches aren't affected. Empty body pauses all.
+        body: JSON.stringify(sendingGroupId ? { batchId: sendingGroupId } : {}),
+      });
+      // Force a quick refresh so the UI shows "Stopped" badge sooner
+      invalidate();
     } catch {
       setStoppingBatch(false);
     }
@@ -1074,7 +1104,9 @@ export function Outreach() {
           >
             <FlaskConical className="w-4 h-4" /> Send Test
           </Button>
-          {sendBatch.isPending ? (
+          {/* Send Batch button removed — users send/resume per-batch from the row actions.
+              The global Stop button only appears while a send is actually in progress. */}
+          {sendBatch.isPending && (
             <Button
               size="sm"
               variant="outline"
@@ -1085,46 +1117,77 @@ export function Outreach() {
               {stoppingBatch ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
               {stoppingBatch ? "Stopping…" : "Stop Sending"}
             </Button>
-          ) : (
-            <Button
-              size="sm"
-              className="rounded-xl gap-1.5"
-              onClick={handleSendBatch}
-              disabled={approvedCount === 0 || Boolean(sendingGroupId)}
-            >
-              <Zap className="w-4 h-4" />
-              {`Send Batch${approvedCount > 0 ? ` (${approvedCount})` : ""}`}
-            </Button>
           )}
         </div>
       </div>
 
-      {/* Review summary */}
-      {outreachItems.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
-            <AlertCircle className="w-5 h-5 text-destructive" />
+      {/* Stats — two sections: Outreach (per-batch) and Email (per-message) */}
+      {outreachItems.length > 0 && (() => {
+        // Outreach stats — per-batch (aggregated)
+        const totalOutreach = displayRows.length;
+        const completedOutreach = displayRows.filter((r) => r.status === "completed").length;
+        const openedOutreach = displayRows.filter((r) => r.status === "opened").length;
+
+        // Email stats — per-message. "Opened" includes clicked, matching the new
+        // displayStatus collapse (clicked is no longer a separate status).
+        const totalEmailsSent = outreachItems.filter((i) => i.status === "sent").length;
+        const totalEmailsOpened = outreachItems.filter(
+          (i) => i.status === "sent" && ((i.openCount ?? 0) > 0 || (i.clickCount ?? 0) > 0),
+        ).length;
+
+        return (
+          <div className="space-y-3">
+            {/* Outreach Stats */}
             <div>
-              <p className="text-lg font-semibold text-destructive leading-none">{errorCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">Has errors</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Outreach Stats</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
+                  <Send className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-lg font-semibold text-foreground leading-none">{totalOutreach}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Total outreach</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <div>
+                    <p className="text-lg font-semibold text-emerald-600 leading-none">{completedOutreach}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Completed</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
+                  <MailOpen className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <p className="text-lg font-semibold text-purple-600 leading-none">{openedOutreach}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Opened</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Email Stats */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Email Stats</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
+                  <Mail className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-lg font-semibold text-foreground leading-none">{totalEmailsSent}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Total emails sent</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
+                  <MailOpen className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <p className="text-lg font-semibold text-purple-600 leading-none">{totalEmailsOpened}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Total emails opened (incl. clicks)</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-            <div>
-              <p className="text-lg font-semibold text-amber-500 leading-none">{warningCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">Has warnings</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3">
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-            <div>
-              <p className="text-lg font-semibold text-green-500 leading-none">{cleanCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">Clean</p>
-            </div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Batch send result banner */}
       {batchResult && (
@@ -1449,6 +1512,11 @@ function OutreachGroupRow({
           ) : isGlobalSending && sendableCount > 0 ? (
             <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary/60 cursor-default" disabled title="Sending…">
               <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Sending…
+            </Button>
+          ) : row.status === "stopped" && sendableCount > 0 ? (
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-amber-600 hover:bg-amber-500/10"
+              onClick={onSend} disabled={isBusy} title={`Resume ${sendableCount} pending email(s)`}>
+              <Play className="w-3.5 h-3.5 mr-1" /> Resume
             </Button>
           ) : sendableCount > 0 && (
             <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary hover:bg-primary/10"

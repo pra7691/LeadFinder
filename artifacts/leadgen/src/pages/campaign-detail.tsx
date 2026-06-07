@@ -86,7 +86,15 @@ type FormData = {
   countries: string;
   scheduleType: string;
   scheduleTime: string;
+  // Crawler Settings
+  crawlPaths: string;
+  internalLinkKeywords: string;
+  maxPagesPerDomain: number;
+  maxCrawlDepth: number;
 };
+
+const DEFAULT_CRAWL_PATHS = "/\n/contact\n/contact-us\n/about\n/about-us\n/team";
+const DEFAULT_INTERNAL_LINK_KEYWORDS = "contact\nabout\nteam\npeople\nresearch\nproject\nprojects\nlab\nlabs\nfaculty\npublication\npublications\nrobotics\nvision\nperception\negocentric\nembodied\ndataset";
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -131,14 +139,6 @@ function useElapsedTicker(startedAt: string | null | undefined): string {
   return elapsed;
 }
 
-function fmtRemaining(sec: number | null | undefined): string {
-  if (sec == null) return "Calculating…";
-  if (sec <= 0) return "Almost done";
-  if (sec < 60) return `~${sec}s`;
-  if (sec < 3600) return `~${Math.ceil(sec / 60)}m`;
-  return `~${Math.floor(sec / 3600)}h ${Math.ceil((sec % 3600) / 60)}m`;
-}
-
 // ── Current Run live card ────────────────────────────────────────────────────
 
 function CurrentRunCard({ campaignId }: { campaignId: number }) {
@@ -165,9 +165,6 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
   const progressPercent = activeRun.progressPercent ?? 0;
   const totalWorkUnits = activeRun.totalWorkUnits ?? 0;
   const completedWorkUnits = activeRun.completedWorkUnits ?? 0;
-  const estRemaining = activeRun.estimatedRemainingSeconds;
-  const estCompletion = activeRun.estimatedCompletionAt ? new Date(activeRun.estimatedCompletionAt) : null;
-
   const counters = [
     { label: "New Leads", value: activeRun.totalNewLeads ?? 0 },
     { label: "Searched", value: activeRun.totalSearches ?? 0 },
@@ -257,20 +254,6 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
           {elapsed && (
             <span className="text-muted-foreground">
               Running for <span className="font-medium text-foreground tabular-nums">{elapsed}</span>
-            </span>
-          )}
-          <span className="text-muted-foreground">
-            Est. remaining{" "}
-            <span className={cn(
-              "font-medium",
-              estRemaining == null ? "text-muted-foreground/60 italic" : "text-foreground",
-            )}>
-              {fmtRemaining(estRemaining)}
-            </span>
-          </span>
-          {estCompletion && estRemaining != null && estRemaining > 0 && (
-            <span className="text-muted-foreground">
-              Est. done <span className="font-medium text-foreground">{format(estCompletion, "HH:mm")}</span>
             </span>
           )}
         </div>
@@ -705,6 +688,78 @@ function SettingsTab({
         </Card>
       </div>
 
+      {/* Crawler Settings */}
+      <Card className="glass-card">
+        <CardHeader className="border-b border-border/30 pb-3">
+          <h3 className="text-sm font-medium text-foreground">Crawler Settings</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Configure which pages the crawler visits per lead and how aggressively to follow internal links.
+            Tune this for different campaign types (e.g. research labs vs SaaS companies).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Crawl Paths</Label>
+              <Textarea
+                value={formData.crawlPaths}
+                onChange={(e) => setFormData({ ...formData, crawlPaths: e.target.value })}
+                placeholder={DEFAULT_CRAWL_PATHS}
+                rows={6}
+                className="rounded-xl bg-background/50 font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground/70">
+                One path per line (e.g. <code>/contact</code>). Always crawled first.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Internal Link Keywords</Label>
+              <Textarea
+                value={formData.internalLinkKeywords}
+                onChange={(e) => setFormData({ ...formData, internalLinkKeywords: e.target.value })}
+                placeholder={DEFAULT_INTERNAL_LINK_KEYWORDS}
+                rows={6}
+                className="rounded-xl bg-background/50 font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground/70">
+                One keyword per line. Only follow same-domain links whose URL or text contains a keyword.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 border-t border-border/30 pt-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Max Pages Per Domain</Label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                value={formData.maxPagesPerDomain}
+                onChange={(e) => setFormData({ ...formData, maxPagesPerDomain: Math.max(1, Math.min(30, Number(e.target.value) || 1)) })}
+                className="rounded-xl bg-background/50"
+              />
+              <p className="text-[11px] text-muted-foreground/70">Hard cap (1–30). Includes configured paths + followed links.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Max Crawl Depth</Label>
+              <Select
+                value={String(formData.maxCrawlDepth)}
+                onValueChange={(v) => setFormData({ ...formData, maxCrawlDepth: Number(v) })}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">0 — Configured paths only</SelectItem>
+                  <SelectItem value="1">1 — Paths + matching internal links</SelectItem>
+                  <SelectItem value="2">2 — Also follow links-of-links</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground/70">How many hops to follow internal links.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Save button */}
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={isSaving} className="rounded-xl shadow-sm">
@@ -742,6 +797,10 @@ export function CampaignDetail() {
     countries: "",
     scheduleType: "manual",
     scheduleTime: "09:00",
+    crawlPaths: DEFAULT_CRAWL_PATHS,
+    internalLinkKeywords: DEFAULT_INTERNAL_LINK_KEYWORDS,
+    maxPagesPerDomain: 10,
+    maxCrawlDepth: 1,
   });
   const initialized = useRef(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
@@ -769,6 +828,10 @@ export function CampaignDetail() {
         countries: Array.isArray(campaign.countries) ? campaign.countries.join(", ") : (campaign.countries ?? ""),
         scheduleType: campaign.scheduleType ?? "manual",
         scheduleTime: campaign.scheduleTime ?? "09:00",
+        crawlPaths: campaign.crawlPaths ?? DEFAULT_CRAWL_PATHS,
+        internalLinkKeywords: campaign.internalLinkKeywords ?? DEFAULT_INTERNAL_LINK_KEYWORDS,
+        maxPagesPerDomain: campaign.maxPagesPerDomain ?? 10,
+        maxCrawlDepth: campaign.maxCrawlDepth ?? 1,
       });
       initialized.current = true;
     }

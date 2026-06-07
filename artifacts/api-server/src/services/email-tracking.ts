@@ -4,8 +4,10 @@ import { eq, inArray, sql } from "drizzle-orm";
 
 const TRACKER_URL_KEY = "email_tracker_url";
 const TRACKER_SECRET_KEY = "email_tracker_admin_secret";
+const TRACKING_ENABLED_KEY = "email_tracking_enabled";
 
 export type TrackingSettings = {
+  trackingEnabled: boolean;
   trackerUrl: string | null;
   adminSecret: string | null;
 };
@@ -14,10 +16,13 @@ export async function getTrackingSettings(): Promise<TrackingSettings> {
   const rows = await db
     .select()
     .from(appSettingsTable)
-    .where(inArray(appSettingsTable.key, [TRACKER_URL_KEY, TRACKER_SECRET_KEY]));
+    .where(inArray(appSettingsTable.key, [TRACKER_URL_KEY, TRACKER_SECRET_KEY, TRACKING_ENABLED_KEY]));
 
   const values = new Map(rows.map((row) => [row.key, row.value]));
+  // Default to enabled if the key has never been saved (no breaking change for existing installs)
+  const trackingEnabled = values.get(TRACKING_ENABLED_KEY) !== "false";
   return {
+    trackingEnabled,
     trackerUrl: normalizeTrackerUrl(values.get(TRACKER_URL_KEY) || process.env.EMAIL_TRACKER_URL || ""),
     adminSecret: values.get(TRACKER_SECRET_KEY) || process.env.EMAIL_TRACKER_ADMIN_SECRET || null,
   };

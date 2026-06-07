@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   campaignsTable,
+  campaignRunsTable,
   leadsTable,
   outreachQueueTable,
   leadListsTable,
@@ -9,7 +10,7 @@ import {
   searchQueryHistoryTable,
   appSettingsTable,
 } from "@workspace/db";
-import { eq, and, gte, sql, or, inArray } from "drizzle-orm";
+import { eq, and, gte, sql, or, inArray, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -125,6 +126,15 @@ router.get("/dashboard/stats", async (_req, res) => {
     );
   const listsReadyForOutreach = listsWithEmails.length;
 
+  // Active campaign run (if any)
+  const [activeRunRow] = await db
+    .select({ runName: campaignRunsTable.runName, campaignName: campaignsTable.name })
+    .from(campaignRunsTable)
+    .leftJoin(campaignsTable, eq(campaignRunsTable.campaignId, campaignsTable.id))
+    .where(eq(campaignRunsTable.status, "running"))
+    .orderBy(desc(campaignRunsTable.startedAt))
+    .limit(1);
+
   res.json({
     totalCampaigns,
     activeCampaigns,
@@ -141,6 +151,9 @@ router.get("/dashboard/stats", async (_req, res) => {
     qualifiedLeadsToday,
     globalMaxSearches,
     globalMaxEmails,
+    activeRun: activeRunRow
+      ? { runName: activeRunRow.runName ?? null, campaignName: activeRunRow.campaignName ?? null }
+      : null,
   });
 });
 

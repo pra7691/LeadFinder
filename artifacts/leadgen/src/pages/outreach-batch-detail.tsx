@@ -1,6 +1,12 @@
 import { useListOutreach, useDeleteOutreach, getListOutreachQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -8,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Download, Eye, Mail, MousePointerClick, Users, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Download, Eye, Mail, MousePointerClick, Users, Trash2, Loader2, RefreshCw, Play } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +54,7 @@ export function OutreachBatchDetail() {
   const [deletingAll, setDeletingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [resending, setResending] = useState(false);
+  const [viewItem, setViewItem] = useState<OutreachItem | null>(null);
 
   const { data: rawItems, isLoading } = useListOutreach();
   const outreachItems = Array.isArray(rawItems) ? (rawItems as OutreachItem[]) : [];
@@ -144,11 +151,19 @@ export function OutreachBatchDetail() {
         const err = await sendRes.json().catch(() => ({}));
         throw new Error((err as { error?: string }).error ?? `Send failed (${sendRes.status})`);
       }
-      const result = await sendRes.json() as { sent: number; failed: number; skipped: number };
+      const result = await sendRes.json() as { sent: number; failed: number; skipped: number; limitHit?: boolean; globalLimit?: number; emailsSentToday?: number };
       invalidate();
-      toast({
-        title: `Resend complete: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped.`,
-      });
+      if (result.limitHit) {
+        toast({
+          title: `Daily email limit reached (${result.emailsSentToday}/${result.globalLimit})`,
+          description: `All ${result.skipped} item(s) skipped. Increase the limit in Settings → System Settings → Global Max Emails Per Day, or wait until tomorrow.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: `Resend complete: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped.`,
+        });
+      }
     } catch (err) {
       toast({ title: err instanceof Error ? err.message : "Resend failed.", variant: "destructive" });
     } finally {
@@ -204,18 +219,24 @@ export function OutreachBatchDetail() {
             const resendableCount = batch.items.filter(
               (i) => i.status === "failed" || i.status === "pending_review" || i.status === "approved"
             ).length;
+            // "stopped" batches use Resume; everything else uses Resend
+            const isStopped = batch.status === "stopped";
             return resendableCount > 0 ? (
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-xl gap-1.5 text-primary/80 hover:text-primary border-primary/20 hover:border-primary/50"
+                className={isStopped
+                  ? "rounded-xl gap-1.5 text-amber-600 hover:text-amber-700 border-amber-500/30 hover:border-amber-500/60"
+                  : "rounded-xl gap-1.5 text-primary/80 hover:text-primary border-primary/20 hover:border-primary/50"}
                 onClick={handleResend}
                 disabled={resending}
               >
                 {resending
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <RefreshCw className="w-3.5 h-3.5" />}
-                Resend ({resendableCount})
+                  : isStopped
+                    ? <Play className="w-3.5 h-3.5" />
+                    : <RefreshCw className="w-3.5 h-3.5" />}
+                {isStopped ? `Resume (${resendableCount})` : `Resend (${resendableCount})`}
               </Button>
             ) : null;
           })()}
@@ -294,7 +315,7 @@ export function OutreachBatchDetail() {
               <TableHead className="w-[160px]">First Opened</TableHead>
               <TableHead className="w-[160px]">Last Opened</TableHead>
               <TableHead className="w-[160px]">Last Clicked</TableHead>
-              <TableHead className="w-[56px]" />
+              <TableHead className="w-[96px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -314,24 +335,96 @@ export function OutreachBatchDetail() {
                 <TableCell className="text-xs">{formatTrackingTime(item.lastOpenedAt)}</TableCell>
                 <TableCell className="text-xs">{formatTrackingTime(item.lastClickedAt)}</TableCell>
                 <TableCell className="text-right pr-3">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 rounded-lg text-destructive/60 hover:text-destructive"
-                    disabled={deletingId === item.id || deletingAll}
-                    onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
-                    title="Delete"
-                  >
-                    {deletingId === item.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />}
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground"
+                      onClick={(e) => { e.stopPropagation(); setViewItem(item); }}
+                      title="View email content"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 rounded-lg text-destructive/60 hover:text-destructive"
+                      disabled={deletingId === item.id || deletingAll}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
+                      title="Delete"
+                    >
+                      {deletingId === item.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <Trash2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* ── Email content viewer ────────────────────────────────────── */}
+      <Dialog open={!!viewItem} onOpenChange={(open) => { if (!open) setViewItem(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="text-base font-semibold truncate pr-6">
+              {viewItem?.companyName ?? viewItem?.recipientEmail}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{viewItem?.recipientEmail}</p>
+          </DialogHeader>
+
+          {viewItem && (
+            <div className="flex flex-col gap-4 overflow-y-auto min-h-0 pt-1">
+              {/* Subject */}
+              <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1">Subject</p>
+                <p className="text-sm font-medium">{viewItem.subject}</p>
+              </div>
+
+              {/* Body */}
+              <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3 flex-1 min-h-0">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-2">Body</p>
+                {viewItem.body.trimStart().startsWith("<") ? (
+                  /* HTML email — render in sandboxed iframe */
+                  <iframe
+                    srcDoc={viewItem.body}
+                    sandbox="allow-same-origin"
+                    className="w-full rounded-lg border border-border/30 bg-white"
+                    style={{ minHeight: "320px", height: "auto" }}
+                    onLoad={(e) => {
+                      const iframe = e.currentTarget;
+                      const doc = iframe.contentDocument;
+                      if (doc) {
+                        iframe.style.height = `${doc.documentElement.scrollHeight + 16}px`;
+                      }
+                    }}
+                  />
+                ) : (
+                  /* Plain-text email */
+                  <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">{viewItem.body}</pre>
+                )}
+              </div>
+
+              {/* Meta */}
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pb-1">
+                {viewItem.aiPersonalized && (
+                  <span className="rounded-full bg-violet-500/10 text-violet-400 px-2 py-0.5 font-medium">AI personalised</span>
+                )}
+                {viewItem.sentAt && (
+                  <span>Sent: {formatTrackingTime(viewItem.sentAt)}</span>
+                )}
+                {(viewItem.openCount ?? 0) > 0 && (
+                  <span className="text-emerald-400">
+                    {viewItem.openCount} open{viewItem.openCount === 1 ? "" : "s"} · first {formatTrackingTime(viewItem.firstOpenedAt)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

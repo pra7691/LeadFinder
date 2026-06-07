@@ -684,6 +684,8 @@ export function NoEmailLeads() {
   // Navigation: undefined = campaign list; number|null = campaign selected; then run selected
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null | undefined>(undefined);
   const [selectedRun, setSelectedRun] = useState<{ id: number | null; name: string } | undefined>(undefined);
+  const [exportingAll, setExportingAll] = useState(false);
+  const { toast } = useToast();
 
   const params = { hasEmail: false, limit: 2000 } as const;
   const { data: leads, isLoading, refetch, isFetching } = useListLeads(params, {
@@ -703,6 +705,19 @@ export function NoEmailLeads() {
     if (selectedCampaignId === null) return "No Campaign";
     return campaignMap.get(selectedCampaignId) ?? `Campaign #${selectedCampaignId}`;
   }, [selectedCampaignId, campaignMap]);
+
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const saved = await saveExportToServer("/api/leads/export?format=csv&hasEmail=false&limit=10000");
+      toast({ title: `Export saved to ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setExportingAll(false);
+    }
+  };
 
   const handleSelectCampaign = (id: number | null) => {
     setSelectedCampaignId(id);
@@ -744,6 +759,17 @@ export function NoEmailLeads() {
                 : "Leads missing an email address in this run"}
           </p>
         </div>
+        {selectedCampaignId === undefined && allRows.length > 0 && (
+          <Button
+            variant="outline"
+            className="rounded-xl gap-2 shrink-0"
+            onClick={handleExportAll}
+            disabled={exportingAll}
+          >
+            {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Export All
+          </Button>
+        )}
       </div>
 
       {/* Stats strip (campaign list view only) */}

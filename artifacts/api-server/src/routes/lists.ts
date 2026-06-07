@@ -8,11 +8,42 @@ import {
   campaignRunsTable,
   outreachQueueTable,
 } from "@workspace/db";
-import { eq, and, inArray, sql, desc } from "drizzle-orm";
+import { eq, and, inArray, sql, desc, or } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
 import { parseLeadEmails } from "../services/lead-emails";
 
 const router = Router();
+
+/**
+ * For a batch of email addresses, find matching leads in the database by searching
+ * the leads.emails field.  Returns a Map of email → leadId for every email that
+ * has a matching lead record.
+ */
+async function matchEmailsToLeads(emails: string[]): Promise<Map<string, number>> {
+  if (emails.length === 0) return new Map();
+
+  // Broad ILIKE search: fetch every lead whose emails text contains at least one
+  // of the import addresses as a substring.  We'll do exact verification below.
+  const conditions = emails.map((e) => sql`${leadsTable.emails} ILIKE ${`%${e}%`}`);
+  const rows = await db
+    .select({ id: leadsTable.id, emails: leadsTable.emails })
+    .from(leadsTable)
+    .where(or(...conditions));
+
+  // Exact-match verification: parseLeadEmails handles both JSON and CSV formats.
+  const result = new Map<string, number>();
+  for (const email of emails) {
+    const lc = email.toLowerCase();
+    for (const lead of rows) {
+      const leadEmails = parseLeadEmails(lead.emails).map((e) => e.toLowerCase());
+      if (leadEmails.includes(lc)) {
+        result.set(email, lead.id);
+        break; // first match wins
+      }
+    }
+  }
+  return result;
+}
 
 // List all lead lists (with lead count + campaign name)
 router.get("/lists", async (req, res) => {
@@ -42,9 +73,12 @@ router.get("/lists", async (req, res) => {
       leadsWithEmail: sql<number>`cast((
         select count(*)
         from lead_list_items lli2
-        inner join leads l on l.id = lli2.lead_id
+        left join leads l on l.id = lli2.lead_id
         where lli2.list_id = ${leadListsTable.id}
-          and l.emails is not null and l.emails != ''
+          and (
+            (lli2.email is not null and lli2.email != '')
+            or (l.emails is not null and l.emails != '')
+          )
       ) as int)`,
       hasOutreach: sql<boolean>`exists (
         select 1 from outreach_queue oq
@@ -78,12 +112,14 @@ router.get("/lists", async (req, res) => {
   res.json(rows.map((r) => ({ ...r, leadCount: r.leadCount ?? 0 })));
 });
 
-// Create a list
+// Create a list (optionally with manual emails)
 router.post("/lists", async (req, res) => {
-  const { name, description, campaignId } = req.body as {
+  const { name, description, campaignId, emails } = req.body as {
     name?: string;
     description?: string;
     campaignId?: number;
+    /** Optional manual emails to add immediately: [{ email, companyName? }] */
+    emails?: Array<{ email: string; companyName?: string }>;
   };
 
   if (!name?.trim()) {
@@ -96,7 +132,26 @@ router.post("/lists", async (req, res) => {
     .values({ name: name.trim(), description: description ?? null, campaignId: campaignId ?? null })
     .returning();
 
-  res.status(201).json({ ...list, leadCount: 0, campaignName: null });
+  let emailsAdded = 0;
+  if (Array.isArray(emails) && emails.length > 0) {
+    const valid = emails
+      .map((e) => ({ email: e.email?.trim().toLowerCase(), companyName: e.companyName?.trim() || null }))
+      .filter((e) => e.email && e.email.includes("@") && e.email.length <= 254);
+    if (valid.length > 0) {
+      const emailToLeadId = await matchEmailsToLeads(valid.map((e) => e.email));
+      await db.insert(leadListItemsTable).values(
+        valid.map((e) => ({
+          listId: list.id,
+          leadId: emailToLeadId.get(e.email) ?? null,
+          email: e.email,
+          companyName: e.companyName,
+        })),
+      ).onConflictDoNothing();
+      emailsAdded = valid.length;
+    }
+  }
+
+  res.status(201).json({ ...list, leadCount: emailsAdded, campaignName: null });
 });
 
 // Get a single list (with count)
@@ -232,6 +287,47 @@ router.delete("/lists/:id/leads/:leadId", async (req, res) => {
     .where(and(eq(leadListItemsTable.listId, listId), eq(leadListItemsTable.leadId, leadId)));
 
   res.status(204).end();
+});
+
+// POST /lists/:id/emails — add manual email-only items to a list
+router.post("/lists/:id/emails", async (req, res) => {
+  const listId = Number(req.params.id);
+  if (isNaN(listId)) { res.status(400).json({ error: "Invalid list ID" }); return; }
+
+  const { emails } = req.body as {
+    emails?: Array<{ email: string; companyName?: string }>;
+  };
+
+  if (!Array.isArray(emails) || emails.length === 0) {
+    res.status(400).json({ error: "emails must be a non-empty array" });
+    return;
+  }
+
+  const [list] = await db.select({ id: leadListsTable.id }).from(leadListsTable).where(eq(leadListsTable.id, listId));
+  if (!list) { res.status(404).json({ error: "List not found" }); return; }
+
+  const valid = emails
+    .map((e) => ({ email: e.email?.trim().toLowerCase(), companyName: e.companyName?.trim() || null }))
+    .filter((e) => e.email && e.email.includes("@") && e.email.length <= 254);
+
+  const skipped = emails.length - valid.length;
+
+  if (valid.length === 0) {
+    res.json({ added: 0, skipped });
+    return;
+  }
+
+  const emailToLeadId = await matchEmailsToLeads(valid.map((e) => e.email));
+  await db.insert(leadListItemsTable).values(
+    valid.map((e) => ({
+      listId,
+      leadId: emailToLeadId.get(e.email) ?? null,
+      email: e.email,
+      companyName: e.companyName,
+    })),
+  ).onConflictDoNothing();
+
+  res.json({ added: valid.length, skipped });
 });
 
 // GET /lists/:id/health — List health summary

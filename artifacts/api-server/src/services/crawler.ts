@@ -18,6 +18,30 @@ export interface CrawlData {
 const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us", "/team", "/company"];
 const FETCH_TIMEOUT_MS = 15_000; // covers both headers + body
 
+// ── Campaign-level crawler options ────────────────────────────────────────
+
+/**
+ * Optional per-campaign crawl configuration.
+ * When omitted, the crawler falls back to the legacy hardcoded CRAWL_PAGES
+ * and performs no internal-link expansion.
+ */
+export interface CrawlOptions {
+  /** Newline-separated list of paths (e.g. "/\n/about"). */
+  crawlPaths?: string | null;
+  /** Newline-separated keywords; case-insensitive substring match on href + anchor text. */
+  internalLinkKeywords?: string | null;
+  /** Hard cap on total pages crawled per lead. Default 10. */
+  maxPagesPerDomain?: number | null;
+  /** 0 = configured paths only. 1 = paths + matching internal links. 2 = + links-of-links. */
+  maxCrawlDepth?: number | null;
+}
+
+function parseLineList(value: string | null | undefined, fallback: string[]): string[] {
+  if (!value) return fallback;
+  const lines = value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 ? lines : fallback;
+}
+
 const SKIP_CRAWL_PATHS = [
   /\/blog\b/i, /\/blogs\b/i, /\/article/i, /\/news\b/i, /\/docs\b/i,
   /\/documentation/i, /\/paper/i, /\/dataset/i, /\/forum/i, /\/community/i,
@@ -79,7 +103,20 @@ const BLOCKED_EMAIL_DOMAINS = new Set([
   "mailinator.com", "guerrillamail.com", "throwaway.email",
   "tempmail.com", "sharklasers.com", "trashmail.com",
   "guerrillamailblock.com", "fakeinbox.com", "dispostable.com",
+  // Error-tracking / monitoring noise
+  "sentry.io", "ingest.sentry.io",
+  "wixpress.com", "sentry-next.wixpress.com", "sentry.wixpress.com",
+  "bugsnag.com", "rollbar.com", "honeybadger.io",
 ]);
+
+/**
+ * Returns true if the local part looks like a machine-generated hash / DSN key
+ * (e.g. Sentry DSN keys: 32-char hex strings like "605a7baede844d278b89dc95ae0a9123").
+ */
+function isHashLocal(local: string): boolean {
+  // 20+ consecutive hex chars (with optional dashes — covers MD5, SHA, UUID formats)
+  return /^[0-9a-f]{20,}$/.test(local) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(local);
+}
 
 /** Local parts that signal a placeholder address. */
 const PLACEHOLDER_LOCALS = new Set([
@@ -100,7 +137,10 @@ function isValidEmail(email: string): boolean {
   if (local.includes("..")) return false;
   if (NOISE_PREFIXES.has(local)) return false;
   if (BLOCKED_EMAIL_DOMAINS.has(domain)) return false;
+  // Block subdomains of blocked tracking domains (e.g. ingest.sentry.io, *.wixpress.com)
+  if ([...BLOCKED_EMAIL_DOMAINS].some((bd) => domain === bd || domain.endsWith(`.${bd}`))) return false;
   if (PLACEHOLDER_LOCALS.has(local)) return false;
+  if (isHashLocal(local)) return false;
   if (email.length > 80) return false;
   return true;
 }
@@ -378,12 +418,60 @@ function extractDescription($: ReturnType<typeof cheerio.load>): string | null {
 
 // ── Main crawl entry point ─────────────────────────────────────────────────
 
-function buildPageUrls(baseUrl: string): string[] {
+function buildPageUrls(baseUrl: string, paths: string[]): string[] {
   try {
     const parsed = new URL(baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`);
     const origin = `${parsed.protocol}//${parsed.host}`;
-    return CRAWL_PAGES.map((p) => `${origin}${p}`);
+    // Normalize: each path must start with "/", and "/" alone maps to "" so the URL is the origin
+    return paths.map((raw) => {
+      const p = raw.trim();
+      if (p === "" || p === "/") return origin;
+      const prefixed = p.startsWith("/") ? p : `/${p}`;
+      return `${origin}${prefixed}`;
+    });
   } catch { return []; }
+}
+
+/**
+ * Extract internal links from a parsed page that match the configured keywords.
+ * Stays on the same root domain. Returns absolute URLs.
+ */
+function extractMatchingInternalLinks(
+  $: ReturnType<typeof cheerio.load>,
+  baseUrl: string,
+  rootDomain: string,
+  keywords: string[],
+): string[] {
+  if (keywords.length === 0) return [];
+  const kw = keywords.map((k) => k.toLowerCase());
+  const results = new Set<string>();
+
+  $("a[href]").each((_, el) => {
+    const href = ($(el).attr("href") ?? "").trim();
+    if (!href) return;
+    if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) return;
+
+    try {
+      const abs = new URL(href, baseUrl);
+      const host = abs.hostname.replace(/^www\./, "").toLowerCase();
+      // Stay on same root domain
+      if (host !== rootDomain && !host.endsWith(`.${rootDomain}`)) return;
+      // Skip asset extensions
+      if (/\.(css|js|png|jpg|jpeg|gif|svg|pdf|ico|woff2?|ttf|otf|eot|xml|json|zip|mp4|mp3|webp)$/i.test(abs.pathname)) return;
+      // Skip our own SKIP_CRAWL_PATHS patterns (blog/news/etc.)
+      if (shouldSkipPath(abs.pathname)) return;
+
+      const hay = `${abs.pathname.toLowerCase()} ${$(el).text().toLowerCase()}`;
+      if (!kw.some((k) => hay.includes(k))) return;
+
+      // Canonicalize: drop hash + trailing slash + query for dedup
+      abs.hash = "";
+      const canonical = `${abs.protocol}//${abs.host}${abs.pathname.replace(/\/+$/, "")}${abs.search}`;
+      results.add(canonical);
+    } catch { /* malformed URL — ignore */ }
+  });
+
+  return Array.from(results);
 }
 
 function mergeField<T>(existing: T | null, incoming: T | null): T | null {
@@ -436,11 +524,24 @@ export async function extractCompanyLinksFromPage(
 
 /**
  * Crawls a company website and extracts contact/company data.
+ *
  * @param websiteUrl  Full URL of the company website
  * @param rootDomain  The expected root domain — used to filter cross-domain emails
+ * @param options     Per-campaign crawl configuration. When omitted, falls back
+ *                    to legacy behavior (CRAWL_PAGES only, no link expansion).
  */
-export async function crawlWebsite(websiteUrl: string, rootDomain?: string): Promise<CrawlData> {
-  const urls = buildPageUrls(websiteUrl);
+export async function crawlWebsite(
+  websiteUrl: string,
+  rootDomain?: string,
+  options?: CrawlOptions,
+): Promise<CrawlData> {
+  // Resolve effective config (campaign-provided values override legacy defaults)
+  const configuredPaths = parseLineList(options?.crawlPaths ?? null, CRAWL_PAGES);
+  const linkKeywords = parseLineList(options?.internalLinkKeywords ?? null, []);
+  const maxPages = Math.max(1, Math.min(30, options?.maxPagesPerDomain ?? 10));
+  const maxDepth = Math.max(0, Math.min(2, options?.maxCrawlDepth ?? 0));
+
+  const urls = buildPageUrls(websiteUrl, configuredPaths);
   let pagesAttempted = 0;
   let pagesSucceeded = 0;
 
@@ -453,7 +554,31 @@ export async function crawlWebsite(websiteUrl: string, rootDomain?: string): Pro
   let description: string | null = null;
   const rawTextParts: string[] = [];
 
-  for (const url of urls) {
+  // Resolve the rootDomain used for staying on-domain during link expansion
+  const effectiveRootDomain = rootDomain ?? (() => {
+    try {
+      return new URL(websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`)
+        .hostname.replace(/^www\./, "").toLowerCase();
+    } catch { return websiteUrl.toLowerCase(); }
+  })();
+
+  // BFS queue: { url, depth }. Configured paths start at depth 0.
+  const queue: Array<{ url: string; depth: number }> = urls.map((u) => ({ url: u, depth: 0 }));
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && pagesAttempted < maxPages) {
+    const { url, depth } = queue.shift()!;
+
+    // Canonicalize & dedup
+    let canonical = url;
+    try {
+      const u = new URL(url);
+      u.hash = "";
+      canonical = `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+    } catch { /* keep url as-is */ }
+    if (visited.has(canonical)) continue;
+    visited.add(canonical);
+
     try {
       const { pathname } = new URL(url);
       if (shouldSkipPath(pathname)) continue;
@@ -465,6 +590,17 @@ export async function crawlWebsite(websiteUrl: string, rootDomain?: string): Pro
     pagesSucceeded++;
 
     const $ = cheerio.load(html);
+
+    // Expand internal links BEFORE stripping <script>/<head> (preserves links in head/nav)
+    if (depth < maxDepth && linkKeywords.length > 0 && pagesAttempted < maxPages) {
+      const followUps = extractMatchingInternalLinks($, url, effectiveRootDomain, linkKeywords);
+      for (const next of followUps) {
+        if (visited.has(next)) continue;
+        if (queue.length + pagesAttempted >= maxPages) break;
+        queue.push({ url: next, depth: depth + 1 });
+      }
+    }
+
     $("script, style, noscript, head").remove();
     const pageText = $("body").text().replace(/\s+/g, " ").trim();
     rawTextParts.push(`[${url}]\n${pageText.slice(0, 3000)}`);
@@ -481,12 +617,7 @@ export async function crawlWebsite(websiteUrl: string, rootDomain?: string): Pro
   }
 
   // Domain-based fallback if no good company name was found
-  const effectiveDomain = rootDomain ?? (() => {
-    try {
-      return new URL(websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`)
-        .hostname.replace(/^www\./, "").toLowerCase();
-    } catch { return websiteUrl; }
-  })();
+  const effectiveDomain = effectiveRootDomain;
 
   if (!companyName || isBadCompanyName(companyName)) {
     companyName = domainToCompanyName(effectiveDomain);

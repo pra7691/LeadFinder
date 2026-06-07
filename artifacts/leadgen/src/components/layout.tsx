@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   AlertTriangle,
+  Ban,
   BarChart,
   Briefcase,
   Send,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
 import { Button } from "./ui/button";
 import { useGetDashboardStats } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: BarChart },
@@ -30,6 +32,7 @@ const NAV_ITEMS = [
 
 // Bottom utility links — shown above system links
 const BOTTOM_NAV_ITEMS = [
+  { href: "/blocked-leads", label: "Blocked Leads", icon: Ban },
   { href: "/unsubscribes", label: "Unsubscribes", icon: MailX },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/no-email-leads", label: "No Email Leads", icon: Mail },
@@ -37,13 +40,23 @@ const BOTTOM_NAV_ITEMS = [
 ];
 
 function TodayStatsBar() {
-  const { data } = useGetDashboardStats({ query: { refetchInterval: 60_000, staleTime: 30_000 } });
+  const { data } = useGetDashboardStats({ query: { refetchInterval: 15_000, staleTime: 10_000 } });
   const { theme, setTheme } = useTheme();
   const searches = data?.searchesToday ?? 0;
   const maxSearches = data?.globalMaxSearches ?? 10;
   const qualifiedLeads = data?.qualifiedLeadsToday ?? 0;
   const emails = data?.emailsSentToday ?? 0;
   const maxEmails = data?.globalMaxEmails ?? 20;
+  const activeRun = data?.activeRun ?? null;
+  const emailsAtLimit = maxEmails > 0 && emails >= maxEmails;
+
+  // Outreach sending status (separate fast-polling query)
+  const { data: sendStatus } = useQuery<{ running: boolean; batchId: string | null }>({
+    queryKey: ["/api/outreach/send-batch/status"],
+    queryFn: () => fetch("/api/outreach/send-batch/status").then((r) => r.json()),
+    refetchInterval: 8_000,
+    staleTime: 5_000,
+  });
 
   return (
     <div className="sticky top-0 z-10 hidden lg:flex items-center gap-4 px-6 h-10 border-b border-border/30 bg-background/80 backdrop-blur-xl shrink-0 text-xs text-muted-foreground">
@@ -61,10 +74,42 @@ function TodayStatsBar() {
           <div className="w-px h-4 bg-border/50" />
           <div className="flex items-center gap-1.5">
             <Mail className="w-3 h-3 opacity-60" />
-            <span>Emails sent today: <strong className="text-foreground">{emails}</strong><span className="opacity-50"> / {maxEmails}</span></span>
+            <span className={emailsAtLimit ? "text-amber-500 font-medium" : ""}>
+              Emails sent today:{" "}
+              <strong className={emailsAtLimit ? "text-amber-500" : "text-foreground"}>{emails}</strong>
+              <span className="opacity-50"> / {maxEmails}</span>
+              {emailsAtLimit && <span className="ml-1 text-amber-500">⚠ limit reached</span>}
+            </span>
           </div>
         </>
       )}
+
+      {/* Active campaign run indicator */}
+      {activeRun && (
+        <>
+          <div className="w-px h-4 bg-border/50" />
+          <div className="flex items-center gap-1.5 text-blue-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            <span className="font-medium">
+              {activeRun.runName
+                ? `${activeRun.campaignName ?? "Campaign"} · ${activeRun.runName} running`
+                : `${activeRun.campaignName ?? "Campaign"} running`}
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* Outreach sending indicator */}
+      {sendStatus?.running && (
+        <>
+          <div className="w-px h-4 bg-border/50" />
+          <div className="flex items-center gap-1.5 text-emerald-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            <span className="font-medium">Outreach sending</span>
+          </div>
+        </>
+      )}
+
       <div className="ml-auto">
         <Button
           variant="ghost"

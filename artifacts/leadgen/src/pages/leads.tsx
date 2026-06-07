@@ -68,6 +68,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -456,6 +462,7 @@ export function Leads() {
   const bulkScoreMut = useBulkScore();
   const bulkAction = useBulkLeadAction();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const leadRows = Array.isArray(leads) ? leads : [];
 
   const [search, setSearch] = useState("");
@@ -482,41 +489,27 @@ export function Leads() {
     setExportOpen(true);
   };
 
-  // ── Add to List dialog ───────────────────────────────────────────────────
+  // ── Add to List ───────────────────────────────────────────────────────────
   const { data: lists } = useListLeadLists(
     {},
     { query: { staleTime: 30_000, queryKey: getListLeadListsQueryKey({}) } },
   );
   const listRows = Array.isArray(lists) ? lists : [];
   const addToListMut = useAddLeadsToList();
-  const [addToListOpen, setAddToListOpen] = useState(false);
-  const [addToListId, setAddToListId] = useState<string>("");
-  const [addToListState, setAddToListState] = useState<"idle" | "running" | "done">("idle");
-  const [addToListResult, setAddToListResult] = useState<{ added: number; duplicates: number } | null>(null);
 
-  const openAddToList = () => {
-    setAddToListOpen(true);
-    setAddToListId(listRows[0]?.id ? String(listRows[0].id) : "");
-    setAddToListState("idle");
-    setAddToListResult(null);
-  };
-
-  const handleConfirmAddToList = () => {
-    if (!addToListId || !selectedIds.length) return;
-    setAddToListState("running");
+  const handleAddToList = (listId: number) => {
+    if (!selectedIds.length) return;
     addToListMut.mutate(
-      { id: Number(addToListId), data: { leadIds: selectedIds } },
+      { id: listId, data: { leadIds: selectedIds } },
       {
         onSuccess: (r) => {
-          setAddToListState("done");
-          setAddToListResult({ added: r.added, duplicates: r.duplicates });
+          toast({ title: `Added ${r.added} lead${r.added !== 1 ? "s" : ""} to list.` });
           setSelected(new Set());
-          queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(Number(addToListId)) });
-          queryClient.invalidateQueries({ queryKey: getGetLeadListQueryKey(Number(addToListId)) });
-          queryClient.invalidateQueries({ queryKey: getGetListLeadsQueryKey(Number(addToListId)) });
-          setTimeout(() => { setAddToListOpen(false); setAddToListState("idle"); }, 1500);
+          queryClient.invalidateQueries({ queryKey: getGetListHealthQueryKey(listId) });
+          queryClient.invalidateQueries({ queryKey: getGetLeadListQueryKey(listId) });
+          queryClient.invalidateQueries({ queryKey: getGetListLeadsQueryKey(listId) });
         },
-        onError: () => setAddToListState("idle"),
+        onError: () => toast({ title: "Failed to add leads to list.", variant: "destructive" }),
       },
     );
   };
@@ -886,11 +879,27 @@ export function Leads() {
             disabled={isBulkBusy} onClick={() => handleBulkActionOp("archive")}>
             <Archive className="w-3 h-3" /> Archive
           </Button>
-          <Button size="sm" variant="outline"
-            className="h-7 px-3 text-xs rounded-lg gap-1.5 text-violet-500 border-violet-500/30 hover:bg-violet-500/10"
-            disabled={isBulkBusy || !listRows.length} onClick={openAddToList}>
-            <BookMarked className="w-3 h-3" /> Add to List
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline"
+                className="h-7 px-3 text-xs rounded-lg gap-1.5 text-violet-500 border-violet-500/30 hover:bg-violet-500/10"
+                disabled={isBulkBusy || addToListMut.isPending}>
+                {addToListMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookMarked className="w-3 h-3" />}
+                Add to List
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {!listRows.filter((l) => l.listStatus === "active").length ? (
+                <DropdownMenuItem disabled>No lists — create one first</DropdownMenuItem>
+              ) : (
+                listRows.filter((l) => l.listStatus === "active").map((l) => (
+                  <DropdownMenuItem key={l.id} onClick={() => handleAddToList(l.id)}>
+                    {l.name} ({l.leadCount} leads)
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {/* Bulk export */}
           <Button size="sm" variant="outline"
             className="h-7 px-3 text-xs rounded-lg gap-1.5 text-foreground"
@@ -1212,64 +1221,6 @@ export function Leads() {
                 ) : (
                   "Confirm"
                 )}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add to List dialog */}
-      <Dialog
-        open={addToListOpen}
-        onOpenChange={(v) => { if (!v && addToListState !== "running") setAddToListOpen(false); }}
-      >
-        <DialogContent className="sm:max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BookMarked className="w-4 h-4 text-violet-500" />
-              Add {selectedIds.length} lead{selectedIds.length !== 1 ? "s" : ""} to list
-            </DialogTitle>
-            <DialogDescription>
-              Choose a list to add the selected leads to.
-            </DialogDescription>
-          </DialogHeader>
-          {addToListState === "done" && addToListResult ? (
-            <div className="py-6 flex flex-col items-center gap-3 text-center">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-              <p className="font-medium">{addToListResult.added} lead{addToListResult.added !== 1 ? "s" : ""} added</p>
-              {addToListResult.duplicates > 0 && (
-                <p className="text-sm text-muted-foreground">{addToListResult.duplicates} already in list</p>
-              )}
-            </div>
-          ) : (
-            <div className="py-4">
-              <Select value={addToListId} onValueChange={setAddToListId}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue placeholder="Select a list" />
-                </SelectTrigger>
-                <SelectContent>
-                {listRows.filter((l) => l.listStatus === "active").map((l) => (
-                  <SelectItem key={l.id} value={String(l.id)}>
-                    {l.name} ({l.leadCount} leads)
-                  </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setAddToListOpen(false)} disabled={addToListState === "running"}>
-              Cancel
-            </Button>
-            {addToListState !== "done" && (
-              <Button
-                onClick={handleConfirmAddToList}
-                disabled={!addToListId || addToListState === "running"}
-                className="gap-2"
-              >
-                {addToListState === "running" ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Adding…</>
-                ) : "Add to list"}
               </Button>
             )}
           </DialogFooter>

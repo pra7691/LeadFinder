@@ -16,5 +16,7 @@ export interface EmailTemplateInput {
   personalizationPrompt?: string;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" — defaults to "plain_text" */
+  sendFormat?: string;
   isActive?: boolean;
 }

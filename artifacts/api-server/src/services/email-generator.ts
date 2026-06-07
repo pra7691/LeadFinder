@@ -2,7 +2,7 @@ import type { EmailTemplate } from "@workspace/db";
 import type { Lead } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { getAISettings } from "./ai-settings";
-import { isHtmlEmailBody } from "./email-html";
+import { isHtmlEmailBody, toTextEmail } from "./email-html";
 import { parseLeadEmails } from "./lead-emails";
 
 interface GeneratedEmail {
@@ -27,7 +27,7 @@ export function renderTemplate(template: string, vars: Partial<TemplateVars> & R
 
 export async function generatePersonalizedEmail(
   lead: Pick<Lead, "companyName" | "websiteUrl" | "rootDomain" | "country" | "emails" | "relevanceReason">,
-  template: Pick<EmailTemplate, "subject" | "body" | "personalizationPrompt">,
+  template: Pick<EmailTemplate, "subject" | "body" | "personalizationPrompt" | "sendFormat">,
   context: { campaignName?: string; listName?: string } = {},
 ): Promise<GeneratedEmail> {
   const emailList = parseLeadEmails(lead.emails);
@@ -59,9 +59,12 @@ export async function generatePersonalizedEmail(
       ? `${template.personalizationPrompt}\n\n`
       : "";
 
-    const bodyFormatInstruction = isHtmlEmailBody(renderedBody)
-      ? "Preserve valid HTML formatting in the body. Do not return markdown or plain-text-only formatting."
-      : "Preserve the original plain-text line breaks in the body.";
+    const isPlainText = template.sendFormat === "plain_text";
+    const bodyFormatInstruction = isPlainText
+      ? "Return a plain text body only. No HTML tags whatsoever. Preserve paragraph breaks with double newlines (\\n\\n)."
+      : isHtmlEmailBody(renderedBody)
+        ? "Preserve valid HTML formatting in the body. Do not return markdown or plain-text-only formatting."
+        : "Preserve the original plain-text line breaks in the body.";
 
     const systemPrompt = `You are a professional B2B email writer. Personalize the given email template for a specific company. 
 Rules:
@@ -76,6 +79,7 @@ Rules:
 Company: ${lead.companyName}
 Website: ${lead.websiteUrl ?? lead.rootDomain ?? "unknown"}
 Country: ${lead.country ?? "unknown"}
+Recipient email: ${emailList.join(", ")}
 Relevance: ${lead.relevanceReason ?? "not specified"}
 Campaign: ${context.campaignName ?? ""}
 List: ${context.listName ?? ""}
@@ -100,9 +104,13 @@ Return JSON: {"subject": "...", "body": "..."}`;
     const raw = response.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw) as { subject?: string; body?: string };
 
+    // For plain_text templates, strip any HTML the AI may have accidentally returned
+    const rawBody = parsed.body ?? renderedBody;
+    const finalBody = template.sendFormat === "plain_text" ? toTextEmail(rawBody) : rawBody;
+
     return {
       subject: parsed.subject ?? renderedSubject,
-      body: parsed.body ?? renderedBody,
+      body: finalBody,
       aiUsed: true,
     };
   } catch (err) {

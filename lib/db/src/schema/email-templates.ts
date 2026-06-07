@@ -15,6 +15,8 @@ export const emailTemplatesTable = pgTable("email_templates", {
   body: text("body").notNull(),
   personalizationPrompt: text("personalization_prompt"),
   attachmentsJson: text("attachments_json"),
+  /** "plain_text" | "html" — controls how emails are sent and previewed. */
+  sendFormat: text("send_format").notNull().default("plain_text"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

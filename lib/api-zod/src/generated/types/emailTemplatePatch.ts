@@ -14,5 +14,7 @@ export interface EmailTemplatePatch {
   personalizationPrompt?: string | null;
   /** @nullable */
   attachmentsJson?: string | null;
+  /** "plain_text" | "html" */
+  sendFormat?: string;
   isActive?: boolean;
 }
