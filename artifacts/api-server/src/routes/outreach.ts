@@ -345,8 +345,12 @@ router.post("/outreach/from-list", async (req, res) => {
       id: 0,
     } as typeof leadsTable.$inferSelect);
 
+    // Override emails to only the actual recipient so the AI extracts the right
+    // first name (lead.emails may contain dozens of lab/team emails, with a
+    // different person's address listed first).
+    const leadForContent = { ...leadForTemplate, emails: recipientEmail };
     const { subject, body: emailBody } = await resolveEmailContent(
-      leadForTemplate,
+      leadForContent,
       body.emailTemplateId,
       null,
       { listName: list.name },
@@ -549,7 +553,10 @@ router.post("/outreach/:id/regenerate", async (req, res) => {
   if (forceAi && existing.emailTemplateId) {
     const [tmpl] = await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, existing.emailTemplateId));
     if (tmpl) {
-      const result = await generatePersonalizedEmail(lead, tmpl, {
+      // Use only the actual recipient email so AI derives the correct first name,
+      // not the first email from a multi-email lead record.
+      const leadForRegen = { ...lead, emails: existing.recipientEmail };
+      const result = await generatePersonalizedEmail(leadForRegen, tmpl, {
         campaignName: campaign?.name,
         listName: list?.name,
       });
