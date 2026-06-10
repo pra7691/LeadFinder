@@ -5,6 +5,7 @@ let emailTemplateAttachmentColumnPromise: Promise<void> | null = null;
 let sendFormatColumnPromise: Promise<void> | null = null;
 let outreachTrackingColumnsPromise: Promise<void> | null = null;
 let unsubscribeSchemaPromise: Promise<void> | null = null;
+let campaignEmailTemplateIdColumnPromise: Promise<void> | null = null;
 
 export function ensureEmailTemplateAttachmentColumn(): Promise<void> {
   if (!emailTemplateAttachmentColumnPromise) {
@@ -54,6 +55,19 @@ export function ensureOutreachTrackingColumns(): Promise<void> {
   }
 
   return outreachTrackingColumnsPromise;
+}
+
+export function ensureCampaignEmailTemplateIdColumn(): Promise<void> {
+  if (!campaignEmailTemplateIdColumnPromise) {
+    campaignEmailTemplateIdColumnPromise = db
+      .execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS email_template_id integer`)
+      .then(() => undefined)
+      .catch((err) => {
+        campaignEmailTemplateIdColumnPromise = null;
+        throw err;
+      });
+  }
+  return campaignEmailTemplateIdColumnPromise;
 }
 
 export function ensureUnsubscribeSchema(): Promise<void> {

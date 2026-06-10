@@ -23,6 +23,8 @@ export const campaignsTable = pgTable("campaigns", {
   subjectTemplate: text("subject_template"),
   emailTemplate: text("email_template"),
   unsubscribeFooter: text("unsubscribe_footer"),
+  /** Email template to use when auto-creating outreach drafts after a campaign run */
+  emailTemplateId: integer("email_template_id"),
   // ── Crawler configuration (per-campaign) ──
   // Newline-separated path list. Crawled first, before internal-link expansion.
   crawlPaths: text("crawl_paths").notNull().default("/\n/contact\n/contact-us\n/about\n/about-us\n/team"),

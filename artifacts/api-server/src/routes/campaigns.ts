@@ -15,8 +15,18 @@ import {
   GetCampaignParams,
   DeleteCampaignParams,
 } from "@workspace/api-zod";
+import { ensureCampaignEmailTemplateIdColumn } from "../lib/schema-guards";
 
 const router = Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureCampaignEmailTemplateIdColumn();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 async function getCampaignWithRelations(id: number) {
   const campaign = await db.query.campaignsTable.findFirst({

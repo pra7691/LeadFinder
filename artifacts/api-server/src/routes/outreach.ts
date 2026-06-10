@@ -28,7 +28,7 @@ import {
 } from "@workspace/api-zod";
 import { generatePersonalizedEmail } from "../services/email-generator";
 import { analyzeQuality } from "../services/quality-analyzer";
-import { getPrimaryLeadEmail, parseLeadEmails } from "../services/lead-emails";
+import { getPrimaryLeadEmail, parseLeadEmails, sanitizeEmail } from "../services/lead-emails";
 import { isEmailUnsubscribed } from "./unsubscribe";
 import { isEmailHardBounced } from "./outreach-send";
 import { isEmailBlacklisted } from "../services/email-blacklist";
@@ -310,7 +310,7 @@ router.post("/outreach/from-list", async (req, res) => {
     // If leadId is set but lead not found, skip
     if (listItem.leadId && !lead) { skipped++; continue; }
 
-    const recipientEmail = (listItem.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "";
+    const recipientEmail = sanitizeEmail((listItem.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "");
     if (!recipientEmail) { skipped++; continue; }
 
     // Skip invalid email format

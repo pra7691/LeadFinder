@@ -115,7 +115,8 @@ export const CreateCampaignBody = zod.object({
   "crawlPaths": zod.string().optional(),
   "internalLinkKeywords": zod.string().optional(),
   "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
-  "maxCrawlDepth": zod.number().min(0).max(2).optional()
+  "maxCrawlDepth": zod.number().min(0).max(2).optional(),
+  "emailTemplateId": zod.number().nullish()
 })
 
 
@@ -158,6 +159,7 @@ export const GetCampaignResponse = zod.object({
   "internalLinkKeywords": zod.string().optional(),
   "maxPagesPerDomain": zod.number().optional(),
   "maxCrawlDepth": zod.number().optional(),
+  "emailTemplateId": zod.number().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -198,7 +200,8 @@ export const UpdateCampaignBody = zod.object({
   "crawlPaths": zod.string().optional(),
   "internalLinkKeywords": zod.string().optional(),
   "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
-  "maxCrawlDepth": zod.number().min(0).max(2).optional()
+  "maxCrawlDepth": zod.number().min(0).max(2).optional(),
+  "emailTemplateId": zod.number().nullish()
 })
 
 export const updateCampaignResponseResultsPerSearchDefault = 10;

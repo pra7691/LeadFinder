@@ -9,6 +9,7 @@ import {
   getListCampaignsQueryKey,
   useDeleteCampaign,
   useResetCampaignData,
+  useListEmailTemplates,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
 import type { Campaign } from "@workspace/api-client-react";
@@ -91,6 +92,8 @@ type FormData = {
   internalLinkKeywords: string;
   maxPagesPerDomain: number;
   maxCrawlDepth: number;
+  // Auto-outreach
+  emailTemplateId: number | null;
 };
 
 const DEFAULT_CRAWL_PATHS = "/\n/contact\n/contact-us\n/about\n/about-us\n/team";
@@ -487,11 +490,12 @@ interface SettingsTabProps {
   campaign: Campaign;
   handleSave: () => void;
   isSaving: boolean;
+  emailTemplates: Array<{ id: number; name: string }>;
 }
 
 function SettingsTab({
   formData, setFormData, selectedDays, toggleDay, nextRunAt, campaign,
-  handleSave, isSaving,
+  handleSave, isSaving, emailTemplates,
 }: SettingsTabProps) {
   return (
     <div className="space-y-5">
@@ -760,6 +764,39 @@ function SettingsTab({
         </CardContent>
       </Card>
 
+      {/* Auto-Outreach Settings */}
+      <Card className="glass-card">
+        <CardHeader className="border-b border-border/30 pb-3">
+          <h3 className="text-sm font-medium text-foreground">Auto-Outreach</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            When a campaign run completes, automatically create <strong>pending review</strong> outreach
+            drafts for every lead in the auto-list. Select an email template to enable this.
+          </p>
+        </CardHeader>
+        <CardContent className="pt-5">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Email Template</Label>
+            <Select
+              value={formData.emailTemplateId != null ? String(formData.emailTemplateId) : "none"}
+              onValueChange={(v) => setFormData({ ...formData, emailTemplateId: v === "none" ? null : Number(v) })}
+            >
+              <SelectTrigger className="rounded-xl bg-background/50">
+                <SelectValue placeholder="None — auto-outreach disabled" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None — auto-outreach disabled</SelectItem>
+                {emailTemplates.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground/70">
+              Outreach drafts will be AI-personalised if an OpenAI key is configured. You review and approve them before sending.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Save button */}
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={isSaving} className="rounded-xl shadow-sm">
@@ -801,9 +838,12 @@ export function CampaignDetail() {
     internalLinkKeywords: DEFAULT_INTERNAL_LINK_KEYWORDS,
     maxPagesPerDomain: 10,
     maxCrawlDepth: 1,
+    emailTemplateId: null,
   });
   const initialized = useRef(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
+  const { data: emailTemplatesData } = useListEmailTemplates({ query: {} });
+  const emailTemplates = (emailTemplatesData ?? []).map((t) => ({ id: t.id, name: t.name }));
   const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
   const [resetDataOpen, setResetDataOpen] = useState(false);
 
@@ -832,6 +872,7 @@ export function CampaignDetail() {
         internalLinkKeywords: campaign.internalLinkKeywords ?? DEFAULT_INTERNAL_LINK_KEYWORDS,
         maxPagesPerDomain: campaign.maxPagesPerDomain ?? 10,
         maxCrawlDepth: campaign.maxCrawlDepth ?? 1,
+        emailTemplateId: (campaign as Record<string, unknown>).emailTemplateId as number | null ?? null,
       });
       initialized.current = true;
     }
@@ -1036,6 +1077,7 @@ export function CampaignDetail() {
             campaign={campaign}
             handleSave={handleSave}
             isSaving={updateCampaign.isPending}
+            emailTemplates={emailTemplates}
           />
         </TabsContent>
       </Tabs>

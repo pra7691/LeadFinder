@@ -21,8 +21,9 @@ import {
   discoverySourceHistoryTable,
   leadListsTable,
   leadListItemsTable,
+  emailTemplatesTable,
 } from "@workspace/db";
-import { eq, and, or, sql, desc, isNull, like } from "drizzle-orm";
+import { eq, and, or, sql, desc, isNull, like, inArray } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { getSerperApiKey } from "../services/serper-key";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
@@ -33,7 +34,8 @@ import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
 import { appendUnsubscribeFooter, toHtmlEmail, toTextEmail } from "../services/email-html";
 import { buildUnsubscribeUrl, isEmailUnsubscribed } from "../routes/unsubscribe";
-import { parseLeadEmails } from "../services/lead-emails";
+import { parseLeadEmails, getPrimaryLeadEmail, sanitizeEmail } from "../services/lead-emails";
+import { generatePersonalizedEmail } from "../services/email-generator";
 import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
 
 // ── Cancellation registry ─────────────────────────────────────────────────
@@ -1210,7 +1212,7 @@ async function runAutoList(
   campaign: typeof campaignsTable.$inferSelect,
   campaignRunId: number | undefined,
   _errors: string[],
-): Promise<void> {
+): Promise<number | null> {
   // Find qualified leads with emails from this run
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any[] = [
@@ -1224,7 +1226,7 @@ async function runAutoList(
     .select({ id: leadsTable.id, emails: leadsTable.emails })
     .from(leadsTable)
     .where(and(...conditions));
-  if (eligibleLeads.length === 0) return;
+  if (eligibleLeads.length === 0) return null;
 
   // Create or find list for this run
   const runRow = campaignRunId != null
@@ -1238,7 +1240,7 @@ async function runAutoList(
     campaignId: campaign.id,
     listStatus: "active",
   }).returning();
-  if (!list) return;
+  if (!list) return null;
 
   // Expand each lead into one list item per email address.
   // If a lead has 3 emails → 3 items, each with a specific email.
@@ -1259,6 +1261,116 @@ async function runAutoList(
     `Auto-list "${listName}": added ${eligibleLeads.length} leads → ${listItemRows.length} email items`,
     { listId: list.id, leads: eligibleLeads.length, emailItems: listItemRows.length },
   );
+
+  return list.id;
+}
+
+// ── Step 3c: Auto-create pending_review outreach drafts from the new list ────
+
+async function runAutoOutreach(
+  campaign: typeof campaignsTable.$inferSelect,
+  listId: number,
+  _errors: string[],
+): Promise<number> {
+  if (!campaign.emailTemplateId) return 0;
+
+  // Fetch email account linked to this campaign
+  const [assigned] = await db
+    .select({ accountId: campaignEmailAccountsTable.emailAccountId })
+    .from(campaignEmailAccountsTable)
+    .where(eq(campaignEmailAccountsTable.campaignId, campaign.id))
+    .limit(1);
+  if (!assigned) return 0;
+
+  // Fetch email template
+  const [tmpl] = await db
+    .select()
+    .from(emailTemplatesTable)
+    .where(eq(emailTemplatesTable.id, campaign.emailTemplateId));
+  if (!tmpl) return 0;
+
+  // Fetch list + list items
+  const [list] = await db
+    .select({ name: leadListsTable.name })
+    .from(leadListsTable)
+    .where(eq(leadListsTable.id, listId));
+  if (!list) return 0;
+
+  const listItems = await db
+    .select({
+      id: leadListItemsTable.id,
+      email: leadListItemsTable.email,
+      leadId: leadListItemsTable.leadId,
+      companyName: leadListItemsTable.companyName,
+    })
+    .from(leadListItemsTable)
+    .where(eq(leadListItemsTable.listId, listId));
+  if (listItems.length === 0) return 0;
+
+  // Bulk-fetch lead records
+  const leadIds = [...new Set(listItems.map((i) => i.leadId).filter((id): id is number => id !== null))];
+  const leads = leadIds.length > 0
+    ? await db.select().from(leadsTable).where(inArray(leadsTable.id, leadIds))
+    : [];
+  const leadById = new Map(leads.map((l) => [l.id, l]));
+
+  const batchId = `auto-${campaign.id}-list-${listId}-${Date.now()}`;
+  let created = 0;
+
+  for (const item of listItems) {
+    const lead = item.leadId ? leadById.get(item.leadId) : undefined;
+    const rawEmail = (item.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "";
+    const recipientEmail = sanitizeEmail(rawEmail);
+    if (!recipientEmail || !recipientEmail.includes("@")) continue;
+
+    // Build lead context: use recipientEmail as emails so AI picks the right name
+    const leadForContent: typeof leadsTable.$inferSelect = lead
+      ? { ...lead, emails: recipientEmail }
+      : ({
+          id: 0,
+          companyName: item.companyName || recipientEmail.split("@")[1]?.split(".")[0] || "there",
+          websiteUrl: null,
+          rootDomain: recipientEmail.split("@")[1] ?? "",
+          emails: recipientEmail,
+          country: null,
+          sourceCountry: null,
+          campaignId: null,
+          campaignRunId: null,
+        } as unknown as typeof leadsTable.$inferSelect);
+
+    try {
+      const result = await generatePersonalizedEmail(
+        leadForContent,
+        tmpl,
+        { campaignName: campaign.name, listName: list.name },
+      );
+
+      await db.insert(outreachQueueTable).values({
+        campaignId: campaign.id,
+        leadId: lead?.id ?? null,
+        emailAccountId: assigned.accountId,
+        emailTemplateId: campaign.emailTemplateId,
+        listId,
+        recipientEmail,
+        subject: result.subject,
+        body: result.body,
+        batchId,
+        status: "pending_review",
+        aiPersonalized: result.aiUsed,
+      });
+      created++;
+    } catch (err) {
+      logger.warn({ err, recipientEmail }, "Auto-outreach: failed to generate draft for item");
+    }
+  }
+
+  await schedulerLog(
+    campaign.id,
+    `Auto-outreach: created ${created} pending_review drafts for list #${listId}`,
+    { listId, batchId, created },
+  );
+
+  return created;
 }
 
 // ── Step 4: Queue & Send Emails ─────────────────────────────────────────────
@@ -1700,11 +1812,21 @@ export async function runPipeline(
     logger.error({ err, campaignId }, "Scheduler: score step failed");
   }
 
-  // After scoring: auto-add qualified+email leads to a named list
+  // After scoring: auto-add qualified+email leads to a named list, then create
+  // pending_review outreach drafts if the campaign has an email template set.
+  let autoListId: number | null = null;
   try {
-    if (campaignRunId != null) await runAutoList(campaign, campaignRunId, errors);
+    if (campaignRunId != null) autoListId = await runAutoList(campaign, campaignRunId, errors);
   } catch (err) {
     logger.error({ err, campaignId }, "Scheduler: auto-list step failed");
+  }
+
+  try {
+    if (autoListId != null && campaign.emailTemplateId) {
+      await runAutoOutreach(campaign, autoListId, errors);
+    }
+  } catch (err) {
+    logger.error({ err, campaignId }, "Scheduler: auto-outreach step failed");
   }
 
   try {
