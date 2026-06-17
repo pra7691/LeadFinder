@@ -40,6 +40,10 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const PAUSED_BY_USER_REASON = "paused_by_user";
+const ACCOUNT_LIMIT_REASON = "limit:account_daily";
+const GLOBAL_LIMIT_REASON = "limit:global_daily";
+
 const activeBatches = new Set<string>();
 let batchSendCancelRequested = false;
 let currentBatchId: string | null = null;
@@ -431,7 +435,7 @@ router.post("/outreach/send-batch", async (req, res) => {
       .where(and(
         inArray(outreachQueueTable.id, ids),
         eq(outreachQueueTable.status, "approved"),
-        eq(outreachQueueTable.failureReason, "paused_by_user"),
+        sql`${outreachQueueTable.failureReason} IN (${PAUSED_BY_USER_REASON}, ${ACCOUNT_LIMIT_REASON}, ${GLOBAL_LIMIT_REASON})`,
       ));
   }
 
@@ -441,7 +445,7 @@ router.post("/outreach/send-batch", async (req, res) => {
   // button doesn't sweep up batches the user explicitly stopped.
   if (ids.length === 0) {
     approvedConditions.push(
-      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != ${PAUSED_BY_USER_REASON})`,
     );
   }
 
@@ -506,6 +510,10 @@ router.post("/outreach/send-batch", async (req, res) => {
 
     // Global daily limit check
     if (globalSentToday >= globalEmailLimit) {
+      await db
+        .update(outreachQueueTable)
+        .set({ failureReason: GLOBAL_LIMIT_REASON })
+        .where(eq(outreachQueueTable.id, item.id));
       await logSend(item.campaignId, "send_skip", `Global daily email limit reached (${globalEmailLimit})`, { outreachId: item.id });
       skipped++;
       continue;
@@ -559,6 +567,10 @@ router.post("/outreach/send-batch", async (req, res) => {
     }
     const acctSent = accountSentToday.get(accountId) ?? 0;
     if (acctSent >= account.dailySendLimit) {
+      await db
+        .update(outreachQueueTable)
+        .set({ failureReason: ACCOUNT_LIMIT_REASON })
+        .where(eq(outreachQueueTable.id, item.id));
       await logSend(item.campaignId, "send_skip", `Account daily limit reached (${account.dailySendLimit})`, { outreachId: item.id });
       skipped++;
       continue;
@@ -625,14 +637,14 @@ router.post("/outreach/send-batch/cancel", async (req, res) => {
   const pauseConditions = [
     eq(outreachQueueTable.status, "approved"),
     // Don't overwrite a real failureReason; only set on rows where it's empty
-    sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} = '')`,
+    sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} = '' OR ${outreachQueueTable.failureReason} IN (${ACCOUNT_LIMIT_REASON}, ${GLOBAL_LIMIT_REASON}))`,
   ];
   if (typeof batchId === "string" && batchId.length > 0) {
     pauseConditions.push(eq(outreachQueueTable.batchId, batchId));
   }
   const pausedRows = await db
     .update(outreachQueueTable)
-    .set({ failureReason: "paused_by_user" })
+    .set({ failureReason: PAUSED_BY_USER_REASON })
     .where(and(...pauseConditions))
     .returning({ id: outreachQueueTable.id });
 
@@ -988,7 +1000,7 @@ export async function resumeStuckOutreach(): Promise<void> {
     .from(outreachQueueTable)
     .where(and(
       eq(outreachQueueTable.status, "approved"),
-      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != ${PAUSED_BY_USER_REASON})`,
       sql`EXISTS (
         SELECT 1 FROM outreach_queue AS sib
         WHERE sib.batch_id = ${outreachQueueTable.batchId}
@@ -1011,7 +1023,7 @@ export async function resumeStuckOutreach(): Promise<void> {
       .from(outreachQueueTable)
       .where(and(
         eq(outreachQueueTable.status, "approved"),
-        sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != 'paused_by_user')`,
+        sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != ${PAUSED_BY_USER_REASON})`,
         inArray(outreachQueueTable.id, ids),
       ))
       .orderBy(asc(outreachQueueTable.id))
@@ -1036,7 +1048,13 @@ export async function resumeStuckOutreach(): Promise<void> {
 
         for (const item of approved) {
           if (batchSendCancelRequested) break;
-          if (globalSentToday >= globalEmailLimit) break;
+          if (globalSentToday >= globalEmailLimit) {
+            await db
+              .update(outreachQueueTable)
+              .set({ failureReason: GLOBAL_LIMIT_REASON })
+              .where(eq(outreachQueueTable.id, item.id));
+            break;
+          }
 
           const spamCheck = await antiSpamCheck(item);
           if (!spamCheck.ok) {
@@ -1068,7 +1086,13 @@ export async function resumeStuckOutreach(): Promise<void> {
 
           if (!accountSentToday.has(accountId)) accountSentToday.set(accountId, await getAccountSentToday(account));
           const acctSent = accountSentToday.get(accountId) ?? 0;
-          if (acctSent >= account.dailySendLimit) continue;
+          if (acctSent >= account.dailySendLimit) {
+            await db
+              .update(outreachQueueTable)
+              .set({ failureReason: ACCOUNT_LIMIT_REASON })
+              .where(eq(outreachQueueTable.id, item.id));
+            continue;
+          }
 
           if (globalSentToday > 0) await randomInterruptibleDelay(sendDelayMinMs, sendDelayMaxMs);
           if (batchSendCancelRequested) break;

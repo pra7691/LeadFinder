@@ -205,6 +205,21 @@ const STATUS_CONFIG: Record<
     color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
     icon: <Pause className="w-3 h-3" />,
   },
+  limit_reached: {
+    label: "Daily Limit Reached",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    icon: <Pause className="w-3 h-3" />,
+  },
+  approved_limit_account: {
+    label: "Waiting · Account Limit",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    icon: <Pause className="w-3 h-3" />,
+  },
+  approved_limit_global: {
+    label: "Waiting · Global Limit",
+    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+    icon: <Pause className="w-3 h-3" />,
+  },
   // ── Derived display statuses ───────────────────────────────────────────────
   opened: {
     label: "Opened",
@@ -269,6 +284,12 @@ export function getDisplayStatus(item: OutreachItem): string {
   if (item.failureReason === "skipped:unsubscribed") return "skipped_unsubscribed";
   if (item.failureReason === "skipped:duplicate")    return "skipped_duplicate";
   if (item.failureReason === "skipped:invalid_email") return "skipped_invalid";
+  if (item.status === "approved" && item.failureReason === "limit:account_daily") {
+    return "approved_limit_account";
+  }
+  if (item.status === "approved" && item.failureReason === "limit:global_daily") {
+    return "approved_limit_global";
+  }
   // Post-send unsubscribe (recipient clicked the link after receiving the email)
   if (item.status === "sent" && item.failureReason === "unsubscribed") return "unsubscribed";
   // Engagement state (only meaningful once sent).
@@ -346,6 +367,12 @@ export function aggregateStatus(items: OutreachItem[]): string {
   );
   if (hasPaused) return "stopped";
 
+  const hasLimitBlocked = items.some(
+    (item) =>
+      item.status === "approved" &&
+      (item.failureReason === "limit:account_daily" || item.failureReason === "limit:global_daily"),
+  );
+
   const displayStatuses = items.map((item) => getDisplayStatus(item));
   const statusSet = new Set(displayStatuses);
 
@@ -354,6 +381,8 @@ export function aggregateStatus(items: OutreachItem[]): string {
 
   const hasApproved = displayStatuses.some((s) => s === "approved");
   const hasTerminal = displayStatuses.some((s) => TERMINAL_STATUSES.has(s));
+
+  if (hasLimitBlocked) return "limit_reached";
 
   // Some sent, some still approved → actively sending
   if (hasApproved && hasTerminal) return "sending";
