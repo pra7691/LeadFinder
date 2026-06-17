@@ -10,6 +10,12 @@ import {
   useDeleteCampaign,
   useResetCampaignData,
   useListEmailTemplates,
+  useListEmailAccounts,
+  useListCampaignEmailAccounts,
+  useAssignCampaignEmailAccount,
+  useUnassignCampaignEmailAccount,
+  getListCampaignEmailAccountsQueryKey,
+  getListEmailAccountsQueryKey,
 } from "@workspace/api-client-react";
 import type { CampaignRun } from "@workspace/api-client-react";
 import type { Campaign } from "@workspace/api-client-react";
@@ -94,6 +100,7 @@ type FormData = {
   maxCrawlDepth: number;
   // Auto-outreach
   emailTemplateId: number | null;
+  emailAccountId: number | null;
 };
 
 const DEFAULT_CRAWL_PATHS = "/\n/contact\n/contact-us\n/about\n/about-us\n/team";
@@ -491,11 +498,12 @@ interface SettingsTabProps {
   handleSave: () => void;
   isSaving: boolean;
   emailTemplates: Array<{ id: number; name: string }>;
+  emailAccounts: Array<{ id: number; name: string; email: string }>;
 }
 
 function SettingsTab({
   formData, setFormData, selectedDays, toggleDay, nextRunAt, campaign,
-  handleSave, isSaving, emailTemplates,
+  handleSave, isSaving, emailTemplates, emailAccounts,
 }: SettingsTabProps) {
   return (
     <div className="space-y-5">
@@ -770,28 +778,55 @@ function SettingsTab({
           <h3 className="text-sm font-medium text-foreground">Auto-Outreach</h3>
           <p className="text-xs text-muted-foreground mt-1">
             When a campaign run completes, automatically create <strong>pending review</strong> outreach
-            drafts for every lead in the auto-list. Select an email template to enable this.
+            drafts for every lead in the auto-list. Select both an email template and a sender account.
           </p>
         </CardHeader>
         <CardContent className="pt-5">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Email Template</Label>
-            <Select
-              value={formData.emailTemplateId != null ? String(formData.emailTemplateId) : "none"}
-              onValueChange={(v) => setFormData({ ...formData, emailTemplateId: v === "none" ? null : Number(v) })}
-            >
-              <SelectTrigger className="rounded-xl bg-background/50">
-                <SelectValue placeholder="None — auto-outreach disabled" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None — auto-outreach disabled</SelectItem>
-                {emailTemplates.map((t) => (
-                  <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Email Template</Label>
+              <Select
+                value={formData.emailTemplateId != null ? String(formData.emailTemplateId) : "none"}
+                onValueChange={(v) => setFormData({ ...formData, emailTemplateId: v === "none" ? null : Number(v) })}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50">
+                  <SelectValue placeholder="None — auto-outreach disabled" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None — auto-outreach disabled</SelectItem>
+                  {emailTemplates.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Email Account</Label>
+              <Select
+                value={formData.emailAccountId != null ? String(formData.emailAccountId) : "none"}
+                onValueChange={(v) => setFormData({ ...formData, emailAccountId: v === "none" ? null : Number(v) })}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50">
+                  <SelectValue placeholder="None — auto-outreach disabled" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None — auto-outreach disabled</SelectItem>
+                  {emailAccounts.map((account) => (
+                    <SelectItem key={account.id} value={String(account.id)}>
+                      {account.name} ({account.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-2 space-y-1">
             <p className="text-[11px] text-muted-foreground/70">
               Outreach drafts will be AI-personalised if an OpenAI key is configured. You review and approve them before sending.
+            </p>
+            <p className="text-[11px] text-muted-foreground/70">
+              Auto-outreach runs only when both fields are selected.
             </p>
           </div>
         </CardContent>
@@ -818,6 +853,8 @@ export function CampaignDetail() {
   const updateCampaign = useUpdateCampaign();
   const deleteCampaign = useDeleteCampaign();
   const resetData = useResetCampaignData();
+  const assignCampaignEmailAccount = useAssignCampaignEmailAccount();
+  const unassignCampaignEmailAccount = useUnassignCampaignEmailAccount();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -839,11 +876,24 @@ export function CampaignDetail() {
     maxPagesPerDomain: 10,
     maxCrawlDepth: 1,
     emailTemplateId: null,
+    emailAccountId: null,
   });
   const initialized = useRef(false);
+  const initializedAccount = useRef(false);
   const [selectedDays, setSelectedDays] = useState<string[]>(["mon"]);
   const { data: emailTemplatesData } = useListEmailTemplates({ query: {} });
   const emailTemplates = (emailTemplatesData ?? []).map((t) => ({ id: t.id, name: t.name }));
+  const { data: emailAccountsData } = useListEmailAccounts({
+    query: { queryKey: getListEmailAccountsQueryKey(), staleTime: 30_000 },
+  });
+  const { data: assignedEmailAccounts } = useListCampaignEmailAccounts(campaignId, {
+    query: { enabled: !!campaignId, queryKey: getListCampaignEmailAccountsQueryKey(campaignId), staleTime: 10_000 },
+  });
+  const emailAccounts = (emailAccountsData ?? []).map((account) => ({
+    id: account.id,
+    name: account.name,
+    email: account.email,
+  }));
   const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
   const [resetDataOpen, setResetDataOpen] = useState(false);
 
@@ -873,19 +923,31 @@ export function CampaignDetail() {
         maxPagesPerDomain: campaign.maxPagesPerDomain ?? 10,
         maxCrawlDepth: campaign.maxCrawlDepth ?? 1,
         emailTemplateId: (campaign as Record<string, unknown>).emailTemplateId as number | null ?? null,
+        emailAccountId: null,
       });
       initialized.current = true;
     }
   }, [campaign]);
 
+  useEffect(() => {
+    if (!initialized.current || initializedAccount.current) return;
+    if (assignedEmailAccounts === undefined) return;
+    setFormData((prev) => ({
+      ...prev,
+      emailAccountId: assignedEmailAccounts[0]?.id ?? null,
+    }));
+    initializedAccount.current = true;
+  }, [assignedEmailAccounts]);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
     queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+    queryClient.invalidateQueries({ queryKey: getListCampaignEmailAccountsQueryKey(campaignId) });
   };
 
-  const handleSave = () => {
-    updateCampaign.mutate(
-      {
+  const handleSave = async () => {
+    try {
+      await updateCampaign.mutateAsync({
         id: campaignId,
         data: {
           ...formData,
@@ -894,15 +956,28 @@ export function CampaignDetail() {
           countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
           scheduleDays: selectedDays.join(","),
         } as Parameters<typeof updateCampaign.mutate>[0]["data"],
-      },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Campaign saved." });
-        },
-        onError: () => toast({ title: "Failed to save campaign.", variant: "destructive" }),
-      },
-    );
+      });
+
+      const currentAssignedIds = (assignedEmailAccounts ?? []).map((account) => account.id);
+      const desiredAccountId = formData.emailAccountId;
+
+      const idsToRemove = currentAssignedIds.filter((accountId) => accountId !== desiredAccountId);
+      for (const accountId of idsToRemove) {
+        await unassignCampaignEmailAccount.mutateAsync({ id: campaignId, accountId });
+      }
+
+      if (desiredAccountId != null && !currentAssignedIds.includes(desiredAccountId)) {
+        await assignCampaignEmailAccount.mutateAsync({
+          id: campaignId,
+          data: { emailAccountId: desiredAccountId },
+        });
+      }
+
+      invalidate();
+      toast({ title: "Campaign saved." });
+    } catch {
+      toast({ title: "Failed to save campaign.", variant: "destructive" });
+    }
   };
 
   const openRunDialog = () => {
@@ -972,6 +1047,10 @@ export function CampaignDetail() {
 
   const isRunning = isTriggering || campaign.lastRunStatus === "running";
   const nextRunAt = campaign.nextRunAt ? new Date(campaign.nextRunAt) : null;
+  const isSavingSettings =
+    updateCampaign.isPending ||
+    assignCampaignEmailAccount.isPending ||
+    unassignCampaignEmailAccount.isPending;
 
   return (
     <div className="space-y-6 max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1076,8 +1155,9 @@ export function CampaignDetail() {
             nextRunAt={nextRunAt}
             campaign={campaign}
             handleSave={handleSave}
-            isSaving={updateCampaign.isPending}
+            isSaving={isSavingSettings}
             emailTemplates={emailTemplates}
+            emailAccounts={emailAccounts}
           />
         </TabsContent>
       </Tabs>
