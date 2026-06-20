@@ -6,6 +6,8 @@ let sendFormatColumnPromise: Promise<void> | null = null;
 let outreachTrackingColumnsPromise: Promise<void> | null = null;
 let unsubscribeSchemaPromise: Promise<void> | null = null;
 let campaignEmailTemplateIdColumnPromise: Promise<void> | null = null;
+let campaignCrawlerColumnsPromise: Promise<void> | null = null;
+let campaignDiscoveryInputColumnsPromise: Promise<void> | null = null;
 
 export function ensureEmailTemplateAttachmentColumn(): Promise<void> {
   if (!emailTemplateAttachmentColumnPromise) {
@@ -68,6 +70,39 @@ export function ensureCampaignEmailTemplateIdColumn(): Promise<void> {
       });
   }
   return campaignEmailTemplateIdColumnPromise;
+}
+
+export function ensureCampaignCrawlerColumns(): Promise<void> {
+  if (!campaignCrawlerColumnsPromise) {
+    campaignCrawlerColumnsPromise = Promise.all([
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS crawl_paths text NOT NULL DEFAULT E'/\n/contact\n/contact-us\n/about\n/about-us\n/team'`),
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS internal_link_keywords text NOT NULL DEFAULT E'contact\nabout\nteam\npeople\nresearch\nproject\nprojects\nlab\nlabs\nfaculty\npublication\npublications\nrobotics\nvision\nperception\negocentric\nembodied\ndataset'`),
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS max_pages_per_domain integer NOT NULL DEFAULT 10`),
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS max_crawl_depth integer NOT NULL DEFAULT 1`),
+    ])
+      .then(() => undefined)
+      .catch((err) => {
+        campaignCrawlerColumnsPromise = null;
+        throw err;
+      });
+  }
+  return campaignCrawlerColumnsPromise;
+}
+
+export function ensureCampaignDiscoveryInputColumns(): Promise<void> {
+  if (!campaignDiscoveryInputColumnsPromise) {
+    campaignDiscoveryInputColumnsPromise = Promise.all([
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS discovery_input_mode text NOT NULL DEFAULT 'search'`),
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS uploaded_domains text NOT NULL DEFAULT ''`),
+      db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS uploaded_domains_apply_block_logic boolean NOT NULL DEFAULT true`),
+    ])
+      .then(() => undefined)
+      .catch((err) => {
+        campaignDiscoveryInputColumnsPromise = null;
+        throw err;
+      });
+  }
+  return campaignDiscoveryInputColumnsPromise;
 }
 
 export function ensureUnsubscribeSchema(): Promise<void> {

@@ -124,8 +124,8 @@ const JUNK_PATH_PATTERNS = [
   /\/category\//i, /\/topics\//i, /\/explore\b/i,
 ];
 
-/** TLD patterns for government / education / research institutions. */
-const JUNK_TLD_PATTERN = /\.(gov|edu|ac\.uk|ac\.jp|edu\.au|gov\.uk|gov\.au|ac\.nz|edu\.nz|gc\.ca)$/i;
+/** TLD patterns for government institutions that should never become leads. */
+const JUNK_TLD_PATTERN = /\.(gov|gov\.uk|gov\.au|gc\.ca)$/i;
 
 /**
  * Subdomain prefixes that indicate non-company content even when the root
@@ -137,8 +137,8 @@ const JUNK_SUBDOMAIN_PREFIXES = [
   "help.", "support.", "status.", "dev.", "developer.", "developers.",
   "careers.", "jobs.", "hiring.", "news.", "press.", "ir.", "investors.",
   "shop.", "store.", "app.", "apps.", "play.", "pages.", "sites.",
-  "training.", "learn.", "learning.", "academy.", "university.",
-  "research.", "lab.", "labs.", "open.", "opensource.", "wiki.",
+  "training.", "learn.", "learning.",
+  "open.", "opensource.", "wiki.",
   "mail.", "webmail.", "calendar.", "drive.", "cloud.",
 ];
 
@@ -221,9 +221,9 @@ function classifySearchResultDetailed(
     }
   }
 
-  // Government / education TLDs
+  // Government TLDs
   if (JUNK_TLD_PATTERN.test(domainLower)) {
-    return { cls: "blocked", reason: "Government or education domain" };
+    return { cls: "blocked", reason: "Government domain" };
   }
 
   // Junk subdomain prefixes (docs.*, blog.*, discuss.*, etc.)
@@ -480,6 +480,199 @@ interface DiscoveryStats {
   missingSerperKey: boolean;
 }
 
+type UploadedDomainCandidate = {
+  rootDomain: string;
+  websiteUrl: string;
+  sourceLabel: string;
+};
+
+function extractUploadedDomainCandidates(value: string | null | undefined): UploadedDomainCandidate[] {
+  const raw = value ?? "";
+  const candidates = new Map<string, UploadedDomainCandidate>();
+  const urlPattern = /(?:https?:\/\/)?(?:www\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:\/[^\s"',;]*)?/gi;
+
+  for (const match of raw.matchAll(urlPattern)) {
+    const token = match[0].trim().replace(/[)\].,;]+$/g, "");
+    const rootDomain = extractRootDomain(token);
+    if (!rootDomain) continue;
+    const websiteUrl = token.startsWith("http") ? token : `https://${rootDomain}`;
+    if (!candidates.has(rootDomain)) {
+      candidates.set(rootDomain, {
+        rootDomain,
+        websiteUrl,
+        sourceLabel: token,
+      });
+    }
+  }
+
+  return Array.from(candidates.values());
+}
+
+async function runUploadedDomainDiscovery(
+  campaign: typeof campaignsTable.$inferSelect,
+  errors: string[],
+  campaignRunId?: number,
+): Promise<DiscoveryStats> {
+  const stats: DiscoveryStats = {
+    newLeadsCreated: 0,
+    searchesPerformed: 0,
+    searchesSkipped: 0,
+    rawResultsFound: 0,
+    resultUrlsSeenBefore: 0,
+    discoverySourcesFound: 0,
+    discoverySourcesMined: 0,
+    discoverySourcesSkipped: 0,
+    duplicatesSkipped: 0,
+    blockedSkipped: 0,
+    missingSerperKey: false,
+  };
+
+  const uploadedDomains = extractUploadedDomainCandidates(campaign.uploadedDomains);
+  if (uploadedDomains.length === 0) {
+    errors.push("No valid uploaded domains found. Upload a text or CSV file containing website domains.");
+    await schedulerLog(campaign.id, "Uploaded-domain discovery skipped: no valid domains found");
+    return stats;
+  }
+
+  const applyBlockLogic = campaign.uploadedDomainsApplyBlockLogic !== false;
+  const [blockedSetting] = applyBlockLogic
+    ? await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "blocked_domains"))
+    : [];
+  const blockedDomains = applyBlockLogic ? parseBlockedDomains(blockedSetting?.value) : new Set<string>();
+
+  const existingLeads = await db
+    .select({ rootDomain: leadsTable.rootDomain })
+    .from(leadsTable)
+    .where(eq(leadsTable.campaignId, campaign.id));
+  const existingDomains = new Set(existingLeads.map((l) => normalizeDomainToken(l.rootDomain)).filter(Boolean));
+
+  await schedulerLog(
+    campaign.id,
+    `Uploaded-domain discovery started: ${uploadedDomains.length} domain${uploadedDomains.length !== 1 ? "s" : ""}${applyBlockLogic ? "" : " (blocked-domain logic bypassed)"}`,
+  );
+
+  if (campaignRunId != null) {
+    try {
+      await db.update(campaignRunsTable)
+        .set({ totalWorkUnits: uploadedDomains.length })
+        .where(eq(campaignRunsTable.id, campaignRunId));
+    } catch { /* non-fatal */ }
+  }
+
+  for (const candidate of uploadedDomains) {
+    const { rootDomain, websiteUrl, sourceLabel } = candidate;
+    stats.rawResultsFound++;
+
+    if (applyBlockLogic) {
+      const classificationResult = classifySearchResultDetailed(
+        rootDomain,
+        websiteUrl,
+        rootDomain,
+        blockedDomains,
+      );
+
+      if (classificationResult.cls === "blocked") {
+        recordResult(campaignRunId, campaign.id, "blocked", {
+          title: rootDomain,
+          url: websiteUrl,
+          rootDomain,
+          sourceQuery: "uploaded_domains",
+          reason: classificationResult.reason ?? "Blocked domain or junk content",
+        });
+        stats.blockedSkipped++;
+        continue;
+      }
+    }
+
+    if (existingDomains.has(rootDomain)) {
+      recordResult(campaignRunId, campaign.id, "duplicate", {
+        title: rootDomain,
+        url: websiteUrl,
+        rootDomain,
+        sourceQuery: "uploaded_domains",
+        reason: "Domain already exists in campaign leads",
+      });
+      stats.duplicatesSkipped++;
+      continue;
+    }
+
+    try {
+      await db.insert(leadsTable).values({
+        campaignId: campaign.id,
+        campaignRunId: campaignRunId ?? null,
+        companyName: "",
+        rootDomain,
+        websiteUrl,
+        leadStatus: "discovered",
+        reviewStatus: "pending",
+        qualificationStatus: autoQualificationStatus(rootDomain, websiteUrl),
+        outreachStatus: "not_queued",
+        emailStatus: "not_sent",
+        relevanceScore: 0,
+        relevanceReason: "",
+        sourceQuery: "uploaded_domains",
+        sourceType: "uploaded",
+        leadType: classifyLeadType(rootDomain, rootDomain),
+      });
+      existingDomains.add(rootDomain);
+      recordResult(campaignRunId, campaign.id, "lead_created", {
+        title: rootDomain,
+        url: websiteUrl,
+        rootDomain,
+        sourceQuery: "uploaded_domains",
+        reason: `Uploaded from ${sourceLabel}`,
+      });
+      stats.newLeadsCreated++;
+    } catch {
+      recordResult(campaignRunId, campaign.id, "duplicate", {
+        title: rootDomain,
+        url: websiteUrl,
+        rootDomain,
+        sourceQuery: "uploaded_domains",
+        reason: "Domain already exists (race condition)",
+      });
+      stats.duplicatesSkipped++;
+    }
+
+    if (campaignRunId != null) {
+      const completed = stats.newLeadsCreated + stats.duplicatesSkipped + stats.blockedSkipped;
+      try {
+        await db.update(campaignRunsTable).set({
+          totalResults: stats.rawResultsFound,
+          totalNewLeads: stats.newLeadsCreated,
+          totalDuplicates: stats.duplicatesSkipped,
+          totalBlocked: stats.blockedSkipped,
+          completedWorkUnits: completed,
+          progressPercent: uploadedDomains.length > 0 ? Math.min(100, completed / uploadedDomains.length * 100) : 0,
+        }).where(eq(campaignRunsTable.id, campaignRunId));
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  if (campaignRunId != null) {
+    try {
+      await db.update(campaignRunsTable)
+        .set({
+          totalResults: stats.rawResultsFound,
+          totalNewLeads: stats.newLeadsCreated,
+          totalDuplicates: stats.duplicatesSkipped,
+          totalBlocked: stats.blockedSkipped,
+        })
+        .where(eq(campaignRunsTable.id, campaignRunId));
+    } catch { /* non-fatal */ }
+  }
+
+  await schedulerLog(
+    campaign.id,
+    `Uploaded-domain discovery complete: ${stats.newLeadsCreated} new, ${stats.duplicatesSkipped} duplicate, ${stats.blockedSkipped} blocked`,
+  );
+
+  return stats;
+}
+
 async function runDiscovery(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
@@ -499,6 +692,10 @@ async function runDiscovery(
     blockedSkipped: 0,
     missingSerperKey: false,
   };
+
+  if ((campaign.discoveryInputMode ?? "search") === "upload") {
+    return runUploadedDomainDiscovery(campaign, errors, campaignRunId);
+  }
 
   const apiKey = await getSerperApiKey();
   if (!apiKey) {
@@ -1206,19 +1403,19 @@ async function runScore(
   return { scoredCount, failedCount };
 }
 
-// ── Step 3b: Auto-List qualified leads with emails ──────────────────────────
+// ── Step 3b: Auto-List qualified leads ──────────────────────────────────────
 
 async function runAutoList(
   campaign: typeof campaignsTable.$inferSelect,
   campaignRunId: number | undefined,
   _errors: string[],
 ): Promise<number | null> {
-  // Find qualified leads with emails from this run
+  // Find qualified leads from this run. Leads without email should still be
+  // visible in the generated list; outreach creation will skip them later.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any[] = [
     eq(leadsTable.campaignId, campaign.id),
     eq(leadsTable.qualificationStatus, "qualified"),
-    sql`${leadsTable.emails} IS NOT NULL AND ${leadsTable.emails} != ''`,
   ];
   if (campaignRunId != null) conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
 
@@ -1242,13 +1439,19 @@ async function runAutoList(
   }).returning();
   if (!list) return null;
 
-  // Expand each lead into one list item per email address.
-  // If a lead has 3 emails → 3 items, each with a specific email.
-  const listItemRows: { listId: number; leadId: number; email: string }[] = [];
+  // Expand each lead into one list item per email address. If a qualified lead
+  // has no email yet, keep a lead-only list item so it is still visible.
+  const listItemRows: { listId: number; leadId: number; email?: string | null }[] = [];
+  let emailItems = 0;
   for (const lead of eligibleLeads) {
     const emails = parseLeadEmails(lead.emails);
-    for (const email of emails) {
-      listItemRows.push({ listId: list.id, leadId: lead.id, email });
+    if (emails.length === 0) {
+      listItemRows.push({ listId: list.id, leadId: lead.id, email: null });
+    } else {
+      for (const email of emails) {
+        listItemRows.push({ listId: list.id, leadId: lead.id, email });
+        emailItems++;
+      }
     }
   }
 
@@ -1258,8 +1461,8 @@ async function runAutoList(
 
   await schedulerLog(
     campaign.id,
-    `Auto-list "${listName}": added ${eligibleLeads.length} leads → ${listItemRows.length} email items`,
-    { listId: list.id, leads: eligibleLeads.length, emailItems: listItemRows.length },
+    `Auto-list "${listName}": added ${eligibleLeads.length} leads → ${emailItems} email items`,
+    { listId: list.id, leads: eligibleLeads.length, emailItems },
   );
 
   return list.id;
@@ -1482,13 +1685,15 @@ async function runEmail(
       continue;
     }
 
-    // Check for duplicate queue entry
+    // Check for duplicate queue entry by recipient email for this campaign.
+    // One lead may expose multiple legitimate contact emails that should each
+    // be eligible for outreach.
     const existing = await db
       .select({ id: outreachQueueTable.id })
       .from(outreachQueueTable)
       .where(
         and(
-          eq(outreachQueueTable.leadId, lead.id),
+          eq(outreachQueueTable.recipientEmail, recipientEmail),
           eq(outreachQueueTable.campaignId, campaign.id),
         ),
       )

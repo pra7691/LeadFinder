@@ -21,6 +21,9 @@ export interface CampaignPatch {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  discoveryInputMode?: 'search' | 'upload';
+  uploadedDomains?: string;
+  uploadedDomainsApplyBlockLogic?: boolean;
   /**
      * Days before the same keyword-country query is searched again
      * @minimum 1

@@ -67,6 +67,9 @@ export interface Campaign {
   maxEmailsPerDay: number;
   /** Number of Serper search results requested per keyword-country query (1-50) */
   resultsPerSearch: number;
+  discoveryInputMode?: 'search' | 'upload';
+  uploadedDomains?: string;
+  uploadedDomainsApplyBlockLogic?: boolean;
   /** Days before the same keyword-country query is searched again */
   queryRefreshDays: number;
   /** Days before a previously mined discovery source URL is mined again */
@@ -126,6 +129,9 @@ export interface CampaignInput {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  discoveryInputMode?: 'search' | 'upload';
+  uploadedDomains?: string;
+  uploadedDomainsApplyBlockLogic?: boolean;
   /**
      * Days before the same keyword-country query is searched again
      * @minimum 1
@@ -174,6 +180,9 @@ export interface CampaignPatch {
      * @maximum 50
      */
   resultsPerSearch?: number;
+  discoveryInputMode?: 'search' | 'upload';
+  uploadedDomains?: string;
+  uploadedDomainsApplyBlockLogic?: boolean;
   /**
      * Days before the same keyword-country query is searched again
      * @minimum 1

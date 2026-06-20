@@ -234,6 +234,8 @@ function CampaignRunList({
   const { data: runs } = useListCampaignRuns(
     campaignId !== null ? { campaignId } : undefined,
   );
+  const { toast } = useToast();
+  const [exporting, setExporting] = useState(false);
   const runRows = Array.isArray(runs) ? runs : [];
 
   // Filter leads for this campaign
@@ -277,20 +279,49 @@ function CampaignRunList({
     });
   }, [campaignLeads, runRows]);
 
+  const handleExportCampaign = async () => {
+    if (!campaignLeads.length || exporting) return;
+    setExporting(true);
+    try {
+      const url = campaignId === null
+        ? `/api/leads/export?format=csv&leadIds=${campaignLeads.map((lead) => lead.id).join(",")}`
+        : `/api/leads/export?format=csv&hasEmail=false&campaignId=${campaignId}&limit=50000`;
+      const saved = await saveExportToServer(url);
+      toast({ title: `Exported ${campaignLeads.length} lead${campaignLeads.length !== 1 ? "s" : ""} → ${saved.relativePath}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Export failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
-      <div>
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+          >
+            <ChevronLeft className="w-4 h-4" /> Back to campaigns
+          </button>
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <MailX className="w-5 h-5 text-amber-500" />
+            {campaignName}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Select a campaign run to view its no-email leads</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-xl gap-1.5 shrink-0"
+          onClick={handleExportCampaign}
+          disabled={exporting || !campaignLeads.length}
         >
-          <ChevronLeft className="w-4 h-4" /> Back to campaigns
-        </button>
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <MailX className="w-5 h-5 text-amber-500" />
-          {campaignName}
-        </h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Select a campaign run to view its no-email leads</p>
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          Export CSV
+        </Button>
       </div>
       <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
         <Table>
@@ -767,7 +798,7 @@ export function NoEmailLeads() {
             disabled={exportingAll}
           >
             {exportingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export All
+            Export CSV
           </Button>
         )}
       </div>

@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -66,6 +67,8 @@ import {
   RotateCcw,
   Square,
   Settings,
+  Upload,
+  Search,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format, formatDuration, intervalToDuration } from "date-fns";
@@ -87,6 +90,9 @@ type FormData = {
   isActive: boolean;
   minRelevanceScore: number;
   resultsPerSearch: number;
+  discoveryInputMode: "search" | "upload";
+  uploadedDomains: string;
+  uploadedDomainsApplyBlockLogic: boolean;
   queryRefreshDays: number;
   discoverySourceRefreshDays: number;
   keywords: string;
@@ -105,6 +111,27 @@ type FormData = {
 
 const DEFAULT_CRAWL_PATHS = "/\n/contact\n/contact-us\n/about\n/about-us\n/team";
 const DEFAULT_INTERNAL_LINK_KEYWORDS = "contact\nabout\nteam\npeople\nresearch\nproject\nprojects\nlab\nlabs\nfaculty\npublication\npublications\nrobotics\nvision\nperception\negocentric\nembodied\ndataset";
+
+function extractDomainLines(text: string): string[] {
+  const matches = text.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:\/[^\s"',;]*)?/gi) ?? [];
+  const seen = new Set<string>();
+  const domains: string[] = [];
+
+  for (const match of matches) {
+    const token = match.trim().replace(/[)\].,;]+$/g, "");
+    try {
+      const url = token.startsWith("http") ? new URL(token) : new URL(`https://${token}`);
+      const domain = url.hostname.replace(/^www\./, "").toLowerCase();
+      if (!domain.includes(".") || seen.has(domain)) continue;
+      seen.add(domain);
+      domains.push(domain);
+    } catch {
+      // ignore invalid tokens
+    }
+  }
+
+  return domains;
+}
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -505,6 +532,18 @@ function SettingsTab({
   formData, setFormData, selectedDays, toggleDay, nextRunAt, campaign,
   handleSave, isSaving, emailTemplates, emailAccounts,
 }: SettingsTabProps) {
+  const uploadedDomainCount = extractDomainLines(formData.uploadedDomains).length;
+  const handleDomainFileChange = async (file: File | undefined) => {
+    if (!file) return;
+    const text = await file.text();
+    const domains = extractDomainLines(text);
+    setFormData((prev) => ({
+      ...prev,
+      discoveryInputMode: "upload",
+      uploadedDomains: domains.join("\n"),
+    }));
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -530,23 +569,100 @@ function SettingsTab({
                 className="rounded-xl bg-background/50 min-h-[80px] resize-y"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Keywords (comma separated)</Label>
-              <Input
-                value={formData.keywords}
-                onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
-                className="rounded-xl bg-background/50 font-mono text-sm"
-              />
+            <div className="space-y-3">
+              <Label className="text-xs font-medium text-muted-foreground">Lead Source</Label>
+              <RadioGroup
+                value={formData.discoveryInputMode}
+                onValueChange={(value) => setFormData({ ...formData, discoveryInputMode: value as "search" | "upload" })}
+                className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+              >
+                <label className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                  formData.discoveryInputMode === "search" ? "border-primary bg-primary/5" : "border-border/50 bg-background/40 hover:bg-muted/30",
+                )}>
+                  <RadioGroupItem value="search" className="mt-0.5" />
+                  <span className="space-y-1">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Search className="h-3.5 w-3.5" /> Search
+                    </span>
+                    <span className="block text-xs text-muted-foreground">Use keywords and countries with Serper.</span>
+                  </span>
+                </label>
+                <label className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                  formData.discoveryInputMode === "upload" ? "border-primary bg-primary/5" : "border-border/50 bg-background/40 hover:bg-muted/30",
+                )}>
+                  <RadioGroupItem value="upload" className="mt-0.5" />
+                  <span className="space-y-1">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Upload className="h-3.5 w-3.5" /> Upload Domains
+                    </span>
+                    <span className="block text-xs text-muted-foreground">Use a TXT or CSV domain list.</span>
+                  </span>
+                </label>
+              </RadioGroup>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Countries (optional, comma separated codes)</Label>
-              <Input
-                value={formData.countries}
-                onChange={(e) => setFormData({ ...formData, countries: e.target.value })}
-                className="rounded-xl bg-background/50 font-mono text-sm"
-                placeholder="US, UK, CA"
-              />
-            </div>
+
+            {formData.discoveryInputMode === "search" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Keywords (comma separated)</Label>
+                  <Input
+                    value={formData.keywords}
+                    onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
+                    className="rounded-xl bg-background/50 font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Countries (optional, comma separated codes)</Label>
+                  <Input
+                    value={formData.countries}
+                    onChange={(e) => setFormData({ ...formData, countries: e.target.value })}
+                    className="rounded-xl bg-background/50 font-mono text-sm"
+                    placeholder="US, UK, CA"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Upload TXT or CSV</Label>
+                  <Input
+                    type="file"
+                    accept=".txt,.csv,text/plain,text/csv"
+                    onChange={(e) => handleDomainFileChange(e.target.files?.[0])}
+                    className="rounded-xl bg-background/50"
+                  />
+                  <p className="text-[11px] text-muted-foreground/70">
+                    CSV can have any columns; the system extracts website domains from the whole file.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Uploaded Domains</Label>
+                    <span className="text-[11px] text-muted-foreground">{uploadedDomainCount} detected</span>
+                  </div>
+                  <Textarea
+                    value={formData.uploadedDomains}
+                    onChange={(e) => setFormData({ ...formData, uploadedDomains: e.target.value })}
+                    className="min-h-[150px] rounded-xl bg-background/50 font-mono text-xs"
+                    placeholder={"example.com\nhttps://another-company.com"}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-background/40 p-3">
+                  <div className="min-w-0">
+                    <Label className="text-sm font-medium text-foreground">Apply blocked-domain logic</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Turn off to trust uploaded domains and bypass blocklist/classifier filters.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={formData.uploadedDomainsApplyBlockLogic}
+                    onCheckedChange={(checked) => setFormData({ ...formData, uploadedDomainsApplyBlockLogic: checked })}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between p-3 bg-muted/30 rounded-xl border border-border/50">
               <div>
                 <Label className="text-sm font-medium text-foreground">Active</Label>
@@ -865,6 +981,9 @@ export function CampaignDetail() {
     isActive: true,
     minRelevanceScore: 50,
     resultsPerSearch: 10,
+    discoveryInputMode: "search",
+    uploadedDomains: "",
+    uploadedDomainsApplyBlockLogic: true,
     queryRefreshDays: 30,
     discoverySourceRefreshDays: 30,
     keywords: "",
@@ -912,6 +1031,9 @@ export function CampaignDetail() {
         isActive: campaign.isActive ?? true,
         minRelevanceScore: campaign.minRelevanceScore ?? 50,
         resultsPerSearch: campaign.resultsPerSearch ?? 10,
+        discoveryInputMode: (campaign.discoveryInputMode ?? "search") as "search" | "upload",
+        uploadedDomains: campaign.uploadedDomains ?? "",
+        uploadedDomainsApplyBlockLogic: campaign.uploadedDomainsApplyBlockLogic ?? true,
         queryRefreshDays: campaign.queryRefreshDays ?? 30,
         discoverySourceRefreshDays: campaign.discoverySourceRefreshDays ?? 30,
         keywords: Array.isArray(campaign.keywords) ? campaign.keywords.join(", ") : (campaign.keywords ?? ""),
@@ -945,36 +1067,43 @@ export function CampaignDetail() {
     queryClient.invalidateQueries({ queryKey: getListCampaignEmailAccountsQueryKey(campaignId) });
   };
 
+  const saveCampaignSettings = async (showToast = true) => {
+    await updateCampaign.mutateAsync({
+      id: campaignId,
+      data: {
+        ...formData,
+        resultsPerSearch: Math.min(50, Math.max(1, formData.resultsPerSearch || 10)),
+        discoveryInputMode: formData.discoveryInputMode,
+        uploadedDomains: formData.uploadedDomains,
+        uploadedDomainsApplyBlockLogic: formData.uploadedDomainsApplyBlockLogic,
+        keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
+        countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
+        scheduleDays: selectedDays.join(","),
+      } as Parameters<typeof updateCampaign.mutate>[0]["data"],
+    });
+
+    const currentAssignedIds = (assignedEmailAccounts ?? []).map((account) => account.id);
+    const desiredAccountId = formData.emailAccountId;
+
+    const idsToRemove = currentAssignedIds.filter((accountId) => accountId !== desiredAccountId);
+    for (const accountId of idsToRemove) {
+      await unassignCampaignEmailAccount.mutateAsync({ id: campaignId, accountId });
+    }
+
+    if (desiredAccountId != null && !currentAssignedIds.includes(desiredAccountId)) {
+      await assignCampaignEmailAccount.mutateAsync({
+        id: campaignId,
+        data: { emailAccountId: desiredAccountId },
+      });
+    }
+
+    invalidate();
+    if (showToast) toast({ title: "Campaign saved." });
+  };
+
   const handleSave = async () => {
     try {
-      await updateCampaign.mutateAsync({
-        id: campaignId,
-        data: {
-          ...formData,
-          resultsPerSearch: Math.min(50, Math.max(1, formData.resultsPerSearch || 10)),
-          keywords: formData.keywords.split(",").map((k) => k.trim()).filter(Boolean),
-          countries: formData.countries.split(",").map((c) => c.trim()).filter(Boolean),
-          scheduleDays: selectedDays.join(","),
-        } as Parameters<typeof updateCampaign.mutate>[0]["data"],
-      });
-
-      const currentAssignedIds = (assignedEmailAccounts ?? []).map((account) => account.id);
-      const desiredAccountId = formData.emailAccountId;
-
-      const idsToRemove = currentAssignedIds.filter((accountId) => accountId !== desiredAccountId);
-      for (const accountId of idsToRemove) {
-        await unassignCampaignEmailAccount.mutateAsync({ id: campaignId, accountId });
-      }
-
-      if (desiredAccountId != null && !currentAssignedIds.includes(desiredAccountId)) {
-        await assignCampaignEmailAccount.mutateAsync({
-          id: campaignId,
-          data: { emailAccountId: desiredAccountId },
-        });
-      }
-
-      invalidate();
-      toast({ title: "Campaign saved." });
+      await saveCampaignSettings(true);
     } catch {
       toast({ title: "Failed to save campaign.", variant: "destructive" });
     }
@@ -988,6 +1117,10 @@ export function CampaignDetail() {
   const handleTrigger = async () => {
     setIsTriggering(true);
     try {
+      if (formData.discoveryInputMode === "upload" && extractDomainLines(formData.uploadedDomains).length === 0) {
+        throw new Error("Upload mode needs at least one valid domain.");
+      }
+      await saveCampaignSettings(false);
       const res = await fetch(`${import.meta.env.BASE_URL}api/campaigns/${campaignId}/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

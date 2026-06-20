@@ -21,7 +21,7 @@ import exportRouter from "./export";
 import fileExportsRouter from "./file-exports";
 import adminRouter from "./admin";
 import unsubscribeRouter from "./unsubscribe";
-import { ensureOutreachTrackingColumns, ensureUnsubscribeSchema } from "../lib/schema-guards";
+import { ensureCampaignDiscoveryInputColumns, ensureOutreachTrackingColumns, ensureUnsubscribeSchema } from "../lib/schema-guards";
 
 const router: IRouter = Router();
 
@@ -33,6 +33,9 @@ ensureOutreachTrackingColumns().catch(() => {
 });
 ensureUnsubscribeSchema().catch(() => {
   // Schema will be retried on the next request that needs it.
+});
+ensureCampaignDiscoveryInputColumns().catch(() => {
+  // Schema will be retried by campaign routes if startup races the database.
 });
 
 router.use(healthRouter);

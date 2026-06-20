@@ -397,14 +397,16 @@ async function antiSpamCheck(
     }
   }
 
-  // No duplicate sends — check if same lead+campaign already sent (only when campaign and lead are set)
-  if (item.campaignId !== null && item.leadId !== null) {
+  // No duplicate sends — check if same recipient email already sent for this campaign.
+  // A single lead can legitimately have multiple unique contact emails, so the
+  // duplicate guard must be email-based rather than lead-based.
+  if (item.campaignId !== null) {
     const duplicate = await db
       .select({ id: outreachQueueTable.id })
       .from(outreachQueueTable)
       .where(
         and(
-          eq(outreachQueueTable.leadId, item.leadId),
+          eq(outreachQueueTable.recipientEmail, item.recipientEmail),
           eq(outreachQueueTable.campaignId, item.campaignId),
           eq(outreachQueueTable.status, "sent"),
         ),

@@ -8,7 +8,7 @@ import { Router } from "express";
 import ExcelJS from "exceljs";
 import { db } from "@workspace/db";
 import { leadsTable, logsTable, campaignsTable, campaignRunsTable } from "@workspace/db";
-import { and, eq, gte, inArray, type SQL } from "drizzle-orm";
+import { and, eq, gte, inArray, sql, type SQL } from "drizzle-orm";
 import { saveExportFile } from "../services/export-files";
 
 const router = Router();
@@ -145,9 +145,13 @@ function buildLeadsWorkbook(rows: ExportRow[]) {
 router.get("/leads/export", async (req, res) => {
   const format = (req.query.format as string) || "csv";
   const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
+  const campaignRunId = req.query.campaignRunId ? Number(req.query.campaignRunId) : undefined;
   const status = req.query.status as string | undefined;
   const minScore = req.query.minScore ? Number(req.query.minScore) : undefined;
   const country = req.query.country as string | undefined;
+  const hasEmail = typeof req.query.hasEmail === "string" ? req.query.hasEmail : undefined;
+  const limitRaw = req.query.limit ? Number(req.query.limit) : 10000;
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50000, limitRaw)) : 10000;
   const leadIdsRaw = req.query.leadIds as string | undefined;
   const saveToFile = req.query.save === "1" || req.query.save === "true";
   const leadIds = leadIdsRaw
@@ -162,6 +166,14 @@ router.get("/leads/export", async (req, res) => {
   } else {
     if (campaignId !== undefined && !isNaN(campaignId)) {
       conditions.push(eq(leadsTable.campaignId, campaignId));
+    }
+    if (campaignRunId !== undefined && !isNaN(campaignRunId)) {
+      conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
+    }
+    if (hasEmail === "false") {
+      conditions.push(sql`(${leadsTable.emails} IS NULL OR btrim(${leadsTable.emails}) = '')`);
+    } else if (hasEmail === "true") {
+      conditions.push(sql`(${leadsTable.emails} IS NOT NULL AND btrim(${leadsTable.emails}) != '')`);
     }
     if (status) {
       switch (status) {
@@ -213,8 +225,8 @@ router.get("/leads/export", async (req, res) => {
 
   const rows: ExportRow[] =
     conditions.length > 0
-      ? await baseQuery.where(and(...conditions)).limit(10000)
-      : await baseQuery.limit(10000);
+      ? await baseQuery.where(and(...conditions)).limit(limit)
+      : await baseQuery.limit(limit);
 
   const ts = new Date().toISOString().slice(0, 10);
   const filename = `leads-export-${ts}`;
@@ -222,6 +234,8 @@ router.get("/leads/export", async (req, res) => {
   // ── Log the export ───────────────────────────────────────────────────────
   const filterDesc = [
     campaignId ? `campaign=${campaignId}` : null,
+    campaignRunId ? `run=${campaignRunId}` : null,
+    hasEmail ? `hasEmail=${hasEmail}` : null,
     status ? `status=${status}` : null,
     minScore ? `minScore=${minScore}` : null,
     country ? `country=${country}` : null,

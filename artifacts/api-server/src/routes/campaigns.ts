@@ -15,13 +15,21 @@ import {
   GetCampaignParams,
   DeleteCampaignParams,
 } from "@workspace/api-zod";
-import { ensureCampaignEmailTemplateIdColumn } from "../lib/schema-guards";
+import {
+  ensureCampaignCrawlerColumns,
+  ensureCampaignDiscoveryInputColumns,
+  ensureCampaignEmailTemplateIdColumn,
+} from "../lib/schema-guards";
 
 const router = Router();
 
 router.use(async (_req, _res, next) => {
   try {
-    await ensureCampaignEmailTemplateIdColumn();
+    await Promise.all([
+      ensureCampaignEmailTemplateIdColumn(),
+      ensureCampaignCrawlerColumns(),
+      ensureCampaignDiscoveryInputColumns(),
+    ]);
     next();
   } catch (err) {
     next(err);
