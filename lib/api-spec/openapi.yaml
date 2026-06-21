@@ -485,6 +485,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: emailSearch
+          in: query
+          description: Return only lists containing a matching lead email address.
+          schema:
+            type: string
       responses:
         "200":
           description: Lead lists
@@ -2631,6 +2636,12 @@ components:
           enum: [active, archived]
         leadCount:
           type: integer
+        leadsWithEmail:
+          type: integer
+        hasOutreach:
+          type: boolean
+        campaignRunNames:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:

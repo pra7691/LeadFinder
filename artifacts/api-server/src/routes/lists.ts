@@ -49,6 +49,9 @@ async function matchEmailsToLeads(emails: string[]): Promise<Map<string, number>
 router.get("/lists", async (req, res) => {
   const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
   const includeArchived = req.query.includeArchived === "true";
+  const emailSearch = typeof req.query.emailSearch === "string"
+    ? req.query.emailSearch.trim().toLowerCase()
+    : "";
 
   const conditions = [];
   if (campaignId !== undefined) {
@@ -56,6 +59,18 @@ router.get("/lists", async (req, res) => {
   }
   if (!includeArchived) {
     conditions.push(eq(leadListsTable.listStatus, "active"));
+  }
+  if (emailSearch) {
+    conditions.push(sql`exists (
+      select 1
+      from lead_list_items lli_search
+      left join leads l_search on l_search.id = lli_search.lead_id
+      where lli_search.list_id = ${leadListsTable.id}
+        and (
+          lower(coalesce(lli_search.email, '')) like ${`%${emailSearch}%`}
+          or lower(coalesce(l_search.emails, '')) like ${`%${emailSearch}%`}
+        )
+    )`);
   }
 
   // Join with campaigns for name and count items

@@ -74,6 +74,7 @@ import {
   SkipForward,
   Pause,
   Play,
+  Search,
 } from "lucide-react";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -852,6 +853,7 @@ export function Outreach() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<OutreachItem | null>(null);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [emailSearch, setEmailSearch] = useState("");
 
   // Batch send state
   const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number; stopped?: boolean } | null>(null);
@@ -906,13 +908,18 @@ export function Outreach() {
   const { data: rawItems, isLoading } = useListOutreach(queryParams);
   const outreachItems = Array.isArray(rawItems) ? (rawItems as OutreachItem[]) : [];
   const campaignRows = Array.isArray(campaigns) ? campaigns : [];
+  const filteredOutreachItems = useMemo(() => {
+    const q = emailSearch.trim().toLowerCase();
+    if (!q) return outreachItems;
+    return outreachItems.filter((item) => item.recipientEmail.toLowerCase().includes(q));
+  }, [outreachItems, emailSearch]);
 
   const deleteOutreach = useDeleteOutreach();
   const bulkApprove = useBulkApproveOutreach();
   const bulkReject = useBulkRejectOutreach();
   const sendBatch = useSendOutreachBatch();
   const displayRows = useMemo(() => {
-    const rows = buildDisplayRows(outreachItems);
+    const rows = buildDisplayRows(filteredOutreachItems);
     if (statusFilter === "all" || !DERIVED_STATUSES.has(statusFilter)) return rows;
     // Client-side filter: keep only rows that contain items matching the derived status
     return rows
@@ -921,7 +928,7 @@ export function Outreach() {
         return { ...row, items: filtered, count: filtered.length, status: aggregateStatus(filtered) };
       })
       .filter((row) => row.count > 0);
-  }, [outreachItems, statusFilter, DERIVED_STATUSES]);
+  }, [filteredOutreachItems, statusFilter, DERIVED_STATUSES]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
@@ -1275,6 +1282,16 @@ export function Outreach() {
             <X className="w-3 h-3 mr-1" /> Clear
           </Button>
         )}
+        <div className="relative min-w-[260px] flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={emailSearch}
+            onChange={(e) => setEmailSearch(e.target.value)}
+            placeholder="Search recipient email"
+            className="h-9 rounded-xl pl-9 text-sm"
+          />
+        </div>
       </div>
 
       {/* Bulk action toolbar */}
@@ -1347,7 +1364,9 @@ export function Outreach() {
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <MailOpen className="w-8 h-8 opacity-20" />
                       <p className="text-sm">
-                        {statusFilter !== "all" || campaignFilter !== "all"
+                        {emailSearch.trim()
+                          ? `No outreach found for “${emailSearch.trim()}”`
+                          : statusFilter !== "all" || campaignFilter !== "all"
                           ? "No items match the current filters"
                           : "The queue is empty — queue leads from the Leads page."}
                       </p>

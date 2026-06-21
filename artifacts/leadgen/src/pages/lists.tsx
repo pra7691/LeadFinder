@@ -54,6 +54,7 @@ import {
   Download,
   Loader2,
   Mail,
+  Search,
   Send,
   ChevronDown,
   Upload,
@@ -403,6 +404,7 @@ export function Lists() {
   const { toast } = useToast();
 
   const [showArchived, setShowArchived] = useState(false);
+  const [emailSearch, setEmailSearch] = useState("");
   const [newOpen, setNewOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<LeadList | null>(null);
   const [exportingListId, setExportingListId] = useState<number | null>(null);
@@ -413,7 +415,10 @@ export function Lists() {
   const [outreachAccountId, setOutreachAccountId] = useState("");
   const [outreachResult, setOutreachResult] = useState<{ queued: number; skipped: number } | null>(null);
 
-  const listParams = { includeArchived: showArchived ? true : undefined };
+  const listParams = {
+    includeArchived: showArchived ? true : undefined,
+    emailSearch: emailSearch.trim() || undefined,
+  };
   const { data: lists, isLoading } = useListLeadLists(
     listParams,
     { query: { staleTime: 10_000, queryKey: getListLeadListsQueryKey(listParams) } },
@@ -552,6 +557,25 @@ export function Lists() {
         ))}
       </div>
 
+      <div className="flex flex-col gap-2 rounded-2xl border border-border/50 bg-card/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium">Find lists by email</p>
+          <p className="text-xs text-muted-foreground">
+            Search all lists for a specific lead email address.
+          </p>
+        </div>
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={emailSearch}
+            onChange={(e) => setEmailSearch(e.target.value)}
+            placeholder="email@example.com"
+            className="rounded-xl pl-9"
+          />
+        </div>
+      </div>
+
       {isLoading ? (
         <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
           <Table>
@@ -572,7 +596,17 @@ export function Lists() {
           </Table>
         </div>
       ) : listRows.length === 0 ? (
-        <EmptyState onNew={() => setNewOpen(true)} />
+        emailSearch.trim() ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-border/50 bg-card/30 py-20 text-center">
+            <Mail className="mb-3 h-8 w-8 text-muted-foreground/50" />
+            <h3 className="font-semibold text-lg mb-1">No lists found</h3>
+            <p className="text-sm text-muted-foreground">
+              No list contains an email matching “{emailSearch.trim()}”.
+            </p>
+          </div>
+        ) : (
+          <EmptyState onNew={() => setNewOpen(true)} />
+        )
       ) : (
         <div className="rounded-2xl border border-border/50 overflow-hidden bg-card/30">
           <Table>
