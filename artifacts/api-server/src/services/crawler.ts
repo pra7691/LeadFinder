@@ -538,7 +538,7 @@ export async function crawlWebsite(
   // Resolve effective config (campaign-provided values override legacy defaults)
   const configuredPaths = parseLineList(options?.crawlPaths ?? null, CRAWL_PAGES);
   const linkKeywords = parseLineList(options?.internalLinkKeywords ?? null, []);
-  const maxPages = Math.max(1, Math.min(30, options?.maxPagesPerDomain ?? 10));
+  const maxPages = Math.max(1, options?.maxPagesPerDomain ?? 10);
   const maxDepth = Math.max(0, Math.min(2, options?.maxCrawlDepth ?? 0));
 
   const urls = buildPageUrls(websiteUrl, configuredPaths);

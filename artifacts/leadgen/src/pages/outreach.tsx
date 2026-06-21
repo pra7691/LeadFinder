@@ -134,8 +134,8 @@ export type OutreachDisplayRow = {
   templateName: string | null;
   listName: string | null;
   status: string;
-  openCount: number;
-  clickCount: number;
+  sentCount: number;
+  remainingCount: number;
   date: string;
 };
 
@@ -297,7 +297,8 @@ export function getDisplayStatus(item: OutreachItem): string {
   // We collapse "opened" and "clicked" into a single "opened" badge so that
   // a batch with a mix of opens and clicks still aggregates correctly (the
   // aggregate badge stays "Opened" instead of falling through to "Completed").
-  // Per-item click counts are still shown separately in the Clicked column.
+  // Tracking still affects display status, but tracking counts are not shown
+  // in the outreach list; delivery progress is shown as sent/remaining.
   if (item.status === "sent" && ((item.openCount ?? 0) > 0 || (item.clickCount ?? 0) > 0)) {
     return "opened";
   }
@@ -422,9 +423,7 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
     const sorted = [...groupItems].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     const primary = sorted[0]!;
     const isGroup = sorted.length > 1 || Boolean(primary.listId);
-    // Unique-recipient counts (how many recipients opened/clicked ≥ once)
-    const openCount = sorted.filter((item) => (item.openCount ?? 0) > 0).length;
-    const clickCount = sorted.filter((item) => (item.clickCount ?? 0) > 0).length;
+    const sentCount = sorted.filter((item) => item.status === "sent" || Boolean(item.sentAt)).length;
 
     return {
       id: key,
@@ -438,8 +437,8 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
       templateName: primary.templateName ?? null,
       listName: primary.listName ?? null,
       status: aggregateStatus(sorted),
-      openCount,
-      clickCount,
+      sentCount,
+      remainingCount: sorted.length - sentCount,
       date: primary.sentAt ?? primary.approvedAt ?? primary.createdAt,
     };
   });
@@ -768,9 +767,6 @@ function PreviewPanel({
               { label: "Created", ts: item.createdAt },
               { label: "Approved", ts: item.approvedAt },
               { label: "Sent", ts: item.sentAt },
-              { label: "First opened", ts: item.firstOpenedAt },
-              { label: "Last opened", ts: item.lastOpenedAt },
-              { label: "Last clicked", ts: item.lastClickedAt },
               { label: "Bounced", ts: item.bouncedAt },
             ]
               .filter((r) => r.ts)
@@ -780,16 +776,6 @@ function PreviewPanel({
                   <span className="font-medium">{format(new Date(r.ts!), "MMM d, yyyy HH:mm")}</span>
                 </div>
               ))}
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <div className="rounded-lg bg-muted/30 p-2 text-xs">
-                <span className="text-muted-foreground">Opens</span>
-                <p className="font-semibold">{item.openCount ?? 0}</p>
-              </div>
-              <div className="rounded-lg bg-muted/30 p-2 text-xs">
-                <span className="text-muted-foreground">Clicks</span>
-                <p className="font-semibold">{item.clickCount ?? 0}</p>
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -1157,68 +1143,25 @@ export function Outreach() {
         </div>
       </div>
 
-      {/* Stats — two sections: Outreach (per-batch) and Email (per-message) */}
+      {/* Stats */}
       {outreachItems.length > 0 && (() => {
-        // Outreach stats — per-batch (aggregated)
         const totalOutreach = displayRows.length;
-        const completedOutreach = displayRows.filter((r) => r.status === "completed").length;
-        const openedOutreach = displayRows.filter((r) => r.status === "opened").length;
-
-        // Email stats — per-message. "Opened" includes clicked, matching the new
-        // displayStatus collapse (clicked is no longer a separate status).
         const totalEmailsSent = outreachItems.filter((i) => i.status === "sent").length;
-        const totalEmailsOpened = outreachItems.filter(
-          (i) => i.status === "sent" && ((i.openCount ?? 0) > 0 || (i.clickCount ?? 0) > 0),
-        ).length;
 
         return (
-          <div className="space-y-3">
-            {/* Outreach Stats */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Outreach Stats</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
-                  <Send className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-lg font-semibold text-foreground leading-none">{totalOutreach}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total outreach</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <div>
-                    <p className="text-lg font-semibold text-emerald-600 leading-none">{completedOutreach}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Completed</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
-                  <MailOpen className="w-5 h-5 text-purple-600" />
-                  <div>
-                    <p className="text-lg font-semibold text-purple-600 leading-none">{openedOutreach}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Opened</p>
-                  </div>
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
+              <Send className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-lg font-semibold text-foreground leading-none">{totalOutreach}</p>
+                <p className="text-xs text-muted-foreground mt-1">Total outreach</p>
               </div>
             </div>
-
-            {/* Email Stats */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Email Stats</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
-                  <Mail className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-lg font-semibold text-foreground leading-none">{totalEmailsSent}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total emails sent</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
-                  <MailOpen className="w-5 h-5 text-purple-600" />
-                  <div>
-                    <p className="text-lg font-semibold text-purple-600 leading-none">{totalEmailsOpened}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total emails opened (incl. clicks)</p>
-                  </div>
-                </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
+              <Mail className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-lg font-semibold text-foreground leading-none">{totalEmailsSent}</p>
+                <p className="text-xs text-muted-foreground mt-1">Total emails sent</p>
               </div>
             </div>
           </div>
@@ -1334,8 +1277,8 @@ export function Outreach() {
                 <TableHead>Template</TableHead>
                 <TableHead className="w-[100px]">Count</TableHead>
                 <TableHead className="w-[120px]">Status</TableHead>
-                <TableHead className="w-[80px] text-center">Opens</TableHead>
-                <TableHead className="w-[80px] text-center">Clicks</TableHead>
+                <TableHead className="w-[90px] text-center">Sent</TableHead>
+                <TableHead className="w-[110px] text-center">Remaining</TableHead>
                 <TableHead className="w-[140px]">Date</TableHead>
                 <TableHead className="w-[160px] text-right pr-4">Actions</TableHead>
               </TableRow>
@@ -1360,7 +1303,7 @@ export function Outreach() {
                 ))
               ) : displayRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40 text-center">
+                  <TableCell colSpan={9} className="h-40 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <MailOpen className="w-8 h-8 opacity-20" />
                       <p className="text-sm">
@@ -1526,16 +1469,14 @@ function OutreachGroupRow({
       </TableCell>
 
       <TableCell className="text-center">
-        <span className={cn("inline-flex items-center gap-1 text-sm font-medium", row.openCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/40")}>
-          <Eye className="w-3.5 h-3.5" />
-          {row.openCount}
+        <span className={cn("text-sm font-semibold", row.sentCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50")}>
+          {row.sentCount}
         </span>
       </TableCell>
 
       <TableCell className="text-center">
-        <span className={cn("inline-flex items-center gap-1 text-sm font-medium", row.clickCount > 0 ? "text-primary" : "text-muted-foreground/40")}>
-          <MousePointerClick className="w-3.5 h-3.5" />
-          {row.clickCount}
+        <span className={cn("text-sm font-semibold", row.remainingCount > 0 ? "text-amber-600" : "text-muted-foreground/50")}>
+          {row.remainingCount}
         </span>
       </TableCell>
 
@@ -1696,23 +1637,16 @@ function OutreachRow({
 
       <TableCell><StatusBadge status={getDisplayStatus(item)} /></TableCell>
 
-      <TableCell>
-        <div className="flex flex-col gap-1 text-xs">
-          <span className={cn(
-            "inline-flex items-center gap-1",
-            (item.openCount ?? 0) > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
-          )}>
-            <Eye className="w-3.5 h-3.5" />
-            {item.openCount ?? 0} open{(item.openCount ?? 0) === 1 ? "" : "s"}
-          </span>
-          <span className={cn(
-            "inline-flex items-center gap-1",
-            (item.clickCount ?? 0) > 0 ? "text-primary" : "text-muted-foreground",
-          )}>
-            <MousePointerClick className="w-3.5 h-3.5" />
-            {item.clickCount ?? 0} click{(item.clickCount ?? 0) === 1 ? "" : "s"}
-          </span>
-        </div>
+      <TableCell className="text-center">
+        <span className={cn("text-sm font-semibold", item.status === "sent" || item.sentAt ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50")}>
+          {item.status === "sent" || item.sentAt ? 1 : 0}
+        </span>
+      </TableCell>
+
+      <TableCell className="text-center">
+        <span className={cn("text-sm font-semibold", item.status === "sent" || item.sentAt ? "text-muted-foreground/50" : "text-amber-600")}>
+          {item.status === "sent" || item.sentAt ? 0 : 1}
+        </span>
       </TableCell>
 
       <TableCell className="text-xs text-muted-foreground">

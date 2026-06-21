@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Download, Eye, Mail, MousePointerClick, Users, Trash2, Loader2, RefreshCw, Play } from "lucide-react";
+import { ArrowLeft, Download, Eye, Mail, Users, Trash2, Loader2, RefreshCw, Play, Send } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -67,17 +67,14 @@ export function OutreachBatchDetail() {
     if (!batch) return;
     setExporting(true);
     try {
-      const header = ["Company", "Email", "Status", "Opens", "Clicks", "Sent At", "First Opened", "Last Opened", "Last Clicked"];
+      const header = ["Company", "Email", "Status", "Sent", "Remaining", "Sent At"];
       const dataRows = batch.items.map((item) => [
         item.companyName ?? "",
         item.recipientEmail,
         getDisplayStatus(item),
-        item.openCount ?? 0,
-        item.clickCount ?? 0,
+        item.status === "sent" || item.sentAt ? 1 : 0,
+        item.status === "sent" || item.sentAt ? 0 : 1,
         item.sentAt ?? "",
-        item.firstOpenedAt ?? "",
-        item.lastOpenedAt ?? "",
-        item.lastClickedAt ?? "",
       ]);
       const csv = [header, ...dataRows].map((row) => row.map(csvEscape).join(",")).join("\r\n") + "\r\n";
       const filename = `outreach-${batch.id}-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -197,10 +194,8 @@ export function OutreachBatchDetail() {
     );
   }
 
-  const openedRecipients = batch.items.filter((item) => (item.openCount ?? 0) > 0).length;
-  const clickedRecipients = batch.items.filter((item) => (item.clickCount ?? 0) > 0).length;
-  const totalOpens = batch.items.reduce((sum, item) => sum + (item.openCount ?? 0), 0);
-  const totalClicks = batch.items.reduce((sum, item) => sum + (item.clickCount ?? 0), 0);
+  const sentRecipients = batch.items.filter((item) => item.status === "sent" || Boolean(item.sentAt)).length;
+  const remainingRecipients = batch.items.length - sentRecipients;
 
   return (
     <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -276,21 +271,17 @@ export function OutreachBatchDetail() {
         </div>
         <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
           <div className="flex items-center gap-2 text-muted-foreground text-xs uppercase tracking-widest">
-            <Eye className="w-4 h-4" /> Opened
+            <Send className="w-4 h-4" /> Sent
           </div>
-          <p className="mt-2 text-2xl font-semibold">{openedRecipients}</p>
-          <p className="text-xs text-muted-foreground">
-            {totalOpens > openedRecipients ? `${totalOpens} total open${totalOpens === 1 ? "" : "s"}` : `recipient${openedRecipients === 1 ? "" : "s"}`}
-          </p>
+          <p className="mt-2 text-2xl font-semibold">{sentRecipients}</p>
+          <p className="text-xs text-muted-foreground">email{sentRecipients === 1 ? "" : "s"} sent</p>
         </div>
         <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
           <div className="flex items-center gap-2 text-muted-foreground text-xs uppercase tracking-widest">
-            <MousePointerClick className="w-4 h-4" /> Clicked
+            <Mail className="w-4 h-4" /> Remaining
           </div>
-          <p className="mt-2 text-2xl font-semibold">{clickedRecipients}</p>
-          <p className="text-xs text-muted-foreground">
-            {totalClicks > clickedRecipients ? `${totalClicks} total click${totalClicks === 1 ? "" : "s"}` : `recipient${clickedRecipients === 1 ? "" : "s"}`}
-          </p>
+          <p className="mt-2 text-2xl font-semibold">{remainingRecipients}</p>
+          <p className="text-xs text-muted-foreground">email{remainingRecipients === 1 ? "" : "s"} not sent yet</p>
         </div>
         <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
           <div className="flex items-center gap-2 text-muted-foreground text-xs uppercase tracking-widest">
@@ -309,12 +300,9 @@ export function OutreachBatchDetail() {
             <TableRow className="border-border/30 hover:bg-transparent">
               <TableHead>Recipient</TableHead>
               <TableHead className="w-[110px]">Status</TableHead>
-              <TableHead className="w-[90px] text-center">Opens</TableHead>
-              <TableHead className="w-[90px] text-center">Clicks</TableHead>
-              <TableHead className="w-[160px]">Sent</TableHead>
-              <TableHead className="w-[160px]">First Opened</TableHead>
-              <TableHead className="w-[160px]">Last Opened</TableHead>
-              <TableHead className="w-[160px]">Last Clicked</TableHead>
+              <TableHead className="w-[90px] text-center">Sent</TableHead>
+              <TableHead className="w-[110px] text-center">Remaining</TableHead>
+              <TableHead className="w-[160px]">Sent At</TableHead>
               <TableHead className="w-[96px]" />
             </TableRow>
           </TableHeader>
@@ -328,12 +316,9 @@ export function OutreachBatchDetail() {
                   </div>
                 </TableCell>
                 <TableCell><StatusBadge status={getDisplayStatus(item)} /></TableCell>
-                <TableCell className="text-center font-semibold">{item.openCount ?? 0}</TableCell>
-                <TableCell className="text-center font-semibold">{item.clickCount ?? 0}</TableCell>
+                <TableCell className="text-center font-semibold">{item.status === "sent" || item.sentAt ? 1 : 0}</TableCell>
+                <TableCell className="text-center font-semibold">{item.status === "sent" || item.sentAt ? 0 : 1}</TableCell>
                 <TableCell className="text-xs">{formatTrackingTime(item.sentAt)}</TableCell>
-                <TableCell className="text-xs">{formatTrackingTime(item.firstOpenedAt)}</TableCell>
-                <TableCell className="text-xs">{formatTrackingTime(item.lastOpenedAt)}</TableCell>
-                <TableCell className="text-xs">{formatTrackingTime(item.lastClickedAt)}</TableCell>
                 <TableCell className="text-right pr-3">
                   <div className="flex items-center justify-end gap-1">
                     <Button
@@ -414,11 +399,6 @@ export function OutreachBatchDetail() {
                 )}
                 {viewItem.sentAt && (
                   <span>Sent: {formatTrackingTime(viewItem.sentAt)}</span>
-                )}
-                {(viewItem.openCount ?? 0) > 0 && (
-                  <span className="text-emerald-400">
-                    {viewItem.openCount} open{viewItem.openCount === 1 ? "" : "s"} · first {formatTrackingTime(viewItem.firstOpenedAt)}
-                  </span>
                 )}
               </div>
             </div>

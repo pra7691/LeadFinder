@@ -120,7 +120,7 @@ export const CreateCampaignBody = zod.object({
   "isPaused": zod.boolean().optional(),
   "crawlPaths": zod.string().optional(),
   "internalLinkKeywords": zod.string().optional(),
-  "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
+  "maxPagesPerDomain": zod.number().min(1).optional(),
   "maxCrawlDepth": zod.number().min(0).max(2).optional(),
   "emailTemplateId": zod.number().nullish()
 })
@@ -211,7 +211,7 @@ export const UpdateCampaignBody = zod.object({
   "isPaused": zod.boolean().optional(),
   "crawlPaths": zod.string().optional(),
   "internalLinkKeywords": zod.string().optional(),
-  "maxPagesPerDomain": zod.number().min(1).max(30).optional(),
+  "maxPagesPerDomain": zod.number().min(1).optional(),
   "maxCrawlDepth": zod.number().min(0).max(2).optional(),
   "emailTemplateId": zod.number().nullish()
 })

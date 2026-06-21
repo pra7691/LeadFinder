@@ -860,12 +860,11 @@ function SettingsTab({
               <Input
                 type="number"
                 min={1}
-                max={30}
                 value={formData.maxPagesPerDomain}
-                onChange={(e) => setFormData({ ...formData, maxPagesPerDomain: Math.max(1, Math.min(30, Number(e.target.value) || 1)) })}
+                onChange={(e) => setFormData({ ...formData, maxPagesPerDomain: Math.max(1, Number(e.target.value) || 1) })}
                 className="rounded-xl bg-background/50"
               />
-              <p className="text-[11px] text-muted-foreground/70">Hard cap (1–30). Includes configured paths + followed links.</p>
+              <p className="text-[11px] text-muted-foreground/70">Includes configured paths + followed links.</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-muted-foreground">Max Crawl Depth</Label>
