@@ -11,6 +11,8 @@ import {
   campaignRunsTable,
   campaignRunResultsTable,
   leadsTable,
+  campaignRunBatchesTable,
+  campaignRunBatchItemsTable,
   outreachQueueTable,
   emailAccountsTable,
   campaignEmailAccountsTable,
@@ -29,6 +31,8 @@ import { getSerperApiKey } from "../services/serper-key";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
 import { classifyLeadType } from "../services/lead-classifier";
 import { scoreLead } from "../services/scorer";
+import { classifyEmail } from "../services/email-validator";
+import { isEmailBlacklisted } from "../services/email-blacklist";
 import nodemailer from "nodemailer";
 import { isEncrypted, decrypt } from "../lib/crypto";
 import { logger } from "../lib/logger";
@@ -37,10 +41,62 @@ import { buildUnsubscribeUrl, isEmailUnsubscribed } from "../routes/unsubscribe"
 import { parseLeadEmails, getPrimaryLeadEmail, sanitizeEmail } from "../services/lead-emails";
 import { generatePersonalizedEmail } from "../services/email-generator";
 import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
+import { normalizeUniqueRecipients } from "./incremental-batch-utils";
+import { isCancellationStatus } from "./run-safety";
+
+const CRAWL_CONCURRENCY = 5;
+const SCORE_CONCURRENCY = 2;
+const PROCESSING_BATCH_SIZE = 50;
+
+function createLimiter(concurrency: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+
+  const runNext = () => {
+    if (active >= concurrency) return;
+    const next = queue.shift();
+    if (!next) return;
+    active++;
+    next();
+  };
+
+  return async function limit<T>(task: () => Promise<T>): Promise<T> {
+    await new Promise<void>((resolve) => {
+      queue.push(resolve);
+      runNext();
+    });
+    try {
+      return await task();
+    } finally {
+      active--;
+      runNext();
+    }
+  };
+}
+
+const crawlLimiter = createLimiter(CRAWL_CONCURRENCY);
+const scoreLimiter = createLimiter(SCORE_CONCURRENCY);
+const runBatchDrainLocks = new Map<number, Promise<BatchProcessingStats>>();
+
+type BatchProcessingStats = {
+  batchesProcessed: number;
+  scoredCount: number;
+  failedCount: number;
+  qualifiedCount: number;
+  outreachDraftsCreated: number;
+};
+
+type CrawlStats = {
+  crawledCount: number;
+  scoredCount: number;
+  failedCount: number;
+  outreachDraftsCreated: number;
+};
 
 // ── Cancellation registry ─────────────────────────────────────────────────
 
 const cancelledRuns = new Set<number>();
+const activePipelineRuns = new Set<number>();
 
 /** Signal the pipeline to stop at the next safe checkpoint. */
 export function requestCancellation(runId: number): void {
@@ -52,14 +108,477 @@ export function clearCancellation(runId: number | undefined | null): void {
   if (runId != null) cancelledRuns.delete(runId);
 }
 
-function isCancelled(runId: number | undefined | null): boolean {
-  return runId != null && cancelledRuns.has(runId);
+export function isRunPipelineActive(runId: number | undefined | null): boolean {
+  return runId != null && activePipelineRuns.has(runId);
+}
+
+async function isCancellationRequested(runId: number | undefined | null): Promise<boolean> {
+  if (runId == null) return false;
+  if (cancelledRuns.has(runId)) return true;
+  const [run] = await db
+    .select({ status: campaignRunsTable.status })
+    .from(campaignRunsTable)
+    .where(eq(campaignRunsTable.id, runId));
+  return isCancellationStatus(run?.status);
+}
+
+async function finalizeCancelledRun(
+  campaignId: number,
+  campaignRunId: number | undefined | null,
+  startedAtMs: number,
+): Promise<void> {
+  if (campaignRunId == null) return;
+
+  const now = new Date();
+  const durationSeconds = Math.round((now.getTime() - startedAtMs) / 1000);
+  await db
+    .update(campaignRunsTable)
+    .set({
+      status: "cancelled",
+      currentStage: "cancelled",
+      completedAt: now,
+      durationSeconds,
+      estimatedRemainingSeconds: 0,
+    })
+    .where(and(
+      eq(campaignRunsTable.id, campaignRunId),
+      inArray(campaignRunsTable.status, ["running", "cancelling"]),
+    ));
+
+  await db
+    .update(campaignsTable)
+    .set({ lastRunStatus: "cancelled", lastRunAt: now })
+    .where(eq(campaignsTable.id, campaignId));
+
+  await schedulerLog(campaignId, `Campaign run #${campaignRunId} cancelled at a safe checkpoint`, { campaignRunId });
+  clearCancellation(campaignRunId);
 }
 
 function fromHeader(account: typeof emailAccountsTable.$inferSelect): string {
   const address = account.email || account.smtpUser;
   const displayName = account.senderName?.trim() || address;
   return `"${displayName.replace(/"/g, '\\"')}" <${address}>`;
+}
+
+function emptyBatchStats(): BatchProcessingStats {
+  return {
+    batchesProcessed: 0,
+    scoredCount: 0,
+    failedCount: 0,
+    qualifiedCount: 0,
+    outreachDraftsCreated: 0,
+  };
+}
+
+function mergeBatchStats(
+  target: BatchProcessingStats,
+  incoming: BatchProcessingStats,
+): BatchProcessingStats {
+  target.batchesProcessed += incoming.batchesProcessed;
+  target.scoredCount += incoming.scoredCount;
+  target.failedCount += incoming.failedCount;
+  target.qualifiedCount += incoming.qualifiedCount;
+  target.outreachDraftsCreated += incoming.outreachDraftsCreated;
+  return target;
+}
+
+function processingOutreachBatchKey(batch: typeof campaignRunBatchesTable.$inferSelect): string {
+  return `campaign-run-${batch.campaignRunId}-batch-${batch.batchNumber}`;
+}
+
+async function getAssignedSenderAccountId(campaignId: number): Promise<number | null> {
+  const [assigned] = await db
+    .select({ accountId: campaignEmailAccountsTable.emailAccountId })
+    .from(campaignEmailAccountsTable)
+    .where(eq(campaignEmailAccountsTable.campaignId, campaignId))
+    .limit(1);
+  return assigned?.accountId ?? null;
+}
+
+async function hasCampaignRunBatches(campaignRunId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: campaignRunBatchesTable.id })
+    .from(campaignRunBatchesTable)
+    .where(eq(campaignRunBatchesTable.campaignRunId, campaignRunId))
+    .limit(1);
+  return Boolean(row);
+}
+
+async function getRecoverableBatch(
+  campaignRunId: number,
+): Promise<typeof campaignRunBatchesTable.$inferSelect | null> {
+  if (await isCancellationRequested(campaignRunId)) return null;
+
+  const [batch] = await db
+    .select()
+    .from(campaignRunBatchesTable)
+    .where(and(
+      eq(campaignRunBatchesTable.campaignRunId, campaignRunId),
+      inArray(campaignRunBatchesTable.status, ["claimed", "scoring", "creating_drafts"]),
+    ))
+    .orderBy(campaignRunBatchesTable.batchNumber)
+    .limit(1);
+  return batch ?? null;
+}
+
+async function claimCrawledLeadBatch(
+  campaign: typeof campaignsTable.$inferSelect,
+  campaignRunId: number,
+  flushPartial: boolean,
+): Promise<typeof campaignRunBatchesTable.$inferSelect | null> {
+  if (await isCancellationRequested(campaignRunId)) return null;
+
+  return db.transaction(async (tx) => {
+    const candidatesResult = await tx.execute(sql`
+      SELECT l.id
+      FROM leads l
+      WHERE l.campaign_id = ${campaign.id}
+        AND l.campaign_run_id = ${campaignRunId}
+        AND l.crawl_status = 'crawled'
+        AND l.scoring_method IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM campaign_run_batch_items bi
+          WHERE bi.campaign_run_id = ${campaignRunId}
+            AND bi.lead_id = l.id
+        )
+      ORDER BY l.id
+      LIMIT ${PROCESSING_BATCH_SIZE}
+      FOR UPDATE SKIP LOCKED
+    `);
+    const candidateRows =
+      (candidatesResult as unknown as { rows?: { id: number }[] }).rows ?? [];
+    if (candidateRows.length === 0) return null;
+    if (!flushPartial && candidateRows.length < PROCESSING_BATCH_SIZE) return null;
+
+    const nextNumberResult = await tx.execute(sql`
+      SELECT COALESCE(MAX(batch_number), 0) + 1 AS next_number
+      FROM campaign_run_batches
+      WHERE campaign_run_id = ${campaignRunId}
+    `);
+    const nextNumberRows =
+      (nextNumberResult as unknown as { rows?: { next_number: number | string }[] }).rows ?? [];
+    const batchNumber = Number(nextNumberRows[0]?.next_number ?? 1);
+    const senderAccountId = await getAssignedSenderAccountId(campaign.id);
+
+    const [batch] = await tx
+      .insert(campaignRunBatchesTable)
+      .values({
+        campaignId: campaign.id,
+        campaignRunId,
+        batchNumber,
+        status: "claimed",
+        crawledLeadsCount: candidateRows.length,
+        emailTemplateId: campaign.emailTemplateId ?? null,
+        senderAccountId,
+      })
+      .returning();
+    if (!batch) return null;
+
+    await tx.insert(campaignRunBatchItemsTable).values(
+      candidateRows.map((row) => ({
+        campaignId: campaign.id,
+        campaignRunId,
+        batchId: batch.id,
+        leadId: row.id,
+      })),
+    ).onConflictDoNothing();
+
+    return batch;
+  });
+}
+
+async function isEmailHardBouncedForRecipient(email: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: outreachQueueTable.id })
+    .from(outreachQueueTable)
+    .where(and(
+      eq(outreachQueueTable.recipientEmail, email.toLowerCase()),
+      eq(outreachQueueTable.status, "bounced"),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
+async function canCreateAutoOutreachDraft(
+  campaignId: number,
+  lead: typeof leadsTable.$inferSelect,
+  recipientEmail: string,
+  blockedDomains: Set<string>,
+): Promise<boolean> {
+  if (lead.crawlStatus !== "crawled") return false;
+  if (lead.qualificationStatus !== "qualified") return false;
+  if (lead.reviewStatus === "low_relevance" || lead.reviewStatus === "rejected") return false;
+
+  const email = sanitizeEmail(recipientEmail.trim()).toLowerCase();
+  if (!email || !email.includes("@")) return false;
+  if (classifyEmail(email).isRejected) return false;
+  if (await isEmailBlacklisted(email)) return false;
+
+  const recipientDomain = email.split("@")[1];
+  if (recipientDomain && domainMatchesBlockedList(recipientDomain, blockedDomains)) return false;
+  if (await isEmailUnsubscribed(email)) return false;
+  if (await isEmailHardBouncedForRecipient(email)) return false;
+
+  const [existing] = await db
+    .select({ id: outreachQueueTable.id })
+    .from(outreachQueueTable)
+    .where(and(
+      eq(outreachQueueTable.campaignId, campaignId),
+      eq(outreachQueueTable.recipientEmail, email),
+      inArray(outreachQueueTable.status, ["pending_review", "approved", "draft", "queued", "sent"]),
+    ))
+    .limit(1);
+  return !existing;
+}
+
+async function processCampaignRunBatch(
+  campaign: typeof campaignsTable.$inferSelect,
+  batch: typeof campaignRunBatchesTable.$inferSelect,
+  errors: string[],
+): Promise<BatchProcessingStats> {
+  const stats = emptyBatchStats();
+  if (await isCancellationRequested(batch.campaignRunId)) return stats;
+
+  await db
+    .update(campaignRunBatchesTable)
+    .set({ status: "scoring", errorMessage: null })
+    .where(eq(campaignRunBatchesTable.id, batch.id));
+
+  const keywords = await db
+    .select({ keyword: campaignKeywordsTable.keyword })
+    .from(campaignKeywordsTable)
+    .where(eq(campaignKeywordsTable.campaignId, campaign.id));
+  const keywordList = keywords.map((k) => k.keyword);
+
+  const batchItems = await db
+    .select({ leadId: campaignRunBatchItemsTable.leadId })
+    .from(campaignRunBatchItemsTable)
+    .where(eq(campaignRunBatchItemsTable.batchId, batch.id));
+  if (batchItems.length === 0) {
+    await db.update(campaignRunBatchesTable)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(campaignRunBatchesTable.id, batch.id));
+    stats.batchesProcessed++;
+    return stats;
+  }
+
+  const leadIds = batchItems.map((item) => item.leadId);
+  let leads = await db.select().from(leadsTable).where(inArray(leadsTable.id, leadIds));
+
+  for (const lead of leads) {
+    if (await isCancellationRequested(batch.campaignRunId)) break;
+    if (lead.scoringMethod) continue;
+    await scoreLimiter(async () => {
+      const result = await scoreLead({
+        leadId: lead.id,
+        campaignObjective: campaign.objective,
+        campaignKeywords: keywordList,
+        companyName: lead.companyName,
+        rootDomain: lead.rootDomain,
+        rawText: lead.rawText ?? null,
+        sourceQuery: lead.sourceQuery ?? null,
+      });
+
+      const failed = result.score == null;
+      const reviewStatus =
+        !failed && result.score !== null && result.score < campaign.minRelevanceScore
+          ? "low_relevance"
+          : lead.reviewStatus;
+      const qualificationStatus =
+        failed
+          ? lead.qualificationStatus
+          : result.score! >= campaign.minRelevanceScore
+            ? "qualified"
+            : "rejected";
+
+      await db.update(leadsTable)
+        .set({
+          relevanceScore: result.score,
+          relevanceReason: result.reason,
+          scoringMethod: result.scoringMethod,
+          reviewStatus,
+          qualificationStatus,
+        })
+        .where(eq(leadsTable.id, lead.id));
+
+      if (failed) {
+        errors.push(`Score failed ${lead.rootDomain}: ${result.reason}`);
+        stats.failedCount++;
+      } else {
+        stats.scoredCount++;
+      }
+    });
+  }
+
+  if (await isCancellationRequested(batch.campaignRunId)) {
+    await db
+      .update(campaignRunBatchesTable)
+      .set({ status: "scoring", scoredCount: stats.scoredCount })
+      .where(eq(campaignRunBatchesTable.id, batch.id));
+    return stats;
+  }
+
+  leads = await db.select().from(leadsTable).where(inArray(leadsTable.id, leadIds));
+  const qualifiedLeads = leads.filter(
+    (lead) =>
+      lead.qualificationStatus === "qualified" &&
+      (lead.relevanceScore ?? -1) >= campaign.minRelevanceScore,
+  );
+  stats.qualifiedCount = qualifiedLeads.length;
+
+  await db
+    .update(campaignRunBatchesTable)
+    .set({
+      status: "creating_drafts",
+      scoredCount: stats.scoredCount,
+      qualifiedCount: stats.qualifiedCount,
+    })
+    .where(eq(campaignRunBatchesTable.id, batch.id));
+
+  const [blockedSetting] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+  const blockedDomains = parseBlockedDomains(blockedSetting?.value);
+
+  const template = batch.emailTemplateId
+    ? (await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, batch.emailTemplateId)))[0]
+    : null;
+  const senderAccountId = batch.senderAccountId ?? await getAssignedSenderAccountId(campaign.id);
+  const outreachBatchKey = processingOutreachBatchKey(batch);
+  const seenRecipients = new Set<string>();
+
+  if (template && senderAccountId) {
+    for (const lead of qualifiedLeads) {
+      if (await isCancellationRequested(batch.campaignRunId)) break;
+      for (const recipientEmail of normalizeUniqueRecipients(parseLeadEmails(lead.emails))) {
+        if (await isCancellationRequested(batch.campaignRunId)) break;
+        if (seenRecipients.has(recipientEmail)) continue;
+        seenRecipients.add(recipientEmail);
+        if (!(await canCreateAutoOutreachDraft(campaign.id, lead, recipientEmail, blockedDomains))) {
+          continue;
+        }
+
+        const result = await generatePersonalizedEmail(
+          { ...lead, emails: recipientEmail },
+          template,
+          { campaignName: campaign.name, listName: "" },
+        );
+
+        try {
+          const [inserted] = await db.insert(outreachQueueTable).values({
+            campaignId: campaign.id,
+            leadId: lead.id,
+            emailAccountId: senderAccountId,
+            emailTemplateId: template.id,
+            listId: null,
+            recipientEmail,
+            subject: result.subject,
+            body: result.body,
+            batchId: outreachBatchKey,
+            outreachBatchId: batch.id,
+            status: "pending_review",
+            aiPersonalized: result.aiUsed,
+          }).onConflictDoNothing().returning({ id: outreachQueueTable.id });
+          if (inserted) stats.outreachDraftsCreated++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn({ err, recipientEmail, batchId: batch.id }, "Incremental auto-outreach draft insert failed");
+          errors.push(`Auto-outreach draft failed ${recipientEmail}: ${msg}`);
+        }
+      }
+    }
+  }
+
+  if (await isCancellationRequested(batch.campaignRunId)) {
+    await db
+      .update(campaignRunBatchesTable)
+      .set({
+        status: "creating_drafts",
+        scoredCount: stats.scoredCount,
+        qualifiedCount: stats.qualifiedCount,
+        outreachDraftsCreated: stats.outreachDraftsCreated,
+      })
+      .where(eq(campaignRunBatchesTable.id, batch.id));
+    return stats;
+  }
+
+  await db
+    .update(campaignRunBatchesTable)
+    .set({
+      status: "completed",
+      scoredCount: stats.scoredCount,
+      qualifiedCount: stats.qualifiedCount,
+      outreachDraftsCreated: stats.outreachDraftsCreated,
+      completedAt: new Date(),
+    })
+    .where(eq(campaignRunBatchesTable.id, batch.id));
+
+  await schedulerLog(
+    campaign.id,
+    `Processing batch #${batch.batchNumber}: ${stats.scoredCount} scored, ${stats.qualifiedCount} qualified, ${stats.outreachDraftsCreated} pending-review drafts`,
+    { campaignRunId: batch.campaignRunId, batchId: batch.id },
+  );
+
+  stats.batchesProcessed++;
+  return stats;
+}
+
+async function drainCampaignRunBatchesUnlocked(
+  campaign: typeof campaignsTable.$inferSelect,
+  campaignRunId: number,
+  errors: string[],
+  flushPartial: boolean,
+): Promise<BatchProcessingStats> {
+  const stats = emptyBatchStats();
+
+  while (true) {
+    if (await isCancellationRequested(campaignRunId)) break;
+    const batch =
+      await getRecoverableBatch(campaignRunId) ??
+      await claimCrawledLeadBatch(campaign, campaignRunId, flushPartial);
+    if (!batch) break;
+
+    try {
+      const batchStats = await processCampaignRunBatch(campaign, batch, errors);
+      mergeBatchStats(stats, batchStats);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Processing batch #${batch.batchNumber} failed: ${msg}`);
+      stats.failedCount++;
+      await db.update(campaignRunBatchesTable)
+        .set({ status: "failed", errorMessage: msg.slice(0, 500) })
+        .where(eq(campaignRunBatchesTable.id, batch.id));
+      break;
+    }
+  }
+
+  return stats;
+}
+
+async function drainCampaignRunBatches(
+  campaign: typeof campaignsTable.$inferSelect,
+  campaignRunId: number | undefined,
+  errors: string[],
+  flushPartial: boolean,
+): Promise<BatchProcessingStats> {
+  if (campaignRunId == null) return emptyBatchStats();
+  if (await isCancellationRequested(campaignRunId)) return emptyBatchStats();
+
+  const previous = runBatchDrainLocks.get(campaignRunId) ?? Promise.resolve(emptyBatchStats());
+  const next = previous
+    .catch(() => emptyBatchStats())
+    .then(() => drainCampaignRunBatchesUnlocked(campaign, campaignRunId, errors, flushPartial));
+  runBatchDrainLocks.set(campaignRunId, next);
+
+  try {
+    return await next;
+  } finally {
+    if (runBatchDrainLocks.get(campaignRunId) === next) {
+      runBatchDrainLocks.delete(campaignRunId);
+    }
+  }
 }
 
 // ── Pipeline result ────────────────────────────────────────────────────────
@@ -332,7 +851,7 @@ async function mineDiscoverySource({
   let blocked = 0;
 
   for (const { href, rootDomain, anchorText } of links) {
-    if (isCancelled(campaignRunId)) break;
+    if (await isCancellationRequested(campaignRunId)) break;
     if (maxNewLeads != null && mined >= maxNewLeads) break;
     if (existingDomains.has(rootDomain)) {
       duplicates++;
@@ -425,7 +944,10 @@ async function setStage(
     await db
       .update(campaignRunsTable)
       .set({ currentStage: stage })
-      .where(eq(campaignRunsTable.id, campaignRunId));
+      .where(and(
+        eq(campaignRunsTable.id, campaignRunId),
+        sql`${campaignRunsTable.status} not in ('cancelling', 'cancelled')`,
+      ));
   } catch { /* non-fatal */ }
 }
 
@@ -1213,9 +1735,110 @@ async function runCrawl(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
   campaignRunId?: number,
-): Promise<number> {
-  let crawledCount = 0;
+): Promise<CrawlStats> {
+  const stats: CrawlStats = {
+    crawledCount: 0,
+    scoredCount: 0,
+    failedCount: 0,
+    outreachDraftsCreated: 0,
+  };
+
+  if (!(await isCancellationRequested(campaignRunId))) {
+    const initialBatchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+    stats.scoredCount += initialBatchStats.scoredCount;
+    stats.failedCount += initialBatchStats.failedCount;
+    stats.outreachDraftsCreated += initialBatchStats.outreachDraftsCreated;
+  }
+
+  const crawlLead = async (lead: typeof leadsTable.$inferSelect): Promise<void> => {
+    try {
+      if (await isCancellationRequested(campaignRunId)) return;
+
+      await db.update(leadsTable)
+        .set({ crawlStatus: "crawling", crawlError: null })
+        .where(eq(leadsTable.id, lead.id));
+
+      // Hard per-lead deadline. Scales with maxPagesPerDomain so deep crawls
+      // get enough headroom; minimum 120s.
+      const perLeadBudgetSec = Math.max(120, (campaign.maxPagesPerDomain ?? 10) * 18);
+      const LEAD_TIMEOUT_MS = perLeadBudgetSec * 1000;
+      const data = await Promise.race([
+        crawlWebsite(lead.websiteUrl, lead.rootDomain, {
+          crawlPaths: campaign.crawlPaths,
+          internalLinkKeywords: campaign.internalLinkKeywords,
+          maxPagesPerDomain: campaign.maxPagesPerDomain,
+          maxCrawlDepth: campaign.maxCrawlDepth,
+          shouldStop: () => isCancellationRequested(campaignRunId),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Crawl timed out after ${LEAD_TIMEOUT_MS / 1000}s`)), LEAD_TIMEOUT_MS),
+        ),
+      ]);
+      if (data.cancelled) {
+        await db.update(leadsTable)
+          .set({ crawlStatus: "pending", crawlError: "Cancelled before crawl completed" })
+          .where(eq(leadsTable.id, lead.id));
+        return;
+      }
+      const ok = data.pagesSucceeded > 0;
+      const updates: Record<string, unknown> = {
+        crawlStatus: ok ? "crawled" : "failed",
+        crawlError: ok ? null : "No pages returned content",
+        rawText: data.rawText || null,
+      };
+      if (ok) {
+        if (data.companyName) updates.companyName = data.companyName;
+        if (data.emails) updates.emails = data.emails;
+        if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
+        if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
+        if (data.address) updates.address = data.address;
+        if (data.country) updates.country = data.country;
+        if (data.linkedinUrl) updates.linkedinUrl = data.linkedinUrl;
+      }
+      await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
+      if (ok) {
+        stats.crawledCount++;
+        if (!(await isCancellationRequested(campaignRunId))) {
+          const batchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, false);
+          stats.scoredCount += batchStats.scoredCount;
+          stats.failedCount += batchStats.failedCount;
+          stats.outreachDraftsCreated += batchStats.outreachDraftsCreated;
+        }
+      } else {
+        const message = `Crawl failed ${lead.rootDomain}: No pages returned content`;
+        errors.push(message);
+        await schedulerLog(campaign.id, message, {
+          campaignRunId,
+          leadId: lead.id,
+          rootDomain: lead.rootDomain,
+          websiteUrl: lead.websiteUrl,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (await isCancellationRequested(campaignRunId)) {
+        await db.update(leadsTable)
+          .set({ crawlStatus: "pending", crawlError: "Cancelled before crawl completed" })
+          .where(eq(leadsTable.id, lead.id));
+        return;
+      }
+      const message = `Crawl failed ${lead.rootDomain}: ${msg}`;
+      errors.push(message);
+      await db.update(leadsTable)
+        .set({ crawlStatus: "failed", crawlError: msg.slice(0, 500) })
+        .where(eq(leadsTable.id, lead.id));
+      await schedulerLog(campaign.id, message, {
+        campaignRunId,
+        leadId: lead.id,
+        rootDomain: lead.rootDomain,
+        websiteUrl: lead.websiteUrl,
+      });
+    }
+  };
+
   while (true) {
+    if (await isCancellationRequested(campaignRunId)) break;
+
     const conditions = [
       eq(leadsTable.campaignId, campaign.id),
       or(eq(leadsTable.crawlStatus, "pending"), eq(leadsTable.crawlStatus, "crawling")),
@@ -1234,75 +1857,21 @@ async function runCrawl(
 
     await schedulerLog(campaign.id, `Crawl started: ${uncrawled.length} leads to crawl`);
 
-    for (const lead of uncrawled) {
-      try {
-        await db.update(leadsTable)
-          .set({ crawlStatus: "crawling", crawlError: null })
-          .where(eq(leadsTable.id, lead.id));
+    await Promise.all(uncrawled.map((lead) => crawlLimiter(() => crawlLead(lead))));
 
-        // Hard per-lead deadline. Scales with maxPagesPerDomain so deep crawls
-        // (up to 30 pages × 15 s each) get enough headroom; minimum 120s.
-        const perLeadBudgetSec = Math.max(120, (campaign.maxPagesPerDomain ?? 10) * 18);
-        const LEAD_TIMEOUT_MS = perLeadBudgetSec * 1000;
-        const data = await Promise.race([
-          crawlWebsite(lead.websiteUrl, lead.rootDomain, {
-            crawlPaths: campaign.crawlPaths,
-            internalLinkKeywords: campaign.internalLinkKeywords,
-            maxPagesPerDomain: campaign.maxPagesPerDomain,
-            maxCrawlDepth: campaign.maxCrawlDepth,
-          }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Crawl timed out after ${LEAD_TIMEOUT_MS / 1000}s`)), LEAD_TIMEOUT_MS),
-          ),
-        ]);
-        const ok = data.pagesSucceeded > 0;
-        const updates: Record<string, unknown> = {
-          crawlStatus: ok ? "crawled" : "failed",
-          crawlError: ok ? null : "No pages returned content",
-          rawText: data.rawText || null,
-        };
-        if (ok) {
-          if (data.companyName) updates.companyName = data.companyName;
-          if (data.emails) updates.emails = data.emails;
-          if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
-          if (data.phoneNumbers) updates.phoneNumbers = data.phoneNumbers;
-          if (data.address) updates.address = data.address;
-          if (data.country) updates.country = data.country;
-          if (data.linkedinUrl) updates.linkedinUrl = data.linkedinUrl;
-        }
-        await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
-        if (ok) crawledCount++;
-        else {
-          const message = `Crawl failed ${lead.rootDomain}: No pages returned content`;
-          errors.push(message);
-          await schedulerLog(campaign.id, message, {
-            campaignRunId,
-            leadId: lead.id,
-            rootDomain: lead.rootDomain,
-            websiteUrl: lead.websiteUrl,
-          });
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const message = `Crawl failed ${lead.rootDomain}: ${msg}`;
-        errors.push(message);
-        await db.update(leadsTable)
-          .set({ crawlStatus: "failed", crawlError: msg.slice(0, 500) })
-          .where(eq(leadsTable.id, lead.id));
-        await schedulerLog(campaign.id, message, {
-          campaignRunId,
-          leadId: lead.id,
-          rootDomain: lead.rootDomain,
-          websiteUrl: lead.websiteUrl,
-        });
-      }
-    }
-
+    if (await isCancellationRequested(campaignRunId)) break;
     if (campaignRunId == null) break;
   }
 
-  await schedulerLog(campaign.id, `Crawl complete: ${crawledCount} succeeded`);
-  return crawledCount;
+  if (!(await isCancellationRequested(campaignRunId))) {
+    const finalBatchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+    stats.scoredCount += finalBatchStats.scoredCount;
+    stats.failedCount += finalBatchStats.failedCount;
+    stats.outreachDraftsCreated += finalBatchStats.outreachDraftsCreated;
+  }
+
+  await schedulerLog(campaign.id, `Crawl complete: ${stats.crawledCount} succeeded`);
+  return stats;
 }
 
 // ── Step 3: Score ───────────────────────────────────────────────────────────
@@ -1410,6 +1979,8 @@ async function runAutoList(
   campaignRunId: number | undefined,
   _errors: string[],
 ): Promise<number | null> {
+  if (await isCancellationRequested(campaignRunId)) return null;
+
   // Find qualified leads from this run. Leads without email should still be
   // visible in the generated list; outreach creation will skip them later.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1427,17 +1998,33 @@ async function runAutoList(
 
   // Create or find list for this run
   const runRow = campaignRunId != null
-    ? (await db.select({ runName: campaignRunsTable.runName }).from(campaignRunsTable).where(eq(campaignRunsTable.id, campaignRunId)))[0]
+    ? (await db.select({
+      runName: campaignRunsTable.runName,
+      finalListId: campaignRunsTable.finalListId,
+    }).from(campaignRunsTable).where(eq(campaignRunsTable.id, campaignRunId)))[0]
     : null;
   const listName = runRow?.runName ? `${campaign.name} – ${runRow.runName}` : campaign.name;
 
-  // Insert list
-  const [list] = await db.insert(leadListsTable).values({
-    name: listName,
-    campaignId: campaign.id,
-    listStatus: "active",
-  }).returning();
+  let list: typeof leadListsTable.$inferSelect | undefined;
+  if (runRow?.finalListId) {
+    list = (await db.select().from(leadListsTable).where(eq(leadListsTable.id, runRow.finalListId)))[0];
+  }
+
+  if (!list) {
+    [list] = await db.insert(leadListsTable).values({
+      name: listName,
+      campaignId: campaign.id,
+      listStatus: "active",
+    }).returning();
+    if (list && campaignRunId != null) {
+      await db.update(campaignRunsTable)
+        .set({ finalListId: list.id })
+        .where(eq(campaignRunsTable.id, campaignRunId));
+    }
+  }
   if (!list) return null;
+
+  if (await isCancellationRequested(campaignRunId)) return null;
 
   // Expand each lead into one list item per email address. If a qualified lead
   // has no email yet, keep a lead-only list item so it is still visible.
@@ -1474,8 +2061,10 @@ async function runAutoOutreach(
   campaign: typeof campaignsTable.$inferSelect,
   listId: number,
   _errors: string[],
+  campaignRunId?: number,
 ): Promise<number> {
   if (!campaign.emailTemplateId) return 0;
+  if (await isCancellationRequested(campaignRunId)) return 0;
 
   // Fetch email account linked to this campaign
   const [assigned] = await db
@@ -1521,6 +2110,7 @@ async function runAutoOutreach(
   let created = 0;
 
   for (const item of listItems) {
+    if (await isCancellationRequested(campaignRunId)) break;
     const lead = item.leadId ? leadById.get(item.leadId) : undefined;
     const rawEmail = (item.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "";
     const recipientEmail = sanitizeEmail(rawEmail);
@@ -1542,13 +2132,14 @@ async function runAutoOutreach(
         } as unknown as typeof leadsTable.$inferSelect);
 
     try {
+      if (await isCancellationRequested(campaignRunId)) break;
       const result = await generatePersonalizedEmail(
         leadForContent,
         tmpl,
         { campaignName: campaign.name, listName: list.name },
       );
 
-      await db.insert(outreachQueueTable).values({
+      const [inserted] = await db.insert(outreachQueueTable).values({
         campaignId: campaign.id,
         leadId: lead?.id ?? null,
         emailAccountId: assigned.accountId,
@@ -1560,8 +2151,8 @@ async function runAutoOutreach(
         batchId,
         status: "pending_review",
         aiPersonalized: result.aiUsed,
-      });
-      created++;
+      }).onConflictDoNothing().returning({ id: outreachQueueTable.id });
+      if (inserted) created++;
     } catch (err) {
       logger.warn({ err, recipientEmail }, "Auto-outreach: failed to generate draft for item");
     }
@@ -1811,6 +2402,22 @@ async function getProcessingState(
   };
 }
 
+async function getBatchProcessingState(
+  campaignRunId?: number,
+): Promise<{ pendingBatchCount: number; failedBatchCount: number }> {
+  if (campaignRunId == null) {
+    return { pendingBatchCount: 0, failedBatchCount: 0 };
+  }
+  const batches = await db
+    .select({ status: campaignRunBatchesTable.status })
+    .from(campaignRunBatchesTable)
+    .where(eq(campaignRunBatchesTable.campaignRunId, campaignRunId));
+  return {
+    pendingBatchCount: batches.filter((b) => ["claimed", "scoring", "creating_drafts"].includes(b.status)).length,
+    failedBatchCount: batches.filter((b) => b.status === "failed").length,
+  };
+}
+
 async function autoBlockLowRelevanceDomains(
   campaign: typeof campaignsTable.$inferSelect,
   campaignRunId?: number,
@@ -1960,115 +2567,174 @@ export async function runPipeline(
     return result;
   }
 
-  await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"${options.skipDiscovery ? " (resuming — skipping discovery)" : ""}`);
-  await setStage(campaignRunId, "searching");
+  if (campaignRunId != null) activePipelineRuns.add(campaignRunId);
 
   try {
-    if (options.skipDiscovery) {
-      await schedulerLog(campaignId, "Discovery skipped (resume mode)");
-    } else {
-      const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
-      result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
-      result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
-      result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
-      result.discoveryRawResults = discoveryStats.rawResultsFound;
-      result.discoveryResultsSeenBefore = discoveryStats.resultUrlsSeenBefore;
-      result.discoverySourcesFound = discoveryStats.discoverySourcesFound;
-      result.discoverySourcesMined = discoveryStats.discoverySourcesMined;
-      result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
-      result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
-      result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
-      if (discoveryStats.missingSerperKey) {
-        result.failed++;
+    await schedulerLog(campaignId, `Pipeline started for campaign "${campaign.name}"${options.skipDiscovery ? " (resuming — skipping discovery)" : ""}`);
+    await setStage(campaignRunId, "searching");
+
+    try {
+      if (options.skipDiscovery) {
+        await schedulerLog(campaignId, "Discovery skipped (resume mode)");
+      } else {
+        const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
+        result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
+        result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
+        result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
+        result.discoveryRawResults = discoveryStats.rawResultsFound;
+        result.discoveryResultsSeenBefore = discoveryStats.resultUrlsSeenBefore;
+        result.discoverySourcesFound = discoveryStats.discoverySourcesFound;
+        result.discoverySourcesMined = discoveryStats.discoverySourcesMined;
+        result.discoverySourcesSkipped = discoveryStats.discoverySourcesSkipped;
+        result.discoveryDuplicatesSkipped = discoveryStats.duplicatesSkipped;
+        result.discoveryBlockedSkipped = discoveryStats.blockedSkipped;
+        if (discoveryStats.missingSerperKey) {
+          result.failed++;
+        }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Discovery failed: ${msg}`);
+      result.failed++;
+      logger.error({ err, campaignId }, "Scheduler: discovery step failed");
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Discovery failed: ${msg}`);
-    result.failed++;
-    logger.error({ err, campaignId }, "Scheduler: discovery step failed");
-  }
 
-  if (isCancelled(campaignRunId)) {
-    clearCancellation(campaignRunId);
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+
+    await setStage(campaignRunId, "crawling");
+    try {
+      const crawlStats = await runCrawl(campaign, errors, campaignRunId);
+      result.crawledCount = crawlStats.crawledCount;
+      result.scoredCount += crawlStats.scoredCount;
+      result.failed += crawlStats.failedCount;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Crawl failed: ${msg}`);
+      result.failed++;
+      logger.error({ err, campaignId }, "Scheduler: crawl step failed");
+    }
+
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+
+    await setStage(campaignRunId, "scoring");
+    try {
+      const batchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+      result.scoredCount += batchStats.scoredCount;
+      result.failed += batchStats.failedCount;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Scoring failed: ${msg}`);
+      result.failed++;
+      logger.error({ err, campaignId }, "Scheduler: score step failed");
+    }
+
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+
+    // After scoring: auto-add qualified+email leads to a named list, then create
+    // pending_review outreach drafts if the campaign has an email template set.
+    let autoListId: number | null = null;
+    try {
+      if (campaignRunId != null && !(await isCancellationRequested(campaignRunId))) {
+        autoListId = await runAutoList(campaign, campaignRunId, errors);
+      }
+    } catch (err) {
+      logger.error({ err, campaignId }, "Scheduler: auto-list step failed");
+    }
+
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+
+    try {
+      const incrementalBatchesExist = campaignRunId != null
+        ? await hasCampaignRunBatches(campaignRunId)
+        : false;
+      if (autoListId != null && campaign.emailTemplateId && !incrementalBatchesExist) {
+        await runAutoOutreach(campaign, autoListId, errors, campaignRunId);
+      } else if (autoListId != null && incrementalBatchesExist) {
+        await schedulerLog(
+          campaign.id,
+          "Final auto-outreach skipped: incremental processing batches already created pending-review drafts",
+          { campaignRunId, autoListId },
+        );
+      }
+    } catch (err) {
+      logger.error({ err, campaignId }, "Scheduler: auto-outreach step failed");
+    }
+
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      result.durationMs = Date.now() - startedAt;
+      return result;
+    }
+
+    try {
+      result.emailsSent = await runEmail(campaign, errors);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Email step failed: ${msg}`);
+      result.failed++;
+      logger.error({ err, campaignId }, "Scheduler: email step failed");
+    }
+
     result.durationMs = Date.now() - startedAt;
-    return result;
-  }
-
-  await setStage(campaignRunId, "crawling");
-  try {
-    result.crawledCount = await runCrawl(campaign, errors, campaignRunId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Crawl failed: ${msg}`);
-    result.failed++;
-    logger.error({ err, campaignId }, "Scheduler: crawl step failed");
-  }
-
-  await setStage(campaignRunId, "scoring");
-  try {
-    const scoreStats = await runScore(campaign, errors, campaignRunId);
-    result.scoredCount = scoreStats.scoredCount;
-    result.failed += scoreStats.failedCount;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Scoring failed: ${msg}`);
-    result.failed++;
-    logger.error({ err, campaignId }, "Scheduler: score step failed");
-  }
-
-  // After scoring: auto-add qualified+email leads to a named list, then create
-  // pending_review outreach drafts if the campaign has an email template set.
-  let autoListId: number | null = null;
-  try {
-    if (campaignRunId != null) autoListId = await runAutoList(campaign, campaignRunId, errors);
-  } catch (err) {
-    logger.error({ err, campaignId }, "Scheduler: auto-list step failed");
-  }
-
-  try {
-    if (autoListId != null && campaign.emailTemplateId) {
-      await runAutoOutreach(campaign, autoListId, errors);
+    const processingState = await getProcessingState(campaignId, campaignRunId);
+    const batchProcessingState = await getBatchProcessingState(campaignRunId);
+    result.pendingCrawlCount = processingState.pendingCrawlCount;
+    result.crawlFailedCount = processingState.crawlFailedCount;
+    result.pendingScoreCount = processingState.pendingScoreCount;
+    if (processingState.pendingCrawlCount > 0) {
+      errors.push(`${processingState.pendingCrawlCount} lead(s) still pending crawl`);
+      result.failed += processingState.pendingCrawlCount;
     }
-  } catch (err) {
-    logger.error({ err, campaignId }, "Scheduler: auto-outreach step failed");
-  }
+    if (processingState.crawlFailedCount > 0) {
+      errors.push(`${processingState.crawlFailedCount} lead(s) failed crawl and could not be scored`);
+      result.failed += processingState.crawlFailedCount;
+    }
+    if (processingState.pendingScoreCount > 0) {
+      errors.push(`${processingState.pendingScoreCount} crawled lead(s) still pending scoring`);
+      result.failed += processingState.pendingScoreCount;
+    }
+    if (batchProcessingState.pendingBatchCount > 0) {
+      errors.push(`${batchProcessingState.pendingBatchCount} processing batch(es) still pending`);
+      result.failed += batchProcessingState.pendingBatchCount;
+    }
+    if (batchProcessingState.failedBatchCount > 0) {
+      errors.push(`${batchProcessingState.failedBatchCount} processing batch(es) failed`);
+      result.failed += batchProcessingState.failedBatchCount;
+    }
 
-  try {
-    result.emailsSent = await runEmail(campaign, errors);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Email step failed: ${msg}`);
-    result.failed++;
-    logger.error({ err, campaignId }, "Scheduler: email step failed");
-  }
+    if (await isCancellationRequested(campaignRunId)) {
+      await finalizeCancelledRun(campaignId, campaignRunId, startedAt);
+      return result;
+    }
 
-  result.durationMs = Date.now() - startedAt;
-  const processingState = await getProcessingState(campaignId, campaignRunId);
-  result.pendingCrawlCount = processingState.pendingCrawlCount;
-  result.crawlFailedCount = processingState.crawlFailedCount;
-  result.pendingScoreCount = processingState.pendingScoreCount;
-  if (processingState.pendingCrawlCount > 0) {
-    errors.push(`${processingState.pendingCrawlCount} lead(s) still pending crawl`);
-    result.failed += processingState.pendingCrawlCount;
-  }
-  if (processingState.crawlFailedCount > 0) {
-    errors.push(`${processingState.crawlFailedCount} lead(s) failed crawl and could not be scored`);
-    result.failed += processingState.crawlFailedCount;
-  }
-  if (processingState.pendingScoreCount > 0) {
-    errors.push(`${processingState.pendingScoreCount} crawled lead(s) still pending scoring`);
-    result.failed += processingState.pendingScoreCount;
-  }
-  if (result.scoredCount > 0 && processingState.pendingCrawlCount === 0 && processingState.pendingScoreCount === 0) {
-    result.autoBlockedLowScoreCount = await autoBlockLowRelevanceDomains(campaign, campaignRunId);
-  }
+    if (result.scoredCount > 0 && processingState.pendingCrawlCount === 0 && processingState.pendingScoreCount === 0) {
+      result.autoBlockedLowScoreCount = await autoBlockLowRelevanceDomains(campaign, campaignRunId);
+    }
 
-  await schedulerLog(
-    campaignId,
-    `Pipeline complete: ${result.discoveryLeadsCreated} discovered, ${result.crawledCount} crawled, ${result.scoredCount} scored, ${result.emailsSent} emailed in ${Math.round(result.durationMs / 1000)}s`,
-    result as unknown as Record<string, unknown>,
-  );
+    await schedulerLog(
+      campaignId,
+      `Pipeline complete: ${result.discoveryLeadsCreated} discovered, ${result.crawledCount} crawled, ${result.scoredCount} scored, ${result.emailsSent} emailed in ${Math.round(result.durationMs / 1000)}s`,
+      result as unknown as Record<string, unknown>,
+    );
 
-  return result;
+    return result;
+  } finally {
+    if (campaignRunId != null) activePipelineRuns.delete(campaignRunId);
+  }
 }

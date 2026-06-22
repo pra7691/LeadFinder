@@ -7,6 +7,7 @@ import {
   real,
 } from "drizzle-orm/pg-core";
 import { campaignsTable } from "./campaigns";
+import { leadListsTable } from "./lead-lists";
 
 export const campaignRunsTable = pgTable("campaign_runs", {
   id: serial("id").primaryKey(),
@@ -38,6 +39,7 @@ export const campaignRunsTable = pgTable("campaign_runs", {
   progressPercent: real("progress_percent").notNull().default(0),
   totalWorkUnits: integer("total_work_units").notNull().default(0),
   completedWorkUnits: integer("completed_work_units").notNull().default(0),
+  finalListId: integer("final_list_id").references(() => leadListsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

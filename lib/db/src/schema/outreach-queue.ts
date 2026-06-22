@@ -13,6 +13,7 @@ import { leadsTable } from "./leads";
 import { emailAccountsTable } from "./email-accounts";
 import { emailTemplatesTable } from "./email-templates";
 import { leadListsTable } from "./lead-lists";
+import { campaignRunBatchesTable } from "./campaign-run-batches";
 
 export const outreachQueueTable = pgTable("outreach_queue", {
   id: serial("id").primaryKey(),
@@ -37,6 +38,10 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   subject: text("subject").notNull(),
   body: text("body").notNull(),
   batchId: text("batch_id"),
+  outreachBatchId: integer("outreach_batch_id").references(
+    () => campaignRunBatchesTable.id,
+    { onDelete: "set null" },
+  ),
   status: text("status").notNull().default("pending_review"),
   aiPersonalized: boolean("ai_personalized").notNull().default(false),
   failureReason: text("failure_reason"),

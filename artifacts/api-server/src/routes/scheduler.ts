@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { campaignsTable, campaignRunsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { runPipeline, clearCancellation } from "../scheduler/pipeline";
+import { isCancellationStatus } from "../scheduler/run-safety";
 import { computeNextRunAt } from "../scheduler/index";
 import { logger } from "../lib/logger";
 
@@ -107,9 +108,9 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
         .select({ status: campaignRunsTable.status })
         .from(campaignRunsTable)
         .where(eq(campaignRunsTable.id, runId));
-      if (currentRun?.status === "cancelled") {
+      if (isCancellationStatus(currentRun?.status)) {
         clearCancellation(runId);
-        logger.info({ campaignId, runId }, "Manual trigger: run was cancelled — skipping status update");
+        logger.info({ campaignId, runId }, "Manual trigger: run is stopping/stopped — skipping status update");
         return;
       }
 
@@ -174,6 +175,14 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
     })
     .catch(async (err) => {
       logger.error({ err, campaignId, runId }, "Manual trigger: pipeline threw");
+
+      const [currentRun] = await db
+        .select({ status: campaignRunsTable.status })
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.id, runId));
+      if (isCancellationStatus(currentRun?.status)) {
+        return;
+      }
 
       const nextRunAt = computeNextRunAt(
         campaign.scheduleType,

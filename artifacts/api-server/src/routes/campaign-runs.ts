@@ -2,7 +2,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
 import { eq, desc, and, sql, inArray, getTableColumns } from "drizzle-orm";
-import { requestCancellation, runPipeline } from "../scheduler/pipeline";
+import { clearCancellation, isRunPipelineActive, requestCancellation, runPipeline } from "../scheduler/pipeline";
+import { canResumeCampaignRunStatus, isCancellationStatus } from "../scheduler/run-safety";
 import { computeNextRunAt } from "../scheduler/index";
 import { classifyLeadType } from "../services/lead-classifier";
 import { crawlWebsite } from "../services/crawler";
@@ -706,6 +707,11 @@ router.post("/campaign-runs/:id/cancel", async (req, res) => {
     return;
   }
 
+  if (run.status === "cancelling") {
+    res.status(409).json({ error: "Run is already stopping" });
+    return;
+  }
+
   if (run.status !== "running") {
     res.status(400).json({ error: "Run is not currently running" });
     return;
@@ -714,25 +720,25 @@ router.post("/campaign-runs/:id/cancel", async (req, res) => {
   // Signal the in-process pipeline to stop at the next safe checkpoint
   requestCancellation(id);
 
-  // Immediately mark as cancelled in the DB so the UI reflects the change
+  // Persist the stop request durably; the pipeline finalizes as cancelled after workers drain.
   const now = new Date();
   const durationSeconds = Math.round((now.getTime() - new Date(run.startedAt).getTime()) / 1000);
 
   const [updated] = await db
     .update(campaignRunsTable)
-    .set({ status: "cancelled", completedAt: now, durationSeconds, progressPercent: 100 })
-    .where(eq(campaignRunsTable.id, id))
+    .set({ status: "cancelling", currentStage: "cancelling", errorMessage: null })
+    .where(and(eq(campaignRunsTable.id, id), eq(campaignRunsTable.status, "running")))
     .returning();
 
-  await db
-    .update(campaignsTable)
-    .set({ lastRunStatus: "cancelled" })
-    .where(eq(campaignsTable.id, run.campaignId));
+  if (!updated) {
+    res.status(409).json({ error: "Run could not be marked as stopping. Refresh and try again." });
+    return;
+  }
 
   await db.insert(logsTable).values({
     campaignId: run.campaignId,
     type: "workflow",
-    message: `Campaign run #${id} cancelled by user after ${durationSeconds}s. Leads already discovered are preserved.`,
+    message: `Campaign run #${id} stop requested by user after ${durationSeconds}s. It will finish the current safe checkpoint before becoming cancelled.`,
   });
 
   res.json(updated);
@@ -762,10 +768,14 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     return;
   }
 
+  if (isRunPipelineActive(id)) {
+    res.status(409).json({ error: "This run is still active and cannot be resumed until it finishes stopping." });
+    return;
+  }
+
   // "completed" is included because normalizeRunStatus maps it to "partial" for display
   // when the run has errors — the UI correctly shows the Resume button in that case.
-  const resumable: string[] = ["failed", "partial", "cancelled", "completed"];
-  if (!resumable.includes(run.status)) {
+  if (!canResumeCampaignRunStatus(run.status)) {
     res.status(400).json({
       error: `Cannot resume a run with status "${run.status}". Only failed, partial, or cancelled runs can be resumed.`,
     });
@@ -795,6 +805,7 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     .returning({ id: leadsTable.id });
 
   // Re-open the run
+  clearCancellation(id);
   await db
     .update(campaignRunsTable)
     .set({
@@ -819,6 +830,14 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
   // Fire-and-forget — skip discovery, resume from crawl step
   runPipeline(campaign.id, id, { skipDiscovery: true })
     .then(async (result) => {
+      const [currentRun] = await db
+        .select({ status: campaignRunsTable.status })
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.id, id));
+      if (isCancellationStatus(currentRun?.status)) {
+        return;
+      }
+
       const workCompleted =
         result.crawledCount > 0 ||
         result.crawlFailedCount > 0 ||
@@ -865,6 +884,14 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
       ]);
     })
     .catch(async (err) => {
+      const [currentRun] = await db
+        .select({ status: campaignRunsTable.status })
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.id, id));
+      if (isCancellationStatus(currentRun?.status)) {
+        return;
+      }
+
       const nextRunAt = computeNextRunAt(
         campaign.scheduleType,
         campaign.scheduleTime,

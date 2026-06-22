@@ -13,6 +13,7 @@ export interface CrawlData {
   rawText: string;
   pagesAttempted: number;
   pagesSucceeded: number;
+  cancelled?: boolean;
 }
 
 const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us", "/team", "/company"];
@@ -34,6 +35,16 @@ export interface CrawlOptions {
   maxPagesPerDomain?: number | null;
   /** 0 = configured paths only. 1 = paths + matching internal links. 2 = + links-of-links. */
   maxCrawlDepth?: number | null;
+  /** Optional soft-stop hook used by campaign cancellation. */
+  shouldStop?: () => boolean | Promise<boolean>;
+}
+
+async function shouldStopCrawl(options?: CrawlOptions): Promise<boolean> {
+  try {
+    return Boolean(await options?.shouldStop?.());
+  } catch {
+    return false;
+  }
 }
 
 function parseLineList(value: string | null | undefined, fallback: string[]): string[] {
@@ -552,6 +563,7 @@ export async function crawlWebsite(
   let country: string | null = null;
   let linkedinUrl: string | null = null;
   let description: string | null = null;
+  let cancelled = false;
   const rawTextParts: string[] = [];
 
   // Resolve the rootDomain used for staying on-domain during link expansion
@@ -567,6 +579,11 @@ export async function crawlWebsite(
   const visited = new Set<string>();
 
   while (queue.length > 0 && pagesAttempted < maxPages) {
+    if (await shouldStopCrawl(options)) {
+      cancelled = true;
+      break;
+    }
+
     const { url, depth } = queue.shift()!;
 
     // Canonicalize & dedup
@@ -587,12 +604,20 @@ export async function crawlWebsite(
     pagesAttempted++;
     const html = await fetchPage(url);
     if (!html) continue;
+    if (await shouldStopCrawl(options)) {
+      cancelled = true;
+      break;
+    }
     pagesSucceeded++;
 
     const $ = cheerio.load(html);
 
     // Expand internal links BEFORE stripping <script>/<head> (preserves links in head/nav)
     if (depth < maxDepth && linkKeywords.length > 0 && pagesAttempted < maxPages) {
+      if (await shouldStopCrawl(options)) {
+        cancelled = true;
+        break;
+      }
       const followUps = extractMatchingInternalLinks($, url, effectiveRootDomain, linkKeywords);
       for (const next of followUps) {
         if (visited.has(next)) continue;
@@ -640,5 +665,6 @@ export async function crawlWebsite(
     rawText: rawTextParts.join("\n\n").slice(0, 50_000),
     pagesAttempted,
     pagesSucceeded,
+    cancelled,
   };
 }

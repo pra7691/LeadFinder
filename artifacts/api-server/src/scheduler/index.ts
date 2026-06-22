@@ -6,14 +6,19 @@
 import * as cron from "node-cron";
 import { db } from "@workspace/db";
 import { campaignsTable, leadsTable, campaignRunsTable } from "@workspace/db";
-import { and, eq, lte, ne } from "drizzle-orm";
+import { and, eq, inArray, lte, ne } from "drizzle-orm";
 import { runPipeline } from "./pipeline";
+import { isCancellationStatus, restartRecoveryDecision } from "./run-safety";
 import { logger } from "../lib/logger";
 import { resumeStuckOutreach } from "../routes/outreach-send";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+function isOutreachAutoResumeEnabled(): boolean {
+  return process.env.OUTREACH_AUTO_RESUME_ON_STARTUP === "true";
+}
 
 /**
  * Compute the next Date when a campaign should run.
@@ -76,9 +81,11 @@ async function tick() {
   //   • new approvals when no loop is running
   //   • any other case where items got stranded in "approved"
   // The function early-exits if a batch is already running, so this is cheap.
-  resumeStuckOutreach().catch((err) =>
-    logger.error({ err }, "Scheduler tick: resumeStuckOutreach failed"),
-  );
+  if (isOutreachAutoResumeEnabled()) {
+    resumeStuckOutreach().catch((err) =>
+      logger.error({ err }, "Scheduler tick: resumeStuckOutreach failed"),
+    );
+  }
 
   // Find campaigns that are due: scheduled, not paused, not already running, nextRunAt <= now
   const dueCampaigns = await db
@@ -109,9 +116,30 @@ async function tick() {
       .set({ lastRunStatus: "running", lastRunAt: now })
       .where(eq(campaignsTable.id, campaign.id));
 
+    const [campaignRun] = await db
+      .insert(campaignRunsTable)
+      .values({
+        campaignId: campaign.id,
+        runName: `Scheduled Run – ${new Date().toISOString().slice(0, 10)}`,
+        runType: "scheduled",
+        status: "running",
+      })
+      .returning();
+
     // Run pipeline in background (don't block the tick)
-    runPipeline(campaign.id)
+    runPipeline(campaign.id, campaignRun?.id)
       .then(async (result) => {
+        if (campaignRun) {
+          const [currentRun] = await db
+            .select({ status: campaignRunsTable.status })
+            .from(campaignRunsTable)
+            .where(eq(campaignRunsTable.id, campaignRun.id));
+          if (isCancellationStatus(currentRun?.status)) {
+            logger.info({ campaignId: campaign.id, runId: campaignRun.id }, "Scheduler: run is stopping/stopped — skipping status update");
+            return;
+          }
+        }
+
         const workCompleted =
           result.discoveryLeadsCreated > 0 ||
           result.crawledCount > 0 ||
@@ -128,14 +156,48 @@ async function tick() {
           campaign.scheduleDays,
         );
 
-        await db
+        await Promise.all([
+          db
           .update(campaignsTable)
           .set({
             lastRunStatus: status,
             lastRunAt: new Date(),
             nextRunAt: nextRunAt ?? undefined,
           })
-          .where(eq(campaignsTable.id, campaign.id));
+            .where(eq(campaignsTable.id, campaign.id)),
+          campaignRun
+            ? db.update(campaignRunsTable)
+              .set({
+                status: status === "success" ? "completed" : status,
+                currentStage: status === "success" ? "completed" : status,
+                completedAt: new Date(),
+                totalNewLeads: result.discoveryLeadsCreated,
+                totalSearches: result.discoverySearchesPerformed,
+                totalSearchesSkipped: result.discoverySearchesSkipped,
+                totalResults: result.discoveryRawResults,
+                totalResultsSeenBefore: result.discoveryResultsSeenBefore,
+                totalDuplicates: result.discoveryDuplicatesSkipped,
+                totalBlocked: result.discoveryBlockedSkipped,
+                totalRejected: result.failed,
+                totalDiscoverySourcesFound: result.discoverySourcesFound,
+                totalDiscoverySourcesMined: result.discoverySourcesMined,
+                totalDiscoverySourcesSkipped: result.discoverySourcesSkipped,
+                errorMessage: result.errors.length > 0 ? result.errors.join("; ") : null,
+                metadataJson: JSON.stringify({
+                  crawledCount: result.crawledCount,
+                  scoredCount: result.scoredCount,
+                  pendingCrawlCount: result.pendingCrawlCount,
+                  crawlFailedCount: result.crawlFailedCount,
+                  pendingScoreCount: result.pendingScoreCount,
+                  autoBlockedLowScoreCount: result.autoBlockedLowScoreCount,
+                  emailsSent: result.emailsSent,
+                  durationMs: result.durationMs,
+                }),
+                durationSeconds: Math.round(result.durationMs / 1000),
+              })
+              .where(eq(campaignRunsTable.id, campaignRun.id))
+            : Promise.resolve(),
+        ]);
 
         logger.info(
           { campaignId: campaign.id, status, nextRunAt },
@@ -145,20 +207,42 @@ async function tick() {
       .catch(async (err) => {
         logger.error({ err, campaignId: campaign.id }, "Scheduler: pipeline threw");
 
+        if (campaignRun) {
+          const [currentRun] = await db
+            .select({ status: campaignRunsTable.status })
+            .from(campaignRunsTable)
+            .where(eq(campaignRunsTable.id, campaignRun.id));
+          if (isCancellationStatus(currentRun?.status)) {
+            return;
+          }
+        }
+
         const nextRunAt = computeNextRunAt(
           campaign.scheduleType,
           campaign.scheduleTime,
           campaign.scheduleDays,
         );
 
-        await db
+        await Promise.all([
+          db
           .update(campaignsTable)
           .set({
             lastRunStatus: "failed",
             lastRunAt: new Date(),
             nextRunAt: nextRunAt ?? undefined,
           })
-          .where(eq(campaignsTable.id, campaign.id));
+            .where(eq(campaignsTable.id, campaign.id)),
+          campaignRun
+            ? db.update(campaignRunsTable)
+              .set({
+                status: "failed",
+                currentStage: "failed",
+                completedAt: new Date(),
+                errorMessage: err instanceof Error ? err.message : String(err),
+              })
+              .where(eq(campaignRunsTable.id, campaignRun.id))
+            : Promise.resolve(),
+        ]);
       });
   }
 }
@@ -178,35 +262,91 @@ let cronTask: cron.ScheduledTask | null = null;
  */
 async function recoverStuckState() {
   try {
-    // 1. Reset campaigns stuck in "running"
-    const stuckCampaigns = await db
-      .update(campaignsTable)
-      .set({ lastRunStatus: "failed" })
-      .where(eq(campaignsTable.lastRunStatus, "running"))
-      .returning({ id: campaignsTable.id, name: campaignsTable.name });
+    const now = new Date();
 
-    if (stuckCampaigns.length > 0) {
+    // 1. A restart during graceful cancellation should finish as cancelled.
+    const cancellingRuns = await db
+      .select({ id: campaignRunsTable.id, campaignId: campaignRunsTable.campaignId })
+      .from(campaignRunsTable)
+      .where(eq(campaignRunsTable.status, "cancelling"));
+    const cancellingRunIds = cancellingRuns.map((run) => run.id);
+
+    if (cancellingRunIds.length > 0) {
+      const cancellingDecision = restartRecoveryDecision("cancelling");
+      await db
+        .update(leadsTable)
+        .set({ crawlStatus: "pending", crawlError: "Reset after cancellation during server restart" })
+        .where(and(
+          inArray(leadsTable.campaignRunId, cancellingRunIds),
+          eq(leadsTable.crawlStatus, "crawling"),
+        ));
+
+      await db
+        .update(campaignRunsTable)
+        .set({
+          status: cancellingDecision?.status ?? "cancelled",
+          currentStage: cancellingDecision?.currentStage ?? "cancelled",
+          errorMessage: cancellingDecision?.errorMessage ?? null,
+          completedAt: now,
+          estimatedRemainingSeconds: 0,
+        })
+        .where(inArray(campaignRunsTable.id, cancellingRunIds));
+
+      const campaignIds = [...new Set(cancellingRuns.map((run) => run.campaignId))];
+      await db
+        .update(campaignsTable)
+        .set({ lastRunStatus: "cancelled", lastRunAt: now })
+        .where(inArray(campaignsTable.id, campaignIds));
+
       logger.warn(
-        { campaigns: stuckCampaigns.map((c) => `${c.id}:${c.name}`) },
-        `Startup recovery: reset ${stuckCampaigns.length} stuck campaign(s) from "running" → "failed"`,
+        { runIds: cancellingRunIds },
+        `Startup recovery: finalized ${cancellingRunIds.length} cancelling run(s) as cancelled`,
       );
     }
 
-    // 2. Close any campaign runs that were never ended
-    const stuckRuns = await db
+    // 2. Running runs were interrupted by restart. Preserve completed work and make them manually resumable.
+    const runningRuns = await db
+      .select({ id: campaignRunsTable.id, campaignId: campaignRunsTable.campaignId })
+      .from(campaignRunsTable)
+      .where(eq(campaignRunsTable.status, "running"));
+    const runningRunIds = runningRuns.map((run) => run.id);
+
+    if (runningRunIds.length > 0) {
+      await db
+        .update(leadsTable)
+        .set({ crawlStatus: "pending", crawlError: "Reset after server restart" })
+        .where(and(
+          inArray(leadsTable.campaignRunId, runningRunIds),
+          eq(leadsTable.crawlStatus, "crawling"),
+        ));
+    }
+
+    const runningDecision = restartRecoveryDecision("running");
+    const stuckRuns = runningRunIds.length > 0 ? await db
       .update(campaignRunsTable)
-      .set({ status: "failed", endedAt: new Date() })
-      .where(eq(campaignRunsTable.status, "running"))
-      .returning({ id: campaignRunsTable.id });
+      .set({
+        status: runningDecision?.status ?? "failed",
+        completedAt: now,
+        currentStage: runningDecision?.currentStage ?? "interrupted_restart",
+        errorMessage: runningDecision?.errorMessage ?? "Server restarted while this run was active. Resume Run will continue the same run without rediscovery.",
+      })
+      .where(inArray(campaignRunsTable.id, runningRunIds))
+      .returning({ id: campaignRunsTable.id }) : [];
 
     if (stuckRuns.length > 0) {
+      const campaignIds = [...new Set(runningRuns.map((run) => run.campaignId))];
+      await db
+        .update(campaignsTable)
+        .set({ lastRunStatus: "failed", lastRunAt: now })
+        .where(inArray(campaignsTable.id, campaignIds));
+
       logger.warn(
         { runIds: stuckRuns.map((r) => r.id) },
-        `Startup recovery: closed ${stuckRuns.length} stuck campaign run(s)`,
+        `Startup recovery: marked ${stuckRuns.length} interrupted campaign run(s) as failed/interrupted_restart`,
       );
     }
 
-    // 3. Reset leads stuck mid-crawl
+    // 3. Reset any orphaned crawling leads not covered by run-level recovery.
     const stuckLeads = await db
       .update(leadsTable)
       .set({ crawlStatus: "pending", crawlError: "Reset on server restart" })
@@ -220,8 +360,28 @@ async function recoverStuckState() {
       );
     }
 
-    // 4. Resume any outreach items stuck in "approved" from a previous interrupted send
-    await resumeStuckOutreach();
+    // 4. Reset campaigns still stuck in "running" without a matching active run.
+    const stuckCampaigns = await db
+      .update(campaignsTable)
+      .set({ lastRunStatus: "failed" })
+      .where(eq(campaignsTable.lastRunStatus, "running"))
+      .returning({ id: campaignsTable.id, name: campaignsTable.name });
+
+    if (stuckCampaigns.length > 0) {
+      logger.warn(
+        { campaigns: stuckCampaigns.map((c) => `${c.id}:${c.name}`) },
+        `Startup recovery: reset ${stuckCampaigns.length} stuck campaign(s) from "running" → "failed"`,
+      );
+    }
+
+    // 5. Optionally resume outreach items stuck in "approved" from a previous interrupted send.
+    if (isOutreachAutoResumeEnabled()) {
+      await resumeStuckOutreach();
+    } else {
+      logger.warn(
+        "Startup outreach auto-resume is disabled; approved outreach items will not be sent automatically. Set OUTREACH_AUTO_RESUME_ON_STARTUP=true to enable.",
+      );
+    }
   } catch (err) {
     logger.error({ err }, "Startup recovery failed — continuing anyway");
   }

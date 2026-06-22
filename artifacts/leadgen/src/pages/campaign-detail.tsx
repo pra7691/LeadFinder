@@ -148,6 +148,7 @@ function RunStatusBadge({ status }: { status: CampaignRun["status"] }) {
     completed: { label: "Completed", cls: "bg-emerald-500/10 text-emerald-500" },
     failed: { label: "Failed", cls: "bg-red-500/10 text-red-400" },
     partial: { label: "Partial", cls: "bg-amber-500/10 text-amber-500" },
+    cancelling: { label: "Stopping", cls: "bg-amber-500/10 text-amber-500" },
     cancelled: { label: "Cancelled", cls: "bg-amber-500/10 text-amber-500" },
   };
   const s = map[status] ?? { label: status, cls: "bg-muted/40 text-muted-foreground" };
@@ -193,11 +194,15 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
   const { toast: toastCRC } = useToast();
 
   const runRows = Array.isArray(runs) ? runs : [];
-  const activeRun = runRows.find((r) => r.status === "running");
+  const activeRun = runRows.find((r) => {
+    const status = String(r.status);
+    return status === "running" || status === "cancelling";
+  });
   const elapsed = useElapsedTicker(activeRun?.startedAt);
 
   if (!activeRun) return null;
 
+  const isStopping = String(activeRun.status) === "cancelling";
   const startedAt = activeRun.startedAt ? new Date(activeRun.startedAt) : null;
   const progressPercent = activeRun.progressPercent ?? 0;
   const totalWorkUnits = activeRun.totalWorkUnits ?? 0;
@@ -226,11 +231,13 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
               size="sm"
               variant="outline"
               className="rounded-xl gap-1.5 text-xs border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
-              onClick={() => setStopOpen(true)}
-              disabled={cancelRun.isPending}
+              onClick={() => {
+                if (!isStopping) setStopOpen(true);
+              }}
+              disabled={cancelRun.isPending || isStopping}
             >
-              <Square className="w-3 h-3 fill-current" />
-              Stop
+              {cancelRun.isPending || isStopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3 fill-current" />}
+              {cancelRun.isPending || isStopping ? "Stopping..." : "Stop"}
             </Button>
             <Link href={`/campaigns/${campaignId}/runs/${activeRun.id}`}>
               <Button size="sm" variant="outline" className="rounded-xl gap-1.5 text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10">
@@ -250,7 +257,7 @@ function CurrentRunCard({ campaignId }: { campaignId: number }) {
                 { id: activeRun.id },
                 {
                   onSuccess: () => {
-                    toastCRC({ title: "Run stopped. Leads discovered so far have been kept." });
+                    toastCRC({ title: "Run is stopping. It will cancel at the next safe checkpoint." });
                     setStopOpen(false);
                     queryClientCRC.invalidateQueries({ queryKey: getListCampaignRunsQueryKey(params) });
                   },
@@ -342,7 +349,7 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
       queryKey: getListCampaignRunsQueryKey(params),
       refetchInterval: (data) => {
         const arr = data?.state?.data;
-        return Array.isArray(arr) && arr.some((r) => r.status === "running") ? 3000 : false;
+        return Array.isArray(arr) && arr.some((r) => ["running", "cancelling"].includes(String(r.status))) ? 3000 : false;
       },
     },
   });
@@ -493,7 +500,7 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7 rounded-lg text-destructive/50 hover:text-destructive hover:bg-destructive/10"
-                        disabled={deletingRunId === run.id || run.status === "running"}
+                        disabled={deletingRunId === run.id || ["running", "cancelling"].includes(String(run.status))}
                         onClick={(e) => handleDeleteRun(e, run.id)}
                         title="Delete run"
                       >
@@ -892,8 +899,8 @@ function SettingsTab({
         <CardHeader className="border-b border-border/30 pb-3">
           <h3 className="text-sm font-medium text-foreground">Auto-Outreach</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            When a campaign run completes, automatically create <strong>pending review</strong> outreach
-            drafts for every lead in the auto-list. Select both an email template and a sender account.
+            As qualified processing batches finish, automatically create <strong>pending review</strong> outreach
+            drafts for eligible extracted emails. Select both an email template and a sender account.
           </p>
         </CardHeader>
         <CardContent className="pt-5">

@@ -195,7 +195,7 @@ router.post("/unsubscribes/sync", async (_req, res) => {
     try {
       const fetchRes = await fetch(fetchUrl);
       if (!fetchRes.ok) throw new Error(`Server returned ${fetchRes.status}`);
-      remoteRows = await fetchRes.json();
+      remoteRows = await fetchRes.json() as Array<{ email: string; company_name: string | null; token: string; unsubscribed_at: string }>;
       if (!Array.isArray(remoteRows)) throw new Error("Unexpected response format — expected a JSON array");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -76,6 +76,7 @@ function RunStatusBadge({ status }: { status: string }) {
     completed: { label: "Completed", cls: "bg-emerald-500/10 text-emerald-500", icon: <CheckCircle2 className="w-3 h-3" /> },
     partial: { label: "Partial", cls: "bg-amber-500/10 text-amber-600", icon: <AlertCircle className="w-3 h-3" /> },
     failed: { label: "Failed", cls: "bg-red-500/10 text-red-400", icon: <XCircle className="w-3 h-3" /> },
+    cancelling: { label: "Stopping", cls: "bg-amber-500/10 text-amber-500", icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     cancelled: { label: "Cancelled", cls: "bg-amber-500/10 text-amber-500", icon: <AlertCircle className="w-3 h-3" /> },
   };
   const s = map[status] ?? { label: status, cls: "bg-muted/40 text-muted-foreground", icon: null };
@@ -190,7 +191,8 @@ export function CampaignRunDetail() {
       queryKey: getGetCampaignRunQueryKey(runIdNum),
       refetchInterval: (q) => {
         const r = q?.state?.data as CampaignRun | undefined;
-        return r?.status === "running" ? 3000 : false;
+        const status = String(r?.status ?? "");
+        return status === "running" || status === "cancelling" ? 3000 : false;
       },
       enabled: !!runIdNum,
     },
@@ -199,7 +201,7 @@ export function CampaignRunDetail() {
   const { data: leads, isLoading: leadsLoading } = useGetCampaignRunLeads(runIdNum, {
     query: {
       queryKey: getGetCampaignRunLeadsQueryKey(runIdNum),
-      refetchInterval: run?.status === "running" ? 3000 : undefined,
+      refetchInterval: ["running", "cancelling"].includes(String(run?.status ?? "")) ? 3000 : undefined,
       enabled: !!runIdNum,
     },
   });
@@ -240,7 +242,7 @@ export function CampaignRunDetail() {
       query: {
         queryKey: getGetCampaignRunResultsQueryKey(runIdNum, resultsParams),
         enabled: !!runIdNum && resultFilter !== null && resultFilter !== "rejected",
-        refetchInterval: run?.status === "running" ? 5000 : undefined,
+        refetchInterval: ["running", "cancelling"].includes(String(run?.status ?? "")) ? 5000 : undefined,
       },
     },
   );
@@ -481,7 +483,7 @@ export function CampaignRunDetail() {
       { id: runIdNum },
       {
         onSuccess: () => {
-          toast({ title: "Run stopped. Leads discovered so far have been kept." });
+          toast({ title: "Run is stopping", description: "It will cancel after the current safe checkpoint." });
           setCancelRunOpen(false);
           queryClient.invalidateQueries({ queryKey: getGetCampaignRunQueryKey(runIdNum) });
           queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
@@ -630,6 +632,7 @@ export function CampaignRunDetail() {
     );
   }
 
+  const runStatus = String(run.status);
   const startedAt = run.startedAt ? new Date(run.startedAt) : null;
   const completedAt = run.completedAt ? new Date(run.completedAt) : null;
   const durationMs = startedAt && completedAt ? completedAt.getTime() - startedAt.getTime() : null;
@@ -660,6 +663,7 @@ export function CampaignRunDetail() {
     completed: "Completed",
     partial: "Partial",
     failed: "Failed",
+    cancelling: "Stopping",
     cancelled: "Cancelled",
   };
 
@@ -747,16 +751,22 @@ export function CampaignRunDetail() {
                   {runErrorSummary}
                 </span>
               )}
-              {run.status === "running" && run.currentStage && STAGE_LABELS[run.currentStage] && (
+              {runStatus === "running" && run.currentStage && STAGE_LABELS[run.currentStage] && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-blue-500 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   {STAGE_LABELS[run.currentStage]}
                 </span>
               )}
+              {run.currentStage === "interrupted_restart" && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  Server restarted during this run. Resume will continue without rediscovery.
+                </span>
+              )}
             </div>
           </div>
           <RunStatusBadge status={run.status} />
-          {run.status === "running" && (
+          {runStatus === "running" && (
             <Button
               size="sm"
               variant="outline"
@@ -768,7 +778,19 @@ export function CampaignRunDetail() {
               Stop Run
             </Button>
           )}
-          {(run.status === "failed" || run.status === "partial" || run.status === "cancelled") && (
+          {runStatus === "cancelling" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs border-amber-500/40 text-amber-600"
+              disabled
+              data-testid="button-stopping-run"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Stopping...
+            </Button>
+          )}
+          {(runStatus === "failed" || runStatus === "partial" || runStatus === "cancelled") && (
             <Button
               size="sm"
               variant="outline"
@@ -1277,7 +1299,7 @@ export function CampaignRunDetail() {
                 <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">
                   {!leadRows.length
-                    ? run.status === "running"
+                    ? runStatus === "running" || runStatus === "cancelling"
                       ? "Leads will appear here as they are discovered…"
                       : "No leads were discovered in this run."
                     : "No leads match this filter."}

@@ -2,7 +2,9 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   outreachQueueTable,
+  campaignRunBatchesTable,
   campaignsTable,
+  campaignRunsTable,
   leadsTable,
   logsTable,
   emailTemplatesTable,
@@ -11,7 +13,7 @@ import {
   emailAccountsTable,
   appSettingsTable,
 } from "@workspace/db";
-import { eq, and, inArray, or, isNull, desc } from "drizzle-orm";
+import { eq, and, inArray, or, isNull, desc, sql } from "drizzle-orm";
 import { classifyEmail } from "../services/email-validator";
 import {
   ListOutreachQueryParams,
@@ -90,16 +92,18 @@ async function resolveEmailContent(
 }
 
 async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
-  const [lead] = await db
-    .select({
-      companyName: leadsTable.companyName,
-      relevanceScore: leadsTable.relevanceScore,
-      qualificationStatus: leadsTable.qualificationStatus,
-      websiteUrl: leadsTable.websiteUrl,
-      country: leadsTable.country,
-    })
-    .from(leadsTable)
-    .where(eq(leadsTable.id, item.leadId));
+  const [lead] = item.leadId
+    ? await db
+      .select({
+        companyName: leadsTable.companyName,
+        relevanceScore: leadsTable.relevanceScore,
+        qualificationStatus: leadsTable.qualificationStatus,
+        websiteUrl: leadsTable.websiteUrl,
+        country: leadsTable.country,
+      })
+      .from(leadsTable)
+      .where(eq(leadsTable.id, item.leadId))
+    : [];
   const campaignName = item.campaignId
     ? (await db.select({ name: campaignsTable.name }).from(campaignsTable).where(eq(campaignsTable.id, item.campaignId)))[0]?.name ?? null
     : null;
@@ -127,7 +131,7 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
 async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
   if (items.length === 0) return [];
 
-  const leadIds = [...new Set(items.map((i) => i.leadId))];
+  const leadIds = [...new Set(items.map((i) => i.leadId).filter((id): id is number => id != null))];
   const campaignIds = [...new Set(items.map((i) => i.campaignId).filter(Boolean))] as number[];
   const templateIds = [...new Set(items.map((i) => i.emailTemplateId).filter(Boolean))] as number[];
   const accountIds = [...new Set(items.map((i) => i.emailAccountId).filter(Boolean))] as number[];
@@ -164,7 +168,7 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
   const allEmails = items.map((i) => i.recipientEmail);
 
   return items.map((item) => {
-    const lead = leadMap.get(item.leadId);
+    const lead = item.leadId ? leadMap.get(item.leadId) : undefined;
     const qualityWarnings = analyzeQuality({
       recipientEmail: item.recipientEmail,
       subject: item.subject,
@@ -198,6 +202,53 @@ async function logAction(campaignId: number | null, type: string, message: strin
 }
 
 // ─── GET /outreach ────────────────────────────────────────────────────────────
+router.get("/outreach/batches", async (req, res) => {
+  const campaignRunId = req.query.campaignRunId ? Number(req.query.campaignRunId) : null;
+  const conditions = campaignRunId && Number.isFinite(campaignRunId)
+    ? [eq(campaignRunBatchesTable.campaignRunId, campaignRunId)]
+    : [];
+
+  const rows = await db
+    .select({
+      id: campaignRunBatchesTable.id,
+      campaignId: campaignRunBatchesTable.campaignId,
+      campaignRunId: campaignRunBatchesTable.campaignRunId,
+      batchNumber: campaignRunBatchesTable.batchNumber,
+      status: campaignRunBatchesTable.status,
+      crawledLeadsCount: campaignRunBatchesTable.crawledLeadsCount,
+      scoredCount: campaignRunBatchesTable.scoredCount,
+      qualifiedCount: campaignRunBatchesTable.qualifiedCount,
+      outreachDraftsCreated: campaignRunBatchesTable.outreachDraftsCreated,
+      emailTemplateId: campaignRunBatchesTable.emailTemplateId,
+      senderAccountId: campaignRunBatchesTable.senderAccountId,
+      createdAt: campaignRunBatchesTable.createdAt,
+      completedAt: campaignRunBatchesTable.completedAt,
+      campaignName: campaignsTable.name,
+      runName: campaignRunsTable.runName,
+      templateName: emailTemplatesTable.name,
+      senderEmail: emailAccountsTable.email,
+      pendingReviewCount: sql<number>`count(${outreachQueueTable.id}) filter (where ${outreachQueueTable.status} = 'pending_review')::int`,
+      draftRecipientCount: sql<number>`count(${outreachQueueTable.id})::int`,
+    })
+    .from(campaignRunBatchesTable)
+    .leftJoin(campaignsTable, eq(campaignsTable.id, campaignRunBatchesTable.campaignId))
+    .leftJoin(campaignRunsTable, eq(campaignRunsTable.id, campaignRunBatchesTable.campaignRunId))
+    .leftJoin(emailTemplatesTable, eq(emailTemplatesTable.id, campaignRunBatchesTable.emailTemplateId))
+    .leftJoin(emailAccountsTable, eq(emailAccountsTable.id, campaignRunBatchesTable.senderAccountId))
+    .leftJoin(outreachQueueTable, eq(outreachQueueTable.outreachBatchId, campaignRunBatchesTable.id))
+    .where(conditions.length > 0 ? and(...conditions) : sql`true`)
+    .groupBy(
+      campaignRunBatchesTable.id,
+      campaignsTable.name,
+      campaignRunsTable.runName,
+      emailTemplatesTable.name,
+      emailAccountsTable.email,
+    )
+    .orderBy(desc(campaignRunBatchesTable.createdAt));
+
+  res.json(rows);
+});
+
 router.get("/outreach", async (req, res) => {
   const params = ListOutreachQueryParams.parse({
     campaignId: req.query.campaignId ? Number(req.query.campaignId) : undefined,
@@ -206,6 +257,12 @@ router.get("/outreach", async (req, res) => {
   const conditions = [];
   if (params.campaignId !== undefined) conditions.push(eq(outreachQueueTable.campaignId, params.campaignId));
   if (params.status !== undefined) conditions.push(eq(outreachQueueTable.status, params.status));
+  if (req.query.outreachBatchId !== undefined) {
+    const outreachBatchId = Number(req.query.outreachBatchId);
+    if (Number.isFinite(outreachBatchId)) {
+      conditions.push(eq(outreachQueueTable.outreachBatchId, outreachBatchId));
+    }
+  }
   const items = conditions.length > 0
     ? await db.select().from(outreachQueueTable).where(and(...conditions)).orderBy(desc(outreachQueueTable.createdAt))
     : await db.select().from(outreachQueueTable).orderBy(desc(outreachQueueTable.createdAt));
@@ -274,13 +331,17 @@ router.post("/outreach/from-list", async (req, res) => {
   // Fetch list items with their per-item email override.
   // New items have email set (one item per address); legacy items have email=null.
   const listItems = await db
-    .select({ leadId: leadListItemsTable.leadId, email: leadListItemsTable.email })
+    .select({
+      leadId: leadListItemsTable.leadId,
+      email: leadListItemsTable.email,
+      companyName: leadListItemsTable.companyName,
+    })
     .from(leadListItemsTable)
     .where(eq(leadListItemsTable.listId, body.listId));
 
   if (listItems.length === 0) { res.json({ queued: 0, skipped: 0, items: [] }); return; }
 
-  const leadIds = [...new Set(listItems.map((li) => li.leadId))];
+  const leadIds = [...new Set(listItems.map((li) => li.leadId).filter((id): id is number => id != null))];
   const leads = await db.select().from(leadsTable).where(inArray(leadsTable.id, leadIds));
   const leadById = new Map(leads.map((l) => [l.id, l]));
 
@@ -343,7 +404,7 @@ router.post("/outreach/from-list", async (req, res) => {
       campaignId: null,
       campaignRunId: null,
       id: 0,
-    } as typeof leadsTable.$inferSelect);
+    } as unknown as typeof leadsTable.$inferSelect);
 
     // Override emails to only the actual recipient so the AI extracts the right
     // first name (lead.emails may contain dozens of lab/team emails, with a
@@ -529,6 +590,7 @@ router.post("/outreach/:id/regenerate", async (req, res) => {
 
   const [existing] = await db.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  if (!existing.leadId) { res.status(400).json({ error: "This outreach item is not linked to a lead" }); return; }
 
   const [lead] = await db.select().from(leadsTable).where(eq(leadsTable.id, existing.leadId));
   if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }

@@ -23,7 +23,6 @@ async function createCampaign() {
       objective: "test",
       minRelevanceScore: 5,
       maxSearchesPerDay: 3,
-      maxLeadsPerDay: 10,
       maxEmailsPerDay: 5,
       resultsPerSearch: 10,
       scheduleType: "manual",
