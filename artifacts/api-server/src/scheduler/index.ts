@@ -10,7 +10,7 @@ import { and, eq, inArray, lte, ne } from "drizzle-orm";
 import { runPipeline } from "./pipeline";
 import { isCancellationStatus, restartRecoveryDecision } from "./run-safety";
 import { logger } from "../lib/logger";
-import { resumeStuckOutreach } from "../routes/outreach-send";
+import { recoverManualOutreachSendQueueOnStartup, resumeQueuedOutreachSendQueue, resumeStuckOutreach } from "../routes/outreach-send";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,12 @@ export function computeNextRunAt(
 
 async function tick() {
   const now = new Date();
+
+  // Durable manual queue recovery: only explicitly queued outreach may resume.
+  // Approved/pending_review items still require the user to click Send.
+  resumeQueuedOutreachSendQueue().catch((err) =>
+    logger.error({ err }, "Scheduler tick: resumeQueuedOutreachSendQueue failed"),
+  );
 
   // Resume any approved outreach items that are sitting idle (no active send loop).
   // This handles:
@@ -374,7 +380,10 @@ async function recoverStuckState() {
       );
     }
 
-    // 5. Optionally resume outreach items stuck in "approved" from a previous interrupted send.
+    // 5. Recover only explicitly queued/sending manual outreach. Approved items remain opt-in only.
+    await recoverManualOutreachSendQueueOnStartup();
+
+    // 6. Optionally resume outreach items stuck in "approved" from a previous interrupted send.
     if (isOutreachAutoResumeEnabled()) {
       await resumeStuckOutreach();
     } else {

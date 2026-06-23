@@ -148,19 +148,12 @@ export function OutreachBatchDetail() {
         const err = await sendRes.json().catch(() => ({}));
         throw new Error((err as { error?: string }).error ?? `Send failed (${sendRes.status})`);
       }
-      const result = await sendRes.json() as { sent: number; failed: number; skipped: number; limitHit?: boolean; globalLimit?: number; emailsSentToday?: number };
+      const result = await sendRes.json() as { queued: number; skipped: number; message?: string };
       invalidate();
-      if (result.limitHit) {
-        toast({
-          title: `Daily email limit reached (${result.emailsSentToday}/${result.globalLimit})`,
-          description: `All ${result.skipped} item(s) skipped. Increase the limit in Settings → System Settings → Global Max Emails Per Day, or wait until tomorrow.`,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: `Resend complete: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped.`,
-        });
-      }
+      toast({
+        title: result.message ?? `Added ${result.queued} item${result.queued === 1 ? "" : "s"} to send queue.`,
+        description: result.skipped > 0 ? `${result.skipped} item${result.skipped === 1 ? "" : "s"} already queued or not eligible.` : undefined,
+      });
     } catch (err) {
       toast({ title: err instanceof Error ? err.message : "Resend failed.", variant: "destructive" });
     } finally {

@@ -55,6 +55,9 @@ export const outreachQueueTable = pgTable("outreach_queue", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   rejectedAt: timestamp("rejected_at", { withTimezone: true }),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
+  queuePosition: integer("queue_position"),
+  sendingStartedAt: timestamp("sending_started_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   bouncedAt: timestamp("bounced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })

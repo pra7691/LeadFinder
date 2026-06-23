@@ -108,6 +108,9 @@ export type OutreachItem = {
   approvedAt?: string | null;
   rejectedAt?: string | null;
   scheduledAt?: string | null;
+  queuedAt?: string | null;
+  queuePosition?: number | null;
+  sendingStartedAt?: string | null;
   sentAt?: string | null;
   bouncedAt?: string | null;
   companyName?: string | null;
@@ -279,10 +282,10 @@ const ALL_STATUSES = [
   // Note: "clicked" is intentionally omitted — engagement state collapses
   // into "opened" (see getDisplayStatus). Click counts are shown in their
   // own column, not as a separate status filter.
-  "pending_review", "approved", "sent", "opened",
+  "pending_review", "approved", "queued", "sending", "sent", "opened",
   "unsubscribed", "failed", "bounced", "rejected",
   "skipped_unsubscribed", "skipped_duplicate", "skipped_invalid",
-  "draft", "queued",
+  "draft",
 ];
 
 const SEVERITY_ICON: Record<QualityWarning["severity"], React.ReactNode> = {
@@ -386,7 +389,7 @@ export function aggregateStatus(items: OutreachItem[]): string {
   // (marker written by /outreach/send-batch/cancel). Show the badge accordingly so
   // the user can distinguish a paused batch from a completed one.
   const hasPaused = items.some(
-    (item) => item.status === "approved" && item.failureReason === "paused_by_user",
+    (item) => (item.status === "approved" || item.status === "queued") && item.failureReason === "paused_by_user",
   );
   if (hasPaused) return "stopped";
 
@@ -403,9 +406,13 @@ export function aggregateStatus(items: OutreachItem[]): string {
   if (statusSet.size === 1) return displayStatuses[0] ?? "completed";
 
   const hasApproved = displayStatuses.some((s) => s === "approved");
+  const hasSending = displayStatuses.some((s) => s === "sending");
+  const hasQueued = displayStatuses.some((s) => s === "queued");
   const hasTerminal = displayStatuses.some((s) => TERMINAL_STATUSES.has(s));
 
   if (hasLimitBlocked) return "limit_reached";
+  if (hasSending) return "sending";
+  if (hasQueued) return "queued";
 
   // Some sent, some still approved → actively sending
   if (hasApproved && hasTerminal) return "sending";
@@ -656,6 +663,7 @@ function PreviewPanel({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { toast } = useToast();
   const updateOutreach = useUpdateOutreach();
   const approveOutreach = useApproveOutreach();
   const sendItem = useSendOutreachItem();
@@ -664,8 +672,8 @@ function PreviewPanel({
   const [subject, setSubject] = useState(item.subject);
   const [body, setBody] = useState(item.body);
 
-  const canApprove = item.status === "pending_review" || item.status === "draft" || item.status === "queued";
-  const canEdit = item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved";
+  const canApprove = item.status === "pending_review" || item.status === "draft";
+  const canEdit = item.status === "pending_review" || item.status === "draft" || item.status === "approved";
   const canSend = item.status === "approved";
   const canRetry = item.status === "failed" || item.status === "bounced";
 
@@ -681,7 +689,15 @@ function PreviewPanel({
   };
 
   const handleSend = () => {
-    sendItem.mutate({ id: item.id }, { onSuccess: onSaved });
+    sendItem.mutate(
+      { id: item.id },
+      {
+        onSuccess: () => {
+          toast({ title: "Added to send queue." });
+          onSaved();
+        },
+      },
+    );
   };
 
   const handleRetry = () => {
@@ -789,6 +805,8 @@ function PreviewPanel({
             {[
               { label: "Created", ts: item.createdAt },
               { label: "Approved", ts: item.approvedAt },
+              { label: "Queued", ts: item.queuedAt },
+              { label: "Sending started", ts: item.sendingStartedAt },
               { label: "Sent", ts: item.sentAt },
               { label: "Bounced", ts: item.bouncedAt },
             ]
@@ -822,7 +840,7 @@ function PreviewPanel({
               {canSend && (
                 <Button className="flex-1 rounded-xl" onClick={handleSend} disabled={isBusy}>
                   {sendItem.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                  Send Now
+                  Queue Send
                 </Button>
               )}
               {canRetry && (
@@ -866,7 +884,7 @@ export function Outreach() {
   const [selectedProcessingBatchId, setSelectedProcessingBatchId] = useState<number | null>(null);
 
   // Batch send state
-  const [batchResult, setBatchResult] = useState<{ sent: number; failed: number; skipped: number; stopped?: boolean } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ queued: number; skipped: number; stopped?: boolean } | null>(null);
   const [stoppingBatch, setStoppingBatch] = useState(false);
   const [sendingGroupId, setSendingGroupId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -878,7 +896,7 @@ export function Outreach() {
       try {
         const res = await fetch(`${import.meta.env.BASE_URL}api/outreach/send-batch/status`);
         if (!res.ok || cancelled) return;
-        const data = await res.json() as { running: boolean; batchId: string | null };
+        const data = await res.json() as { running: boolean; batchId: string | null; queuedCount?: number; sendingId?: number | null };
         if (data.running && data.batchId) {
           setSendingGroupId((prev) => prev ?? data.batchId);
         } else {
@@ -970,7 +988,7 @@ export function Outreach() {
   const handleBulkApprove = () => {
     const ids = [...selected].filter((id) => {
       const item = outreachItems.find((i) => i.id === id);
-      return item && (item.status === "pending_review" || item.status === "draft" || item.status === "queued");
+      return item && (item.status === "pending_review" || item.status === "draft");
     });
     if (ids.length === 0) return;
     bulkApprove.mutate(
@@ -1009,32 +1027,30 @@ export function Outreach() {
     if (!res.ok) {
       throw new Error(json?.error ?? "Failed to send selected outreach.");
     }
-    return json as { sent: number; failed: number; skipped: number; stopped?: boolean };
+    return json as { queued: number; skipped: number; stopped?: boolean; message?: string };
   };
 
   const handleSendGroup = async (items: OutreachItem[]) => {
     const ids = items.filter((item) => item.status === "approved").map((item) => item.id);
-    if (ids.length === 0 || sendingGroupId || sendBatch.isPending) return;
-    const groupId = buildDisplayRows(items)[0]?.id ?? ids.join("-");
+    if (ids.length === 0) return;
     try {
       setBatchResult(null);
       setStoppingBatch(false);
-      setSendingGroupId(groupId);
       const result = await sendSelectedItems(ids);
-      setBatchResult({ sent: result.sent, failed: result.failed, skipped: result.skipped, stopped: result.stopped });
+      setBatchResult({ queued: result.queued, skipped: result.skipped, stopped: result.stopped });
+      toast({ title: result.message ?? `Added ${result.queued} item${result.queued === 1 ? "" : "s"} to send queue.` });
       invalidate();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send selected outreach.";
+      const message = err instanceof Error ? err.message : "Failed to queue selected outreach.";
       toast({ title: message, variant: "destructive" });
     } finally {
-      setSendingGroupId(null);
       setStoppingBatch(false);
     }
   };
 
   const handleApproveGroup = (items: OutreachItem[]) => {
     const ids = items
-      .filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued")
+      .filter((item) => item.status === "pending_review" || item.status === "draft")
       .map((item) => item.id);
     if (ids.length === 0) return;
     bulkApprove.mutate({ data: { ids } }, { onSuccess: invalidate });
@@ -1042,7 +1058,7 @@ export function Outreach() {
 
   const handleRejectGroup = (items: OutreachItem[]) => {
     const ids = items
-      .filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved")
+      .filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "approved")
       .map((item) => item.id);
     if (ids.length === 0) return;
     bulkReject.mutate({ data: { ids } }, { onSuccess: invalidate });
@@ -1053,14 +1069,14 @@ export function Outreach() {
     setStoppingBatch(false);
     sendBatch.mutate(undefined, {
       onSuccess: (r) => {
-        const result = r as { sent: number; failed: number; skipped: number; stopped?: boolean };
-        setBatchResult({ sent: result.sent, failed: result.failed, skipped: result.skipped, stopped: result.stopped });
+        const result = r as unknown as { queued: number; skipped: number; stopped?: boolean };
+        setBatchResult({ queued: result.queued, skipped: result.skipped, stopped: result.stopped });
         setStoppingBatch(false);
         invalidate();
       },
       onError: () => {
         setStoppingBatch(false);
-        setBatchResult({ sent: 0, failed: 1, skipped: 0 });
+        setBatchResult({ queued: 0, skipped: 0 });
       },
     });
   };
@@ -1122,6 +1138,8 @@ export function Outreach() {
   );
 
   const approvedCount = outreachItems.filter((i) => i.status === "approved").length;
+  const queuedCount = outreachItems.filter((i) => i.status === "queued").length;
+  const sendingCount = outreachItems.filter((i) => i.status === "sending").length;
   const errorCount = outreachItems.filter((item) =>
     (item.qualityWarnings ?? []).some((warning) => warning.severity === "error"),
   ).length;
@@ -1135,7 +1153,7 @@ export function Outreach() {
   }).length;
   const approvableSelected = [...selected].filter((id) => {
     const item = outreachItems.find((i) => i.id === id);
-    return item && (item.status === "pending_review" || item.status === "draft" || item.status === "queued");
+    return item && (item.status === "pending_review" || item.status === "draft");
   }).length;
 
   return (
@@ -1188,7 +1206,7 @@ export function Outreach() {
         const totalEmailsSent = outreachItems.filter((i) => i.status === "sent").length;
 
         return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
               <Send className="w-5 h-5 text-primary" />
               <div>
@@ -1201,6 +1219,15 @@ export function Outreach() {
               <div>
                 <p className="text-lg font-semibold text-foreground leading-none">{totalEmailsSent}</p>
                 <p className="text-xs text-muted-foreground mt-1">Total emails sent</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-3">
+              <Clock className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-lg font-semibold text-foreground leading-none">{queuedCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Queued{sendingCount > 0 ? ` · ${sendingCount} sending` : ""}
+                </p>
               </div>
             </div>
           </div>
@@ -1221,10 +1248,10 @@ export function Outreach() {
             <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
           )}
           <span className={cn("font-medium", batchResult.stopped ? "text-amber-600" : "text-green-700 dark:text-green-400")}>
-            {batchResult.stopped ? "Batch stopped:" : "Batch complete:"}
+            {batchResult.stopped ? "Batch stopped:" : "Added to send queue:"}
           </span>
           <span className="text-foreground">
-            {batchResult.sent} sent · {batchResult.failed} failed · {batchResult.skipped} skipped
+            {batchResult.queued} queued · {batchResult.skipped} already queued or not eligible
           </span>
           <button
             className="ml-auto text-muted-foreground hover:text-foreground"
@@ -1532,9 +1559,13 @@ function OutreachGroupRow({
   isStopping: boolean;
   isGlobalSending: boolean;
 }) {
-  const approvableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued").length;
-  const rejectableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "queued" || item.status === "approved").length;
+  const approvableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft").length;
+  const rejectableCount = row.items.filter((item) => item.status === "pending_review" || item.status === "draft" || item.status === "approved").length;
   const sendableCount = row.items.filter((item) => item.status === "approved").length;
+  const queuePosition = row.items
+    .map((item) => item.queuePosition)
+    .filter((value): value is number => typeof value === "number")
+    .sort((a, b) => a - b)[0];
 
   return (
     <TableRow
@@ -1577,7 +1608,12 @@ function OutreachGroupRow({
             Sending
           </span>
         ) : (
-          <StatusBadge status={row.status} />
+          <div className="space-y-1">
+            <StatusBadge status={row.status} />
+            {queuePosition != null && row.status === "queued" && (
+              <p className="text-[10px] text-muted-foreground">Queue #{queuePosition}</p>
+            )}
+          </div>
         )}
       </TableCell>
 
@@ -1611,10 +1647,6 @@ function OutreachGroupRow({
               {isStopping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <X className="w-3.5 h-3.5 mr-1" />}
               {isStopping ? "Stopping" : "Stop"}
             </Button>
-          ) : isGlobalSending && sendableCount > 0 ? (
-            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary/60 cursor-default" disabled title="Sending…">
-              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Sending…
-            </Button>
           ) : row.status === "stopped" && sendableCount > 0 ? (
             <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-amber-600 hover:bg-amber-500/10"
               onClick={onSend} disabled={isBusy} title={`Resume ${sendableCount} pending email(s)`}>
@@ -1622,7 +1654,7 @@ function OutreachGroupRow({
             </Button>
           ) : sendableCount > 0 && (
             <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-primary hover:bg-primary/10"
-              onClick={onSend} disabled={isBusy} title={`Send ${sendableCount}`}>
+              onClick={onSend} disabled={isBusy} title={`Queue ${sendableCount}`}>
               <Send className="w-3.5 h-3.5 mr-1" /> Send
             </Button>
           )}
@@ -1659,6 +1691,7 @@ function OutreachRow({
   onDelete: () => void;
   onRefresh: () => void;
 }) {
+  const { toast } = useToast();
   const sendItem = useSendOutreachItem();
   const retryItem = useRetryOutreachItem();
   const approveOutreach = useApproveOutreach();
@@ -1667,14 +1700,22 @@ function OutreachRow({
 
   const canSend = item.status === "approved";
   const canRetry = item.status === "failed" || item.status === "bounced";
-  const canApprove = item.status === "pending_review" || item.status === "draft" || item.status === "queued";
-  const canRegenerate = item.status === "pending_review" || item.status === "rejected" || item.status === "draft" || item.status === "queued";
+  const canApprove = item.status === "pending_review" || item.status === "draft";
+  const canRegenerate = item.status === "pending_review" || item.status === "rejected" || item.status === "draft";
   const isBusy = sendItem.isPending || retryItem.isPending || approveOutreach.isPending || rejectOutreach.isPending || regenerateOutreach.isPending;
   const warnings = item.qualityWarnings ?? [];
 
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
-    sendItem.mutate({ id: item.id }, { onSuccess: onRefresh });
+    sendItem.mutate(
+      { id: item.id },
+      {
+        onSuccess: () => {
+          toast({ title: "Added to send queue." });
+          onRefresh();
+        },
+      },
+    );
   };
 
   const handleRetry = (e: React.MouseEvent) => {
@@ -1748,7 +1789,14 @@ function OutreachRow({
         </div>
       </TableCell>
 
-      <TableCell><StatusBadge status={getDisplayStatus(item)} /></TableCell>
+      <TableCell>
+        <div className="space-y-1">
+          <StatusBadge status={getDisplayStatus(item)} />
+          {item.status === "queued" && item.queuePosition != null && (
+            <p className="text-[10px] text-muted-foreground">Queue #{item.queuePosition}</p>
+          )}
+        </div>
+      </TableCell>
 
       <TableCell className="text-center">
         <span className={cn("text-sm font-semibold", item.status === "sent" || item.sentAt ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50")}>

@@ -15,6 +15,8 @@ import {
   ListCampaignEmailAccountsParams,
 } from "@workspace/api-zod";
 import { encrypt, decrypt, isEncrypted } from "../lib/crypto";
+import { resumeQueuedOutreachSendQueue } from "./outreach-send";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -57,6 +59,11 @@ router.patch("/email-accounts/:id", async (req, res) => {
   if (!account) {
     res.status(404).json({ error: "Not found" });
     return;
+  }
+  if ("dailySendLimit" in body || "isActive" in body) {
+    resumeQueuedOutreachSendQueue().catch((err) =>
+      logger.error({ err }, "Failed to resume queued outreach after email account update"),
+    );
   }
   res.json(stripPassword(account));
 });

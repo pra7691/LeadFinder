@@ -31,6 +31,11 @@ import {
   recordOpen,
   syncExternalTracking,
 } from "../services/email-tracking";
+import {
+  createSingleQueueWorkerGate,
+  drainManualSendQueue,
+  uniqueQueueIds,
+} from "./outreach-send-queue-core";
 
 const router = Router();
 
@@ -47,6 +52,14 @@ const GLOBAL_LIMIT_REASON = "limit:global_daily";
 const activeBatches = new Set<string>();
 let batchSendCancelRequested = false;
 let currentBatchId: string | null = null;
+const manualSendQueueWorkerGate = createSingleQueueWorkerGate();
+
+type QueryResult<T> = { rows: T[] };
+
+async function queryRows<T>(query: Parameters<typeof db.execute>[0]): Promise<T[]> {
+  const result = (await db.execute(query)) as unknown as QueryResult<T>;
+  return result.rows ?? [];
+}
 
 function resetBatchSendState(batchId?: string | null) {
   if (batchId) activeBatches.delete(batchId);
@@ -302,6 +315,7 @@ async function doSend(
       .set({
         status: "sent",
         sentAt: now,
+        sendingStartedAt: null,
         failureReason: null,
       })
       .where(eq(outreachQueueTable.id, item.id));
@@ -339,6 +353,7 @@ async function doSend(
         status: isHardBounce ? "bounced" : "failed",
         failureReason: reason,
         retryCount: sql`${outreachQueueTable.retryCount} + 1`,
+        sendingStartedAt: null,
         bouncedAt: isHardBounce ? new Date() : undefined,
       })
       .where(eq(outreachQueueTable.id, item.id));
@@ -367,10 +382,10 @@ export async function isEmailHardBounced(email: string): Promise<boolean> {
 
 async function antiSpamCheck(
   item: typeof outreachQueueTable.$inferSelect,
+  allowedStatuses: string[] = ["approved"],
 ): Promise<{ ok: boolean; reason?: string }> {
-  // Must be approved
-  if (item.status !== "approved") {
-    return { ok: false, reason: "Item is not in approved status" };
+  if (!allowedStatuses.includes(item.status)) {
+    return { ok: false, reason: `Item is not in ${allowedStatuses.join("/")} status` };
   }
 
   // Check lead not rejected/invalid
@@ -420,6 +435,268 @@ async function antiSpamCheck(
   return { ok: true };
 }
 
+type QueueSummary = {
+  queued: number;
+  skipped: number;
+  items: (typeof outreachQueueTable.$inferSelect)[];
+};
+
+function manualQueueBatchId(item: typeof outreachQueueTable.$inferSelect): string {
+  return item.batchId || `item-${item.id}`;
+}
+
+async function enqueueOutreachItems(ids: number[]): Promise<QueueSummary> {
+  if (ids.length === 0) return { queued: 0, skipped: 0, items: [] };
+
+  const uniqueIds = uniqueQueueIds(ids);
+  const items: (typeof outreachQueueTable.$inferSelect)[] = [];
+  let queued = 0;
+  let skipped = 0;
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(1781600995600)`);
+
+    for (const id of uniqueIds) {
+      const result = (await tx.execute(sql`
+        WITH target AS (
+          SELECT id
+          FROM outreach_queue
+          WHERE id = ${id}
+            AND status IN ('approved', 'pending_review')
+          FOR UPDATE
+        ),
+        next_position AS (
+          SELECT coalesce(max(queue_position), 0) + 1 AS value
+          FROM outreach_queue
+        )
+        UPDATE outreach_queue AS q
+        SET
+          status = 'queued',
+          queued_at = now(),
+          queue_position = (SELECT value FROM next_position),
+          sending_started_at = NULL,
+          failure_reason = NULL,
+          updated_at = now()
+        WHERE q.id IN (SELECT id FROM target)
+        RETURNING q.id
+      `)) as unknown as QueryResult<{ id: number }>;
+
+      const updatedId = result.rows?.[0]?.id;
+      const [updated] = updatedId
+        ? await tx.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, updatedId))
+        : [];
+      if (updated) {
+        queued++;
+        items.push(updated);
+        continue;
+      }
+
+      const [existing] = await tx.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, id));
+      if (existing) {
+        skipped++;
+        items.push(existing);
+      }
+    }
+  });
+
+  startManualSendQueueWorker();
+  return { queued, skipped, items };
+}
+
+async function getManualQueueStatus() {
+  const rows = await queryRows<{
+    queued_count: number;
+    sending_count: number;
+    sending_id: number | null;
+    batch_id: string | null;
+  }>(sql`
+    SELECT
+      count(*) FILTER (WHERE status = 'queued')::int AS queued_count,
+      count(*) FILTER (WHERE status = 'sending')::int AS sending_count,
+      (min(id) FILTER (WHERE status = 'sending'))::int AS sending_id,
+      min(batch_id) FILTER (WHERE status = 'sending') AS batch_id
+    FROM outreach_queue
+    WHERE status IN ('queued', 'sending')
+  `);
+  const row = rows[0];
+  return {
+    queuedCount: row?.queued_count ?? 0,
+    sendingCount: row?.sending_count ?? 0,
+    sendingId: row?.sending_id ?? null,
+    batchId: row?.batch_id ?? null,
+  };
+}
+
+async function claimNextQueuedItem(): Promise<typeof outreachQueueTable.$inferSelect | null> {
+  try {
+    const rows = await queryRows<{ id: number }>(sql`
+      WITH next AS (
+        SELECT q.id
+        FROM outreach_queue AS q
+        WHERE q.status = 'queued'
+          AND (q.failure_reason IS NULL OR q.failure_reason != ${PAUSED_BY_USER_REASON})
+          AND NOT EXISTS (
+            SELECT 1
+            FROM outreach_queue AS active
+            WHERE active.status = 'sending'
+          )
+        ORDER BY q.queue_position ASC NULLS LAST, q.queued_at ASC NULLS LAST, q.id ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE outreach_queue AS q
+      SET
+        status = 'sending',
+        sending_started_at = now(),
+        failure_reason = NULL,
+        updated_at = now()
+      WHERE q.id IN (SELECT id FROM next)
+      RETURNING q.id
+    `);
+    const id = rows[0]?.id;
+    if (!id) return null;
+    const [item] = await db.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, id));
+    return item ?? null;
+  } catch (err) {
+    if (typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function returnSendingItemToQueue(id: number, reason: string) {
+  await db
+    .update(outreachQueueTable)
+    .set({
+      status: "queued",
+      failureReason: reason,
+      sendingStartedAt: null,
+    })
+    .where(eq(outreachQueueTable.id, id));
+}
+
+async function failQueuedItem(id: number, reason: string, campaignId: number | null) {
+  await db
+    .update(outreachQueueTable)
+    .set({
+      status: "failed",
+      failureReason: reason,
+      retryCount: sql`${outreachQueueTable.retryCount} + 1`,
+      sendingStartedAt: null,
+    })
+    .where(eq(outreachQueueTable.id, id));
+  await logSend(campaignId, "send_failure", `Failed queued send: ${reason}`, { outreachId: id });
+}
+
+async function processClaimedQueuedItem(item: typeof outreachQueueTable.$inferSelect): Promise<"continue" | "stop"> {
+  if (batchSendCancelRequested) {
+    await returnSendingItemToQueue(item.id, PAUSED_BY_USER_REASON);
+    return "stop";
+  }
+
+  const spamCheck = await antiSpamCheck(item, ["sending"]);
+  if (!spamCheck.ok) {
+    if (spamCheck.reason?.startsWith("skipped:")) {
+      await db
+        .update(outreachQueueTable)
+        .set({ status: "rejected", failureReason: spamCheck.reason, sendingStartedAt: null })
+        .where(eq(outreachQueueTable.id, item.id));
+    } else {
+      await failQueuedItem(item.id, spamCheck.reason ?? "Send safety check failed", item.campaignId);
+    }
+    await logSend(item.campaignId, "send_skip", `Skipped queued send: ${spamCheck.reason}`, { outreachId: item.id });
+    return "continue";
+  }
+
+  if (!item.emailAccountId) {
+    await failQueuedItem(item.id, "No email account assigned", item.campaignId);
+    return "continue";
+  }
+
+  const [account] = await db
+    .select()
+    .from(emailAccountsTable)
+    .where(eq(emailAccountsTable.id, item.emailAccountId));
+  if (!account || !account.isActive) {
+    await failQueuedItem(item.id, "Email account not found or inactive", item.campaignId);
+    return "continue";
+  }
+
+  const globalEmailLimit = await getGlobalEmailLimit();
+  const globalSentToday = await getGlobalSentToday();
+  if (globalSentToday >= globalEmailLimit) {
+    await returnSendingItemToQueue(item.id, GLOBAL_LIMIT_REASON);
+    await logSend(item.campaignId, "send_skip", `Global daily email limit reached (${globalEmailLimit})`, {
+      outreachId: item.id,
+      queued: true,
+    });
+    return "stop";
+  }
+
+  const acctSent = await getAccountSentToday(account);
+  if (acctSent >= account.dailySendLimit) {
+    await returnSendingItemToQueue(item.id, ACCOUNT_LIMIT_REASON);
+    await logSend(item.campaignId, "send_skip", `Account daily limit reached (${account.dailySendLimit})`, {
+      outreachId: item.id,
+      queued: true,
+    });
+    return "stop";
+  }
+
+  let campaign: typeof campaignsTable.$inferSelect | undefined;
+  if (item.campaignId !== null) {
+    const [c] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, item.campaignId));
+    campaign = c;
+  }
+
+  await doSend(item, account, campaign);
+  return "continue";
+}
+
+function startManualSendQueueWorker(): boolean {
+  return manualSendQueueWorkerGate.start(async () => {
+    batchSendCancelRequested = false;
+    let processed = 0;
+    let stopped = false;
+    try {
+      const result = await drainManualSendQueue({
+        shouldStop: () => batchSendCancelRequested,
+        claim: claimNextQueuedItem,
+        process: async (item) => {
+          const batchId = manualQueueBatchId(item);
+          currentBatchId = batchId;
+          activeBatches.add(batchId);
+          try {
+            const result = await processClaimedQueuedItem(item);
+            if (result === "stop") return "stop";
+
+            const status = await getManualQueueStatus();
+            if (status.queuedCount > 0 && !batchSendCancelRequested) {
+              const delayResult = await randomInterruptibleDelay();
+              if (delayResult === "cancelled") return "stop";
+            }
+            return "continue";
+          } finally {
+            activeBatches.delete(batchId);
+            if (currentBatchId === batchId) currentBatchId = null;
+          }
+        },
+      });
+      processed = result.processed;
+      stopped = result.stopped;
+    } catch (err) {
+      const { logger } = await import("../lib/logger");
+      logger.error({ err }, "Manual outreach send queue worker failed");
+    } finally {
+      const status = await getManualQueueStatus().catch(() => ({ queuedCount: 0 }));
+      if (!stopped && !batchSendCancelRequested && status.queuedCount > 0 && processed > 0) {
+        startManualSendQueueWorker();
+      }
+    }
+  });
+}
+
 // ── POST /outreach/send-batch ───────────────────────────────────────────────
 
 router.post("/outreach/send-batch", async (req, res) => {
@@ -428,205 +705,41 @@ router.post("/outreach/send-batch", async (req, res) => {
     ? rawIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
     : [];
 
-  // Clear the paused_by_user marker when user explicitly triggers a send.
-  // This converts "stopped" items back to active so this send picks them up.
-  if (ids.length > 0) {
-    await db
-      .update(outreachQueueTable)
-      .set({ failureReason: null })
+  let queueIds = ids;
+  if (queueIds.length === 0) {
+    const approved = await db
+      .select({ id: outreachQueueTable.id })
+      .from(outreachQueueTable)
       .where(and(
-        inArray(outreachQueueTable.id, ids),
         eq(outreachQueueTable.status, "approved"),
-        sql`${outreachQueueTable.failureReason} IN (${PAUSED_BY_USER_REASON}, ${ACCOUNT_LIMIT_REASON}, ${GLOBAL_LIMIT_REASON})`,
-      ));
+        sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != ${PAUSED_BY_USER_REASON})`,
+      ))
+      .orderBy(asc(outreachQueueTable.id));
+    queueIds = approved.map((item) => item.id);
   }
 
-  const approvedConditions = [eq(outreachQueueTable.status, "approved")];
-  if (ids.length > 0) approvedConditions.push(inArray(outreachQueueTable.id, ids));
-  // When no specific IDs are provided, skip user-paused items so the global Send
-  // button doesn't sweep up batches the user explicitly stopped.
-  if (ids.length === 0) {
-    approvedConditions.push(
-      sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} != ${PAUSED_BY_USER_REASON})`,
-    );
-  }
-
-  // ORDER BY id ASC so items are always processed top-to-bottom
-  const approved = await db
-    .select()
-    .from(outreachQueueTable)
-    .where(and(...approvedConditions))
-    .orderBy(asc(outreachQueueTable.id));
-
-  // Capture the batchId so the status endpoint can tell the frontend which batch is active
-  const thisBatchId = approved[0]?.batchId ?? null;
-
-  if (approved.length === 0) {
-    res.json({ sent: 0, failed: 0, skipped: 0, items: [] });
-    return;
-  }
-
-  // Per-batch deduplication: reject if this exact batch is already running
-  if (thisBatchId && activeBatches.has(thisBatchId)) {
-    res.status(409).json({ error: "This batch is already being sent" });
-    return;
-  }
-
-  if (thisBatchId) activeBatches.add(thisBatchId);
-  currentBatchId = thisBatchId;
-  batchSendCancelRequested = false;
-
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-  let stopped = false;
-  const resultItems: (typeof outreachQueueTable.$inferSelect)[] = [];
-
-  // Cache campaigns and accounts
-  const campaignCache = new Map<number, typeof campaignsTable.$inferSelect>();
-  const accountCache = new Map<number, typeof emailAccountsTable.$inferSelect>();
-  const accountSentToday = new Map<number, number>();
-
-  // Global email limit
-  const globalEmailLimit = await getGlobalEmailLimit();
-  let globalSentToday = await getGlobalSentToday();
-
-  // Configurable send delay
-  const [delayMinRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_min_seconds"));
-  const [delayMaxRow] = await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, "send_delay_max_seconds"));
-  const sendDelayMinMs = Math.max(1000, (parseInt(delayMinRow?.value ?? "30", 10) || 30) * 1000);
-  const sendDelayMaxMs = Math.max(sendDelayMinMs, (parseInt(delayMaxRow?.value ?? "120", 10) || 120) * 1000);
-
-  try {
-  for (const item of approved) {
-    if (batchSendCancelRequested) {
-      stopped = true;
-      await logSend(null, "send_skip", "Batch sending stopped by user", {
-        sent,
-        failed,
-        skipped,
-        remaining: approved.length - (sent + failed + skipped),
-      });
-      break;
-    }
-
-    // Global daily limit check
-    if (globalSentToday >= globalEmailLimit) {
-      await db
-        .update(outreachQueueTable)
-        .set({ failureReason: GLOBAL_LIMIT_REASON })
-        .where(eq(outreachQueueTable.id, item.id));
-      await logSend(item.campaignId, "send_skip", `Global daily email limit reached (${globalEmailLimit})`, { outreachId: item.id });
-      skipped++;
-      continue;
-    }
-
-    // Anti-spam checks
-    const spamCheck = await antiSpamCheck(item);
-    if (!spamCheck.ok) {
-      // Persist structured skip reasons so the UI can show the right status
-      if (spamCheck.reason?.startsWith("skipped:")) {
-        await db.update(outreachQueueTable)
-          .set({ status: "rejected", failureReason: spamCheck.reason })
-          .where(eq(outreachQueueTable.id, item.id));
-      }
-      await logSend(item.campaignId, "send_skip", `Skipped: ${spamCheck.reason}`, { outreachId: item.id });
-      skipped++;
-      continue;
-    }
-
-    // Load campaign (optional — outreach items can exist without a campaign)
-    let campaign: typeof campaignsTable.$inferSelect | undefined;
-    if (item.campaignId !== null) {
-      if (!campaignCache.has(item.campaignId)) {
-        const [c] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, item.campaignId));
-        if (c) campaignCache.set(item.campaignId, c);
-      }
-      campaign = campaignCache.get(item.campaignId);
-    }
-
-    // Load email account
-    const accountId = item.emailAccountId;
-    if (!accountId) {
-      await logSend(item.campaignId, "send_skip", "No email account assigned", { outreachId: item.id });
-      skipped++;
-      continue;
-    }
-    if (!accountCache.has(accountId)) {
-      const [a] = await db.select().from(emailAccountsTable).where(eq(emailAccountsTable.id, accountId));
-      if (a) accountCache.set(accountId, a);
-    }
-    const account = accountCache.get(accountId);
-    if (!account || !account.isActive) {
-      await logSend(item.campaignId, "send_skip", "Email account not found or inactive", { outreachId: item.id });
-      skipped++;
-      continue;
-    }
-
-    // Account daily limit
-    if (!accountSentToday.has(accountId)) {
-      accountSentToday.set(accountId, await getAccountSentToday(account));
-    }
-    const acctSent = accountSentToday.get(accountId) ?? 0;
-    if (acctSent >= account.dailySendLimit) {
-      await db
-        .update(outreachQueueTable)
-        .set({ failureReason: ACCOUNT_LIMIT_REASON })
-        .where(eq(outreachQueueTable.id, item.id));
-      await logSend(item.campaignId, "send_skip", `Account daily limit reached (${account.dailySendLimit})`, { outreachId: item.id });
-      skipped++;
-      continue;
-    }
-
-    // Randomized delay between sends (skip delay before first send)
-    if (sent + failed > 0) {
-      const delayResult = await randomInterruptibleDelay(sendDelayMinMs, sendDelayMaxMs);
-      if (delayResult === "cancelled") {
-        stopped = true;
-        await logSend(null, "send_skip", "Batch sending stopped by user during send delay", {
-          sent,
-          failed,
-          skipped,
-          remaining: approved.length - (sent + failed + skipped),
-        });
-        break;
-      }
-    }
-
-    if (batchSendCancelRequested) {
-      stopped = true;
-      break;
-    }
-
-    const success = await doSend(item, account, campaign);
-
-    if (success) {
-      sent++;
-      globalSentToday++;
-      accountSentToday.set(accountId, acctSent + 1);
-      // Refresh account cache counter
-      const acct = accountCache.get(accountId)!;
-      accountCache.set(accountId, { ...acct, sentToday: acctSent + 1 });
-    } else {
-      failed++;
-    }
-
-    // Fetch updated item
-    const [updated] = await db.select().from(outreachQueueTable).where(eq(outreachQueueTable.id, item.id));
-    if (updated) resultItems.push(updated);
-  }
-
-  const limitHit = skipped > 0 && sent === 0 && !stopped && globalSentToday >= globalEmailLimit;
-  res.json({ sent, failed, skipped, stopped, items: resultItems, limitHit, globalLimit: globalEmailLimit, emailsSentToday: globalSentToday });
-  } finally {
-    resetBatchSendState(thisBatchId);
-  }
+  const result = await enqueueOutreachItems(queueIds);
+  res.json({
+    sent: 0,
+    failed: 0,
+    skipped: result.skipped,
+    queued: result.queued,
+    items: result.items,
+    message: result.queued > 0 ? "Added to send queue." : "No eligible outreach items were queued.",
+  });
 });
 
 // ── GET /outreach/send-batch/status ────────────────────────────────────────
 
-router.get("/outreach/send-batch/status", (_req, res) => {
-  res.json({ running: activeBatches.size > 0, batchId: currentBatchId });
+router.get("/outreach/send-batch/status", async (_req, res) => {
+  const status = await getManualQueueStatus();
+  res.json({
+    running: activeBatches.size > 0 || status.sendingCount > 0 || manualSendQueueWorkerGate.isRunning(),
+    batchId: currentBatchId ?? status.batchId,
+    queuedCount: status.queuedCount,
+    sendingCount: status.sendingCount,
+    sendingId: status.sendingId,
+  });
 });
 
 // ── POST /outreach/send-batch/cancel ───────────────────────────────────────
@@ -637,7 +750,7 @@ router.post("/outreach/send-batch/cancel", async (req, res) => {
   // omitting it pauses all active batches.
   const batchId = (req.body as { batchId?: unknown })?.batchId;
   const pauseConditions = [
-    eq(outreachQueueTable.status, "approved"),
+    inArray(outreachQueueTable.status, ["approved", "queued"]),
     // Don't overwrite a real failureReason; only set on rows where it's empty
     sql`(${outreachQueueTable.failureReason} IS NULL OR ${outreachQueueTable.failureReason} = '' OR ${outreachQueueTable.failureReason} IN (${ACCOUNT_LIMIT_REASON}, ${GLOBAL_LIMIT_REASON}))`,
   ];
@@ -650,7 +763,7 @@ router.post("/outreach/send-batch/cancel", async (req, res) => {
     .where(and(...pauseConditions))
     .returning({ id: outreachQueueTable.id });
 
-  if (activeBatches.size === 0) {
+  if (activeBatches.size === 0 && !manualSendQueueWorkerGate.isRunning()) {
     res.json({
       ok: true,
       running: false,
@@ -806,71 +919,19 @@ router.get("/outreach/send-stats", async (_req, res) => {
 router.post("/outreach/:id/send", async (req, res) => {
   const { id } = SendOutreachItemParams.parse({ id: Number(req.params.id) });
 
-  const [item] = await db
-    .select()
-    .from(outreachQueueTable)
-    .where(eq(outreachQueueTable.id, id));
-
+  const result = await enqueueOutreachItems([id]);
+  const item = result.items[0];
   if (!item) {
     res.status(404).json({ error: "Item not found" });
     return;
   }
 
-  // Anti-spam
-  const spamCheck = await antiSpamCheck(item);
-  if (!spamCheck.ok) {
-    res.status(400).json({ error: spamCheck.reason });
-    return;
-  }
-
-  // Email account
-  if (!item.emailAccountId) {
-    res.status(400).json({ error: "No email account assigned to this item" });
-    return;
-  }
-
-  const [account] = await db
-    .select()
-    .from(emailAccountsTable)
-    .where(eq(emailAccountsTable.id, item.emailAccountId));
-
-  if (!account || !account.isActive) {
-    res.status(400).json({ error: "Email account is not available" });
-    return;
-  }
-
-  // Account daily limit
-  const acctSent = await getAccountSentToday(account);
-  if (acctSent >= account.dailySendLimit) {
-    res.status(429).json({ error: `Account daily limit reached (${account.dailySendLimit})` });
-    return;
-  }
-
-  let campaign: typeof campaignsTable.$inferSelect | undefined;
-  if (item.campaignId !== null) {
-    const [c] = await db
-      .select()
-      .from(campaignsTable)
-      .where(eq(campaignsTable.id, item.campaignId));
-    campaign = c;
-  }
-
-  // Global daily limit check for single send
-  const globalLimit = await getGlobalEmailLimit();
-  const globalSent = await getGlobalSentToday();
-  if (globalSent >= globalLimit) {
-    res.status(429).json({ error: `Global daily email limit reached (${globalLimit})` });
-    return;
-  }
-
-  await doSend(item, account, campaign);
-
-  const [updated] = await db
-    .select()
-    .from(outreachQueueTable)
-    .where(eq(outreachQueueTable.id, id));
-
-  res.json(await enrichItem(updated!));
+  res.json({
+    ...(await enrichItem(item)),
+    queued: result.queued,
+    skipped: result.skipped,
+    message: result.queued > 0 ? "Added to send queue." : "Already queued or not eligible to queue.",
+  });
 });
 
 // ── POST /outreach/resend-batch ─────────────────────────────────────────────
@@ -927,7 +988,7 @@ router.post("/outreach/:id/retry", async (req, res) => {
     return;
   }
 
-  // Reset to approved so doSend can proceed
+  // Reset to approved so the manual send queue can claim it.
   await db
     .update(outreachQueueTable)
     .set({ status: "approved", failureReason: null })
@@ -943,38 +1004,13 @@ router.post("/outreach/:id/retry", async (req, res) => {
     return;
   }
 
-  if (!resetItem.emailAccountId) {
-    res.status(400).json({ error: "No email account assigned" });
-    return;
-  }
-
-  const [account] = await db
-    .select()
-    .from(emailAccountsTable)
-    .where(eq(emailAccountsTable.id, resetItem.emailAccountId));
-
-  if (!account || !account.isActive) {
-    res.status(400).json({ error: "Email account is not available" });
-    return;
-  }
-
-  let retryCampaign: typeof campaignsTable.$inferSelect | undefined;
-  if (resetItem.campaignId !== null) {
-    const [c] = await db
-      .select()
-      .from(campaignsTable)
-      .where(eq(campaignsTable.id, resetItem.campaignId));
-    retryCampaign = c;
-  }
-
-  await doSend(resetItem, account, retryCampaign);
-
-  const [updated] = await db
-    .select()
-    .from(outreachQueueTable)
-    .where(eq(outreachQueueTable.id, id));
-
-  res.json(await enrichItem(updated!));
+  const result = await enqueueOutreachItems([resetItem.id]);
+  res.json({
+    ...(await enrichItem(result.items[0] ?? resetItem)),
+    queued: result.queued,
+    skipped: result.skipped,
+    message: result.queued > 0 ? "Added to send queue." : "Already queued or not eligible to queue.",
+  });
 });
 
 // ── Exported helper: resume any stuck approved items on server startup ───────
@@ -1115,6 +1151,97 @@ export async function resumeStuckOutreach(): Promise<void> {
     { count: stuckItems.length },
     `Startup: found ${stuckItems.length} approved outreach item(s) stuck from previous run — auto-resuming in 5s`,
   );
+}
+
+export async function recoverManualOutreachSendQueueOnStartup(): Promise<{
+  returnedToQueued: number;
+  confirmedSent: number;
+  confirmedBounced: number;
+  queuedCount: number;
+  workerStarted: boolean;
+}> {
+  const now = new Date();
+
+  const returnedToQueuedRows = await db
+    .update(outreachQueueTable)
+    .set({
+      status: "queued",
+      sendingStartedAt: null,
+      failureReason: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(outreachQueueTable.status, "sending"),
+      sql`${outreachQueueTable.sentAt} IS NULL`,
+      sql`${outreachQueueTable.bouncedAt} IS NULL`,
+    ))
+    .returning({ id: outreachQueueTable.id });
+
+  const confirmedSentRows = await db
+    .update(outreachQueueTable)
+    .set({
+      status: "sent",
+      sendingStartedAt: null,
+      failureReason: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(outreachQueueTable.status, "sending"),
+      sql`${outreachQueueTable.sentAt} IS NOT NULL`,
+    ))
+    .returning({ id: outreachQueueTable.id });
+
+  const confirmedBouncedRows = await db
+    .update(outreachQueueTable)
+    .set({
+      status: "bounced",
+      sendingStartedAt: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(outreachQueueTable.status, "sending"),
+      sql`${outreachQueueTable.bouncedAt} IS NOT NULL`,
+    ))
+    .returning({ id: outreachQueueTable.id });
+
+  const status = await getManualQueueStatus();
+  const workerStarted = status.queuedCount > 0 ? startManualSendQueueWorker() : false;
+
+  const { logger } = await import("../lib/logger");
+  logger.warn(
+    {
+      returnedToQueued: returnedToQueuedRows.length,
+      confirmedSent: confirmedSentRows.length,
+      confirmedBounced: confirmedBouncedRows.length,
+      queuedCount: status.queuedCount,
+      workerStarted,
+    },
+    "Startup recovery: checked manual outreach send queue",
+  );
+
+  return {
+    returnedToQueued: returnedToQueuedRows.length,
+    confirmedSent: confirmedSentRows.length,
+    confirmedBounced: confirmedBouncedRows.length,
+    queuedCount: status.queuedCount,
+    workerStarted,
+  };
+}
+
+export async function resumeQueuedOutreachSendQueue(): Promise<{
+  queuedCount: number;
+  sendingCount: number;
+  workerStarted: boolean;
+}> {
+  const status = await getManualQueueStatus();
+  const workerStarted = status.queuedCount > 0 && status.sendingCount === 0
+    ? startManualSendQueueWorker()
+    : false;
+  return {
+    queuedCount: status.queuedCount,
+    sendingCount: status.sendingCount,
+    workerStarted,
+  };
 }
 
 export default router;

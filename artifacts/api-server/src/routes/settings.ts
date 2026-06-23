@@ -6,6 +6,8 @@ import { UpsertSettingBody, UpsertSettingParams } from "@workspace/api-zod";
 import { testAIConnection } from "../services/email-generator";
 import { getSerperApiKey } from "../services/serper-key";
 import { searchSerper } from "../services/serper";
+import { resumeQueuedOutreachSendQueue } from "./outreach-send";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -117,6 +119,12 @@ router.put("/settings/:key", async (req, res) => {
       set: { value: body.value, updatedAt: new Date() },
     })
     .returning();
+
+  if (key === "global_max_emails_per_day") {
+    resumeQueuedOutreachSendQueue().catch((err) =>
+      logger.error({ err }, "Failed to resume queued outreach after global email limit update"),
+    );
+  }
 
   res.json({ ...setting, value: maskValue(key, setting.value) });
 });
