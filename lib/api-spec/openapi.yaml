@@ -2037,6 +2037,15 @@ components:
           type: ["string", "null"]
         crawlError:
           type: ["string", "null"]
+        browserStatus:
+          type: ["string", "null"]
+          description: Browser fallback status for this lead when a retry attempt exists
+        browserError:
+          type: ["string", "null"]
+          description: Stored Playwright browser retry or setup error
+        browserAttemptedAt:
+          type: ["string", "null"]
+          description: Browser attempt start time, or queue time when setup prevented launch
         leadType:
           type: ["string", "null"]
           description: '"company" | "directory" | "media" | "event" | "dataset" | "research" | "stats_platform"'

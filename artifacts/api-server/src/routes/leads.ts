@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { appSettingsTable, campaignsTable, campaignRunsTable, leadsTable } from "@workspace/db";
+import { appSettingsTable, campaignsTable, campaignRunsTable, leadCrawlAttemptsTable, leadsTable } from "@workspace/db";
 import { eq, and, isNotNull, isNull, gte, lte, inArray, desc, sql, getTableColumns, type SQL } from "drizzle-orm";
 import { saveExportFile } from "../services/export-files";
 import { parseBlockedDomains } from "../services/domain-blocklist";
@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-zod";
 import { normalizeQualifiedNoEmailPage } from "../services/qualified-no-email-core";
 import { qualifiedNoEmailConditions } from "../services/qualified-no-email-query";
+import { normalizeFailedCrawlPage } from "../services/failed-crawl-core";
+import { failedCrawlConditions } from "../services/failed-crawl-query";
 
 const router = Router();
 
@@ -81,32 +83,6 @@ async function getBlockedDomains() {
     .from(appSettingsTable)
     .where(eq(appSettingsTable.key, "blocked_domains"));
   return parseBlockedDomains(blockedSetting?.value);
-}
-
-function blockedDomainExclusionConditions(blockedDomains: Set<string>): SQL[] {
-  return Array.from(blockedDomains).map((blocked) => {
-    const normalizedRootDomain = sql<string>`lower(regexp_replace(${leadsTable.rootDomain}, '^www\.', ''))`;
-    if (blocked.includes(".")) {
-      return sql`${normalizedRootDomain} <> ${blocked} and ${normalizedRootDomain} not like ${`%.${blocked}`}`;
-    }
-    return sql`split_part(${normalizedRootDomain}, '.', 1) <> ${blocked}`;
-  });
-}
-
-function failedCrawlConditions(query: Record<string, unknown> = {}, blockedDomains: Set<string> = new Set()) {
-  const conditions: SQL[] = [eq(leadsTable.crawlStatus, "failed")];
-  const campaignRunId = parsePositiveNumber(query.campaignRunId);
-  const campaignId = parsePositiveNumber(query.campaignId);
-
-  if (campaignRunId !== undefined) {
-    conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
-  } else if (campaignId !== undefined) {
-    conditions.push(eq(leadsTable.campaignId, campaignId));
-  }
-
-  conditions.push(...blockedDomainExclusionConditions(blockedDomains));
-
-  return conditions;
 }
 
 router.get("/leads", async (req, res) => {
@@ -178,11 +154,12 @@ router.get("/leads", async (req, res) => {
   res.json(leads);
 });
 
-router.get("/leads/failed-crawls/groups", async (_req, res) => {
-  // Blocked-domain filter is intentionally excluded here — this is a diagnostic
-  // page and failed crawls on blocked domains are still useful to see.
-  const rows = await db
-    .select({
+router.get("/leads/failed-crawls/groups", async (req, res) => {
+  const { limit, offset } = normalizeFailedCrawlPage(req.query.limit, req.query.offset);
+  const blockedDomains = await getBlockedDomains();
+  const conditions = failedCrawlConditions({}, blockedDomains);
+  const [items, countRows, summaryRows] = await Promise.all([
+    db.select({
       campaignId: leadsTable.campaignId,
       campaignRunId: leadsTable.campaignRunId,
       campaignName: campaignsTable.name,
@@ -191,35 +168,56 @@ router.get("/leads/failed-crawls/groups", async (_req, res) => {
       runStartedAt: campaignRunsTable.startedAt,
       runCompletedAt: campaignRunsTable.completedAt,
       failedCount: sql<number>`count(${leadsTable.id})::int`,
-      withErrorCount: sql<number>`count(${leadsTable.crawlError})::int`,
+      withErrorCount: sql<number>`count(${leadsTable.id})::int`,
       latestFailedAt: sql<Date>`max(${leadsTable.updatedAt})`,
     })
-    .from(leadsTable)
-    .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
-    .leftJoin(campaignRunsTable, eq(leadsTable.campaignRunId, campaignRunsTable.id))
-    .where(and(...failedCrawlConditions({})))
-    .groupBy(
-      leadsTable.campaignId,
-      leadsTable.campaignRunId,
-      campaignsTable.name,
-      campaignRunsTable.runName,
-      campaignRunsTable.status,
-      campaignRunsTable.startedAt,
-      campaignRunsTable.completedAt,
-    )
-    .orderBy(desc(sql`max(${leadsTable.updatedAt})`))
-    .limit(1000);
+      .from(leadsTable)
+      .leftJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
+      .leftJoin(campaignRunsTable, eq(leadsTable.campaignRunId, campaignRunsTable.id))
+      .where(and(...conditions))
+      .groupBy(
+        leadsTable.campaignId,
+        leadsTable.campaignRunId,
+        campaignsTable.name,
+        campaignRunsTable.runName,
+        campaignRunsTable.status,
+        campaignRunsTable.startedAt,
+        campaignRunsTable.completedAt,
+      )
+      .orderBy(desc(sql`max(${leadsTable.updatedAt})`))
+      .limit(limit)
+      .offset(offset),
+    db.select({
+      total: sql<number>`count(distinct (${leadsTable.campaignId}, ${leadsTable.campaignRunId}))::int`,
+    }).from(leadsTable).where(and(...conditions)),
+    db.select({
+      failedCount: sql<number>`count(${leadsTable.id})::int`,
+      campaignCount: sql<number>`count(distinct ${leadsTable.campaignId})::int`,
+    }).from(leadsTable).where(and(...conditions)),
+  ]);
 
-  res.json(rows);
+  res.json({
+    items,
+    total: countRows[0]?.total ?? 0,
+    limit,
+    offset,
+    summary: {
+      failedCount: summaryRows[0]?.failedCount ?? 0,
+      withErrorCount: summaryRows[0]?.failedCount ?? 0,
+      campaignCount: summaryRows[0]?.campaignCount ?? 0,
+    },
+  });
 });
 
 router.get("/leads/failed-crawls", async (req, res) => {
-  const limit = req.query.limit ? Number(req.query.limit) : 500;
-  const offset = req.query.offset ? Number(req.query.offset) : 0;
-  // Blocked-domain filter intentionally excluded — diagnostic page should show all failures.
-  const conditions = failedCrawlConditions(req.query);
-  const rows = await db
-    .select({
+  const { limit, offset } = normalizeFailedCrawlPage(req.query.limit, req.query.offset);
+  const blockedDomains = await getBlockedDomains();
+  const conditions = failedCrawlConditions({
+    campaignRunId: parsePositiveNumber(req.query.campaignRunId),
+    campaignId: parsePositiveNumber(req.query.campaignId),
+  }, blockedDomains);
+  const [items, countRows] = await Promise.all([
+    db.select({
       id: leadsTable.id,
       campaignId: leadsTable.campaignId,
       campaignRunId: leadsTable.campaignRunId,
@@ -229,26 +227,37 @@ router.get("/leads/failed-crawls", async (req, res) => {
       sourceQuery: leadsTable.sourceQuery,
       sourceKeyword: leadsTable.sourceKeyword,
       sourceCountry: leadsTable.sourceCountry,
+      sourceType: leadsTable.sourceType,
+      leadType: leadsTable.leadType,
       crawlStatus: leadsTable.crawlStatus,
       crawlError: leadsTable.crawlError,
+      httpFailureCategory: leadCrawlAttemptsTable.httpFailureCategory,
+      httpError: leadCrawlAttemptsTable.httpError,
+      browserStatus: leadCrawlAttemptsTable.browserStatus,
+      browserError: leadCrawlAttemptsTable.browserError,
+      finalCrawler: leadCrawlAttemptsTable.finalCrawler,
       createdAt: leadsTable.createdAt,
       updatedAt: leadsTable.updatedAt,
-    })
-    .from(leadsTable)
-    .where(and(...conditions))
-    .orderBy(desc(leadsTable.updatedAt))
-    .limit(Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 500)
-    .offset(Number.isFinite(offset) ? Math.max(offset, 0) : 0);
+    }).from(leadsTable)
+      .leftJoin(leadCrawlAttemptsTable, eq(leadCrawlAttemptsTable.leadId, leadsTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(leadsTable.updatedAt), desc(leadsTable.id))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: sql<number>`count(${leadsTable.id})::int` })
+      .from(leadsTable)
+      .where(and(...conditions)),
+  ]);
 
-  res.json(rows);
+  res.json({ items, total: countRows[0]?.total ?? 0, limit, offset });
 });
 
 router.get("/leads/failed-crawls/export", async (req, res) => {
   const campaignRunId = parsePositiveNumber(req.query.campaignRunId);
   const campaignId = parsePositiveNumber(req.query.campaignId);
   const saveToFile = req.query.save === "1" || req.query.save === "true";
-  // Blocked-domain filter intentionally excluded — export should include all failed crawls.
-  const conditions = failedCrawlConditions(req.query);
+  const blockedDomains = await getBlockedDomains();
+  const conditions = failedCrawlConditions({ campaignRunId, campaignId }, blockedDomains);
   const rows = await db
     .select({
       id: leadsTable.id,
@@ -260,15 +269,22 @@ router.get("/leads/failed-crawls/export", async (req, res) => {
       sourceQuery: leadsTable.sourceQuery,
       sourceKeyword: leadsTable.sourceKeyword,
       sourceCountry: leadsTable.sourceCountry,
+      sourceType: leadsTable.sourceType,
+      leadType: leadsTable.leadType,
       crawlStatus: leadsTable.crawlStatus,
       crawlError: leadsTable.crawlError,
+      httpFailureCategory: leadCrawlAttemptsTable.httpFailureCategory,
+      httpError: leadCrawlAttemptsTable.httpError,
+      browserStatus: leadCrawlAttemptsTable.browserStatus,
+      browserError: leadCrawlAttemptsTable.browserError,
+      finalCrawler: leadCrawlAttemptsTable.finalCrawler,
       createdAt: leadsTable.createdAt,
       updatedAt: leadsTable.updatedAt,
     })
     .from(leadsTable)
+    .leftJoin(leadCrawlAttemptsTable, eq(leadCrawlAttemptsTable.leadId, leadsTable.id))
     .where(and(...conditions))
-    .orderBy(desc(leadsTable.updatedAt))
-    .limit(10000);
+    .orderBy(desc(leadsTable.updatedAt), desc(leadsTable.id));
 
   const filenameDate = new Date().toISOString().slice(0, 10);
   const filenameScope = campaignRunId
@@ -288,8 +304,15 @@ router.get("/leads/failed-crawls/export", async (req, res) => {
     "Source Query",
     "Source Keyword",
     "Source Country",
+    "Source Type",
+    "Lead Type",
     "Crawl Status",
     "Crawl Error",
+    "HTTP Failure Category",
+    "HTTP Error",
+    "Browser Status",
+    "Browser Error",
+    "Final Crawler",
     "Created At",
     "Updated At",
   ];
@@ -307,8 +330,15 @@ router.get("/leads/failed-crawls/export", async (req, res) => {
         row.sourceQuery,
         row.sourceKeyword,
         row.sourceCountry,
+        row.sourceType,
+        row.leadType,
         row.crawlStatus,
         row.crawlError,
+        row.httpFailureCategory,
+        row.httpError,
+        row.browserStatus,
+        row.browserError,
+        row.finalCrawler,
         formatCsvDate(row.createdAt),
         formatCsvDate(row.updatedAt),
       ].map(csvEscape).join(","),

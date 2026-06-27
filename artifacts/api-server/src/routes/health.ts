@@ -28,6 +28,7 @@ const REQUIRED_TABLES = [
   "email_accounts",
   "email_templates",
   "lead_list_items",
+  "lead_crawl_attempts",
   "lead_lists",
   "lead_notes",
   "lead_status_history",
@@ -51,6 +52,9 @@ const CRITICAL_COLUMNS: Record<string, string[]> = {
   leads: [
     "id", "campaign_id", "root_domain", "website_url",
     "lead_status", "review_status", "relevance_score",
+  ],
+  lead_crawl_attempts: [
+    "id", "lead_id", "http_status", "browser_status", "final_status", "final_crawler",
   ],
   outreach_queue: [
     "id", "lead_id", "recipient_email", "subject", "body", "status",

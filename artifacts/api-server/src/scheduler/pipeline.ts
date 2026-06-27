@@ -26,7 +26,7 @@ import {
   emailTemplatesTable,
   type CampaignRunConfigurationSnapshot,
 } from "@workspace/db";
-import { eq, and, or, sql, desc, isNull, like, inArray } from "drizzle-orm";
+import { eq, and, or, sql, desc, gte, isNotNull, isNull, like, inArray } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
 import { getSerperApiKey } from "../services/serper-key";
 import { crawlWebsite, extractCompanyLinksFromPage } from "../services/crawler";
@@ -50,6 +50,22 @@ import {
   shouldSkipRefresh,
   templateFromRunConfiguration,
 } from "./campaign-run-configuration";
+import {
+  isRunReadyForFinalization,
+  missingDraftRecipients,
+  missingListItems,
+  resolveTerminalRunStatus,
+} from "./campaign-run-finalization-core";
+import { classifyNetworkFailure, shouldQueueBrowserRetry } from "../services/crawl-failure-classifier";
+import {
+  getBrowserRetryState,
+  recordHttpCrawlFailure,
+  recordHttpCrawlInterrupted,
+  recordHttpCrawlStarted,
+  recordHttpCrawlSucceeded,
+  startBrowserRetryWorker,
+} from "../services/browser-retry-queue";
+import { FAILED_CRAWL_EXCLUDED_LEAD_TYPES, isNonTargetFailedCrawlUrl } from "../services/failed-crawl-core";
 
 const CRAWL_CONCURRENCY = 5;
 const SCORE_CONCURRENCY = 2;
@@ -206,15 +222,6 @@ async function getAssignedSenderAccountId(
     .where(eq(campaignEmailAccountsTable.campaignId, campaignId))
     .limit(1);
   return assigned?.accountId ?? null;
-}
-
-async function hasCampaignRunBatches(campaignRunId: number): Promise<boolean> {
-  const [row] = await db
-    .select({ id: campaignRunBatchesTable.id })
-    .from(campaignRunBatchesTable)
-    .where(eq(campaignRunBatchesTable.campaignRunId, campaignRunId))
-    .limit(1);
-  return Boolean(row);
 }
 
 async function getRecoverableBatch(
@@ -1797,6 +1804,10 @@ async function runCrawl(
     failedCount: 0,
     outreachDraftsCreated: 0,
   };
+  const [blockedDomainSetting] = await db.select({ value: appSettingsTable.value })
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+  const blockedDomains = parseBlockedDomains(blockedDomainSetting?.value);
 
   if (!(await isCancellationRequested(campaignRunId))) {
     const initialBatchStats = await drainCampaignRunBatches(
@@ -1818,6 +1829,11 @@ async function runCrawl(
       await db.update(leadsTable)
         .set({ crawlStatus: "crawling", crawlError: null })
         .where(eq(leadsTable.id, lead.id));
+      await recordHttpCrawlStarted({
+        leadId: lead.id,
+        campaignId: campaign.id,
+        campaignRunId,
+      });
 
       // Hard per-lead deadline. Scales with maxPagesPerDomain so deep crawls
       // get enough headroom; minimum 120s.
@@ -1836,18 +1852,17 @@ async function runCrawl(
         ),
       ]);
       if (data.cancelled) {
+        await recordHttpCrawlInterrupted(lead.id, "Cancelled before crawl completed");
         await db.update(leadsTable)
           .set({ crawlStatus: "pending", crawlError: "Cancelled before crawl completed" })
           .where(eq(leadsTable.id, lead.id));
         return;
       }
       const ok = data.pagesSucceeded > 0;
-      const updates: Record<string, unknown> = {
-        crawlStatus: ok ? "crawled" : "failed",
-        crawlError: ok ? null : "No pages returned content",
-        rawText: data.rawText || null,
-      };
+      const updates: Record<string, unknown> = { rawText: data.rawText || null };
       if (ok) {
+        updates.crawlStatus = "crawled";
+        updates.crawlError = null;
         if (data.companyName) updates.companyName = data.companyName;
         if (data.emails) updates.emails = data.emails;
         if (data.emailDomainStatus) updates.emailDomainStatus = data.emailDomainStatus;
@@ -1856,8 +1871,9 @@ async function runCrawl(
         if (data.country) updates.country = data.country;
         if (data.linkedinUrl) updates.linkedinUrl = data.linkedinUrl;
       }
-      await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
       if (ok) {
+        await db.update(leadsTable).set(updates).where(eq(leadsTable.id, lead.id));
+        await recordHttpCrawlSucceeded(lead.id);
         stats.crawledCount++;
         if (!(await isCancellationRequested(campaignRunId))) {
           const batchStats = await drainCampaignRunBatches(
@@ -1872,7 +1888,23 @@ async function runCrawl(
           stats.outreachDraftsCreated += batchStats.outreachDraftsCreated;
         }
       } else {
-        const message = `Crawl failed ${lead.rootDomain}: No pages returned content`;
+        const failure = data.failure ?? { category: "empty_content" as const, message: "No pages returned content" };
+        const blocked = domainMatchesBlockedList(lead.rootDomain, blockedDomains);
+        const skippedSource = isNonTargetFailedCrawlUrl(lead.rootDomain, lead.websiteUrl) ||
+          FAILED_CRAWL_EXCLUDED_LEAD_TYPES.has(lead.leadType ?? "");
+        const queueBrowser = campaignRunId != null && shouldQueueBrowserRetry({ failure, blocked, skippedSource });
+        const disposition = await recordHttpCrawlFailure({ leadId: lead.id, failure, queueBrowser });
+        if (disposition === "already_succeeded") return;
+        if (disposition === "queued") {
+          await schedulerLog(campaign.id, `Browser retry queued ${lead.rootDomain}: ${failure.message}`, {
+            campaignRunId,
+            leadId: lead.id,
+            rootDomain: lead.rootDomain,
+            failureCategory: failure.category,
+          });
+          return;
+        }
+        const message = `Crawl failed ${lead.rootDomain}: ${failure.message}`;
         errors.push(message);
         await schedulerLog(campaign.id, message, {
           campaignRunId,
@@ -1884,16 +1916,30 @@ async function runCrawl(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (await isCancellationRequested(campaignRunId)) {
+        await recordHttpCrawlInterrupted(lead.id, "Cancelled before crawl completed");
         await db.update(leadsTable)
           .set({ crawlStatus: "pending", crawlError: "Cancelled before crawl completed" })
           .where(eq(leadsTable.id, lead.id));
         return;
       }
+      const failure = classifyNetworkFailure(err);
+      const blocked = domainMatchesBlockedList(lead.rootDomain, blockedDomains);
+      const skippedSource = isNonTargetFailedCrawlUrl(lead.rootDomain, lead.websiteUrl) ||
+        FAILED_CRAWL_EXCLUDED_LEAD_TYPES.has(lead.leadType ?? "");
+      const queueBrowser = campaignRunId != null && shouldQueueBrowserRetry({ failure, blocked, skippedSource });
+      const disposition = await recordHttpCrawlFailure({ leadId: lead.id, failure, queueBrowser });
+      if (disposition === "already_succeeded") return;
+      if (disposition === "queued") {
+        await schedulerLog(campaign.id, `Browser retry queued ${lead.rootDomain}: ${msg}`, {
+          campaignRunId,
+          leadId: lead.id,
+          rootDomain: lead.rootDomain,
+          failureCategory: failure.category,
+        });
+        return;
+      }
       const message = `Crawl failed ${lead.rootDomain}: ${msg}`;
       errors.push(message);
-      await db.update(leadsTable)
-        .set({ crawlStatus: "failed", crawlError: msg.slice(0, 500) })
-        .where(eq(leadsTable.id, lead.id));
       await schedulerLog(campaign.id, message, {
         campaignRunId,
         leadId: lead.id,
@@ -1928,6 +1974,29 @@ async function runCrawl(
 
     if (await isCancellationRequested(campaignRunId)) break;
     if (campaignRunId == null) break;
+  }
+
+  // Browser fallbacks are durable and run independently from the five HTTP workers.
+  // Once HTTP work is drained, keep scoring newly recovered leads until browser work settles.
+  if (campaignRunId != null && !(await isCancellationRequested(campaignRunId))) {
+    startBrowserRetryWorker();
+    while (!(await isCancellationRequested(campaignRunId))) {
+      const browserState = await getBrowserRetryState(campaignRunId);
+      if (browserState.pendingCount === 0 && browserState.runningCount === 0) break;
+      if (browserState.setupRequiredCount > 0 && browserState.runningCount === 0) break;
+
+      const batchStats = await drainCampaignRunBatches(
+        campaign,
+        campaignRunId,
+        errors,
+        false,
+        configurationSnapshot,
+      );
+      stats.scoredCount += batchStats.scoredCount;
+      stats.failedCount += batchStats.failedCount;
+      stats.outreachDraftsCreated += batchStats.outreachDraftsCreated;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
 
   if (!(await isCancellationRequested(campaignRunId))) {
@@ -2054,80 +2123,83 @@ async function runAutoList(
   campaignRunId: number | undefined,
   _errors: string[],
 ): Promise<number | null> {
-  if (await isCancellationRequested(campaignRunId)) return null;
+  if (campaignRunId == null || await isCancellationRequested(campaignRunId)) return null;
 
-  // Find qualified leads from this run. Leads without email should still be
-  // visible in the generated list; outreach creation will skip them later.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conditions: any[] = [
-    eq(leadsTable.campaignId, campaign.id),
-    eq(leadsTable.qualificationStatus, "qualified"),
-  ];
-  if (campaignRunId != null) conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
+  let listName = campaign.name;
+  let qualifiedLeadCount = 0;
+  let emailItems = 0;
+  let insertedItems = 0;
 
-  const eligibleLeads = await db
-    .select({ id: leadsTable.id, emails: leadsTable.emails })
-    .from(leadsTable)
-    .where(and(...conditions));
-  if (eligibleLeads.length === 0) return null;
+  const listId = await db.transaction(async (tx) => {
+    const [runRow] = await tx
+      .select({ runName: campaignRunsTable.runName, finalListId: campaignRunsTable.finalListId })
+      .from(campaignRunsTable)
+      .where(eq(campaignRunsTable.id, campaignRunId))
+      .for("update");
+    if (!runRow) return null;
 
-  // Create or find list for this run
-  const runRow = campaignRunId != null
-    ? (await db.select({
-      runName: campaignRunsTable.runName,
-      finalListId: campaignRunsTable.finalListId,
-    }).from(campaignRunsTable).where(eq(campaignRunsTable.id, campaignRunId)))[0]
-    : null;
-  const listName = runRow?.runName ? `${campaign.name} – ${runRow.runName}` : campaign.name;
+    listName = runRow.runName ? `${campaign.name} – ${runRow.runName}` : campaign.name;
+    let list = runRow.finalListId
+      ? (await tx.select().from(leadListsTable).where(eq(leadListsTable.id, runRow.finalListId)))[0]
+      : undefined;
 
-  let list: typeof leadListsTable.$inferSelect | undefined;
-  if (runRow?.finalListId) {
-    list = (await db.select().from(leadListsTable).where(eq(leadListsTable.id, runRow.finalListId)))[0];
-  }
-
-  if (!list) {
-    [list] = await db.insert(leadListsTable).values({
-      name: listName,
-      campaignId: campaign.id,
-      listStatus: "active",
-    }).returning();
-    if (list && campaignRunId != null) {
-      await db.update(campaignRunsTable)
+    if (!list) {
+      [list] = await tx.insert(leadListsTable).values({
+        name: listName,
+        campaignId: campaign.id,
+        listStatus: "active",
+      }).returning();
+      if (!list) return null;
+      await tx.update(campaignRunsTable)
         .set({ finalListId: list.id })
         .where(eq(campaignRunsTable.id, campaignRunId));
     }
-  }
-  if (!list) return null;
 
-  if (await isCancellationRequested(campaignRunId)) return null;
+    const eligibleLeads = await tx
+      .select({ id: leadsTable.id, emails: leadsTable.emails })
+      .from(leadsTable)
+      .where(and(
+        eq(leadsTable.campaignId, campaign.id),
+        eq(leadsTable.campaignRunId, campaignRunId),
+        eq(leadsTable.crawlStatus, "crawled"),
+        eq(leadsTable.qualificationStatus, "qualified"),
+        isNotNull(leadsTable.scoringMethod),
+        gte(leadsTable.relevanceScore, campaign.minRelevanceScore),
+      ));
+    qualifiedLeadCount = eligibleLeads.length;
 
-  // Expand each lead into one list item per email address. If a qualified lead
-  // has no email yet, keep a lead-only list item so it is still visible.
-  const listItemRows: { listId: number; leadId: number; email?: string | null }[] = [];
-  let emailItems = 0;
-  for (const lead of eligibleLeads) {
-    const emails = parseLeadEmails(lead.emails);
-    if (emails.length === 0) {
-      listItemRows.push({ listId: list.id, leadId: lead.id, email: null });
-    } else {
-      for (const email of emails) {
-        listItemRows.push({ listId: list.id, leadId: lead.id, email });
-        emailItems++;
+    const candidates: { listId: number; leadId: number; email: string | null }[] = [];
+    for (const lead of eligibleLeads) {
+      const emails = parseLeadEmails(lead.emails);
+      if (emails.length === 0) {
+        candidates.push({ listId: list.id, leadId: lead.id, email: null });
+      } else {
+        for (const email of emails) {
+          candidates.push({ listId: list.id, leadId: lead.id, email });
+          emailItems++;
+        }
       }
     }
-  }
 
-  if (listItemRows.length > 0) {
-    await db.insert(leadListItemsTable).values(listItemRows).onConflictDoNothing();
-  }
+    const existingItems = await tx
+      .select({ leadId: leadListItemsTable.leadId, email: leadListItemsTable.email })
+      .from(leadListItemsTable)
+      .where(eq(leadListItemsTable.listId, list.id));
+    const rowsToInsert = missingListItems(candidates, existingItems);
+    if (rowsToInsert.length > 0) {
+      await tx.insert(leadListItemsTable).values(rowsToInsert).onConflictDoNothing();
+    }
+    insertedItems = rowsToInsert.length;
+    return list.id;
+  });
 
+  if (listId == null) return null;
   await schedulerLog(
     campaign.id,
-    `Auto-list "${listName}": added ${eligibleLeads.length} leads → ${emailItems} email items`,
-    { listId: list.id, leads: eligibleLeads.length, emailItems },
+    `Final list "${listName}": ${qualifiedLeadCount} qualified leads, ${emailItems} email items, ${insertedItems} new list items`,
+    { campaignRunId, listId, qualifiedLeadCount, emailItems, insertedItems },
   );
-
-  return list.id;
+  return listId;
 }
 
 // ── Step 3c: Auto-create pending_review outreach drafts from the new list ────
@@ -2139,26 +2211,31 @@ async function runAutoOutreach(
   campaignRunId?: number,
   configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<number> {
-  if (!campaign.emailTemplateId) return 0;
+  if (!campaign.emailTemplateId && !configurationSnapshot?.emailTemplate) return 0;
   if (configurationSnapshot?.automation.autoOutreachEnabled === false) return 0;
   if (await isCancellationRequested(campaignRunId)) return 0;
 
   const assignedAccountId = await getAssignedSenderAccountId(campaign.id, configurationSnapshot);
   if (!assignedAccountId) return 0;
 
+  const liveCampaignTemplateId = campaign.emailTemplateId;
   const tmpl = configurationSnapshot
     ? templateFromRunConfiguration(configurationSnapshot)
-    : (await db
-      .select()
-      .from(emailTemplatesTable)
-      .where(eq(emailTemplatesTable.id, campaign.emailTemplateId)))[0];
+    : liveCampaignTemplateId != null
+      ? (await db
+        .select()
+        .from(emailTemplatesTable)
+        .where(eq(emailTemplatesTable.id, liveCampaignTemplateId)))[0]
+      : null;
   if (!tmpl) return 0;
 
-  const [liveTemplate] = await db
-    .select({ id: emailTemplatesTable.id })
-    .from(emailTemplatesTable)
-    .where(eq(emailTemplatesTable.id, tmpl.id))
-    .limit(1);
+  const [liveTemplate] = tmpl.id != null
+    ? await db
+      .select({ id: emailTemplatesTable.id })
+      .from(emailTemplatesTable)
+      .where(eq(emailTemplatesTable.id, tmpl.id))
+      .limit(1)
+    : [];
 
   // Fetch list + list items
   const [list] = await db
@@ -2185,30 +2262,37 @@ async function runAutoOutreach(
     : [];
   const leadById = new Map(leads.map((l) => [l.id, l]));
 
-  const batchId = `auto-${campaign.id}-list-${listId}-${Date.now()}`;
+  const [blockedSetting] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, "blocked_domains"));
+  const blockedDomains = parseBlockedDomains(blockedSetting?.value);
+  const existingOutreach = await db
+    .select({ recipientEmail: outreachQueueTable.recipientEmail })
+    .from(outreachQueueTable)
+    .where(eq(outreachQueueTable.campaignId, campaign.id));
+  const candidateRecipients = listItems.map((item) => {
+    const lead = item.leadId ? leadById.get(item.leadId) : undefined;
+    return sanitizeEmail((item.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "");
+  });
+  const recipientsToCreate = new Set(missingDraftRecipients(
+    candidateRecipients,
+    existingOutreach.map((item) => item.recipientEmail),
+  ));
+
+  const batchId = `auto-run-${campaignRunId ?? "legacy"}-list-${listId}`;
   let created = 0;
 
   for (const item of listItems) {
     if (await isCancellationRequested(campaignRunId)) break;
     const lead = item.leadId ? leadById.get(item.leadId) : undefined;
     const rawEmail = (item.email?.trim() || (lead ? getPrimaryLeadEmail(lead.emails) : null)) ?? "";
-    const recipientEmail = sanitizeEmail(rawEmail);
-    if (!recipientEmail || !recipientEmail.includes("@")) continue;
+    const recipientEmail = sanitizeEmail(rawEmail).toLowerCase();
+    if (!recipientsToCreate.delete(recipientEmail) || !lead) continue;
+    if (!(await canCreateAutoOutreachDraft(campaign.id, lead, recipientEmail, blockedDomains))) continue;
 
     // Build lead context: use recipientEmail as emails so AI picks the right name
-    const leadForContent: typeof leadsTable.$inferSelect = lead
-      ? { ...lead, emails: recipientEmail }
-      : ({
-          id: 0,
-          companyName: item.companyName || recipientEmail.split("@")[1]?.split(".")[0] || "there",
-          websiteUrl: null,
-          rootDomain: recipientEmail.split("@")[1] ?? "",
-          emails: recipientEmail,
-          country: null,
-          sourceCountry: null,
-          campaignId: null,
-          campaignRunId: null,
-        } as unknown as typeof leadsTable.$inferSelect);
+    const leadForContent: typeof leadsTable.$inferSelect = { ...lead, emails: recipientEmail };
 
     try {
       if (await isCancellationRequested(campaignRunId)) break;
@@ -2473,7 +2557,7 @@ async function getProcessingState(
     .where(and(...conditions));
 
   return {
-    pendingCrawlCount: leads.filter((lead) => lead.crawlStatus === "pending" || lead.crawlStatus === "crawling").length,
+    pendingCrawlCount: leads.filter((lead) => ["pending", "crawling", "browser_pending", "browser_crawling"].includes(lead.crawlStatus ?? "")).length,
     crawlFailedCount: leads.filter((lead) => lead.crawlStatus === "failed").length,
     pendingScoreCount: leads.filter((lead) => lead.crawlStatus === "crawled" && !lead.scoringMethod).length,
   };
@@ -2744,8 +2828,29 @@ export async function runPipeline(
     // pending_review outreach drafts if the campaign has an email template set.
     let autoListId: number | null = null;
     try {
+      const finalizationProcessingState = await getProcessingState(campaignId, campaignRunId);
+      const finalizationBatchState = await getBatchProcessingState(campaignRunId);
+      const projectedFailureCount = result.failed +
+        finalizationProcessingState.crawlFailedCount +
+        finalizationProcessingState.pendingCrawlCount +
+        finalizationProcessingState.pendingScoreCount +
+        finalizationBatchState.pendingBatchCount +
+        finalizationBatchState.failedBatchCount;
+      const workCompleted = result.discoveryLeadsCreated > 0 ||
+        result.crawledCount > 0 ||
+        finalizationProcessingState.crawlFailedCount > 0 ||
+        result.scoredCount > 0 ||
+        result.emailsSent > 0;
+      const projectedStatus = resolveTerminalRunStatus(projectedFailureCount, workCompleted);
+      const ready = isRunReadyForFinalization({
+        status: projectedStatus,
+        pendingCrawlCount: finalizationProcessingState.pendingCrawlCount,
+        pendingScoreCount: finalizationProcessingState.pendingScoreCount,
+        pendingBatchCount: finalizationBatchState.pendingBatchCount,
+      });
       if (
         campaignRunId != null &&
+        ready &&
         configurationSnapshot?.automation.autoListEnabled !== false &&
         !(await isCancellationRequested(campaignRunId))
       ) {
@@ -2762,17 +2867,8 @@ export async function runPipeline(
     }
 
     try {
-      const incrementalBatchesExist = campaignRunId != null
-        ? await hasCampaignRunBatches(campaignRunId)
-        : false;
-      if (autoListId != null && campaign.emailTemplateId && !incrementalBatchesExist) {
+      if (autoListId != null && configurationSnapshot?.automation.autoOutreachEnabled !== false) {
         await runAutoOutreach(campaign, autoListId, errors, campaignRunId, configurationSnapshot);
-      } else if (autoListId != null && incrementalBatchesExist) {
-        await schedulerLog(
-          campaign.id,
-          "Final auto-outreach skipped: incremental processing batches already created pending-review drafts",
-          { campaignRunId, autoListId },
-        );
       }
     } catch (err) {
       logger.error({ err, campaignId }, "Scheduler: auto-outreach step failed");

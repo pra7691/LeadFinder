@@ -66,6 +66,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { format, formatDistanceToNow, formatDuration, intervalToDuration } from "date-fns";
 import { cn } from "@/lib/utils";
+import {
+  getBrowserAttemptPresentation,
+  PLAYWRIGHT_CHROMIUM_INSTALL_COMMAND,
+} from "@/lib/browser-crawl-status";
 import { saveExportToServer, saveTextExportToServer } from "@/lib/export-files";
 import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -99,6 +103,67 @@ function QualBadge({ status }: { status: string | null | undefined }) {
     <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium", map[status ?? "unqualified"] ?? map.unqualified)}>
       {status ?? "unreviewed"}
     </span>
+  );
+}
+
+function BrowserAttemptStatus({
+  status,
+  error,
+  attemptedAt,
+}: {
+  status: string | null | undefined;
+  error: string | null | undefined;
+  attemptedAt: string | null | undefined;
+}) {
+  const presentation = getBrowserAttemptPresentation(status);
+  if (!presentation) return null;
+
+  const toneClass = {
+    warning: "bg-amber-500/10 text-amber-600",
+    progress: "bg-blue-500/10 text-blue-500",
+    success: "bg-emerald-500/10 text-emerald-600",
+    error: "bg-red-500/10 text-red-500",
+  }[presentation.tone];
+  const attempted = attemptedAt ? new Date(attemptedAt) : null;
+  const attemptedLabel = attempted && !Number.isNaN(attempted.getTime())
+    ? formatDistanceToNow(attempted, { addSuffix: true })
+    : null;
+
+  if (!presentation.showSetupCommand) {
+    return (
+      <div className="mt-1.5 space-y-1">
+        <span className={cn("inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium", toneClass)}>
+          {presentation.label}
+        </span>
+        {status === "failed" && error && (
+          <p className="max-w-xl text-xs text-red-500 break-words">{error}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 max-w-xl border-l-2 border-amber-500 px-3 py-2 text-xs"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn("inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium", toneClass)}>
+          {presentation.label}
+        </span>
+        {attemptedLabel && <span className="text-muted-foreground">Attempted {attemptedLabel}</span>}
+      </div>
+      <p className="mt-1 font-medium text-foreground">{presentation.description}</p>
+      {error && error !== presentation.description && (
+        <p className="mt-1 text-muted-foreground break-words">{error}</p>
+      )}
+      <p className="mt-2 text-muted-foreground">
+        Run this command from the LeadFinder project root in Terminal:
+      </p>
+      <code className="mt-1 block whitespace-normal break-all font-mono text-foreground">
+        {PLAYWRIGHT_CHROMIUM_INSTALL_COMMAND}
+      </code>
+    </div>
   );
 }
 
@@ -371,8 +436,8 @@ export function CampaignRunDetail() {
     const total = leadRows.length;
     const crawled = leadRows.filter((l) => l.crawlStatus === "crawled").length;
     const failed = leadRows.filter((l) => l.crawlStatus === "failed").length;
-    const crawling = leadRows.filter((l) => l.crawlStatus === "crawling").length;
-    const pending = leadRows.filter((l) => !l.crawlStatus || l.crawlStatus === "pending").length;
+    const crawling = leadRows.filter((l) => l.crawlStatus === "crawling" || l.crawlStatus === "browser_crawling").length;
+    const pending = leadRows.filter((l) => !l.crawlStatus || l.crawlStatus === "pending" || l.crawlStatus === "browser_pending").length;
     const finished = crawled + failed;
     const progress = total > 0 ? Math.round((finished / total) * 100) : 0;
     return { total, crawled, failed, crawling, pending, finished, progress };
@@ -1399,7 +1464,7 @@ export function CampaignRunDetail() {
                         <p className="text-sm font-medium truncate hover:text-primary transition-colors">
                           {lead.companyName || (
                             <span className="italic text-muted-foreground/60 font-normal text-xs">
-                              {lead.crawlStatus === "failed" ? "Crawl failed – name unavailable" : lead.crawlStatus === "crawling" ? "Crawling…" : "Pending crawl"}
+                              {lead.crawlStatus === "failed" ? "Crawl failed – name unavailable" : ["crawling", "browser_crawling"].includes(lead.crawlStatus ?? "") ? "Crawling…" : "Pending crawl"}
                             </span>
                           )}
                         </p>
@@ -1420,6 +1485,11 @@ export function CampaignRunDetail() {
                             </span>
                           )}
                         </div>
+                        <BrowserAttemptStatus
+                          status={lead.browserStatus}
+                          error={lead.browserError}
+                          attemptedAt={lead.browserAttemptedAt}
+                        />
                       </div>
                       <a
                         href={lead.rootDomain ? `https://${lead.rootDomain}` : undefined}

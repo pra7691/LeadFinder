@@ -1,5 +1,11 @@
 import * as cheerio from "cheerio";
 import { isBadCompanyName, domainToCompanyName } from "./lead-classifier";
+import {
+  classifyHttpStatus,
+  classifyNetworkFailure,
+  classifyUrlBeforeCrawl,
+  type CrawlFailure,
+} from "./crawl-failure-classifier";
 
 export interface CrawlData {
   companyName: string | null;
@@ -14,7 +20,15 @@ export interface CrawlData {
   pagesAttempted: number;
   pagesSucceeded: number;
   cancelled?: boolean;
+  failure?: CrawlFailure | null;
 }
+
+export interface CrawlPageLoadResult {
+  html: string | null;
+  failure?: CrawlFailure | null;
+}
+
+export type CrawlPageLoader = (url: string) => Promise<CrawlPageLoadResult>;
 
 const CRAWL_PAGES = ["", "/contact", "/contact-us", "/about", "/about-us", "/team", "/company"];
 const FETCH_TIMEOUT_MS = 15_000; // covers both headers + body
@@ -59,13 +73,16 @@ const SKIP_CRAWL_PATHS = [
   /\/tutorial/i, /\/post\//i, /\/tag\//i, /\/category\//i,
 ];
 
-function shouldSkipPath(path: string): boolean {
+export const SKIP_CRAWL_PATH_SQL_PATTERN =
+  "(^|/)(blog|blogs|article|articles|news|docs|documentation|paper|dataset|datasets|forum|forums|community|tutorial|tutorials|post|tag|category)(/|$|[._?#-])";
+
+export function shouldSkipPath(path: string): boolean {
   return SKIP_CRAWL_PATHS.some((pat) => pat.test(path));
 }
 
 // ── Fetch ──────────────────────────────────────────────────────────────────
 
-async function fetchPage(url: string): Promise<string | null> {
+async function fetchPage(url: string): Promise<CrawlPageLoadResult> {
   const controller = new AbortController();
   // Keep the timer alive through the ENTIRE request (headers + body).
   // Clearing it before response.text() was the bug: a server that sent headers
@@ -80,13 +97,18 @@ async function fetchPage(url: string): Promise<string | null> {
       },
       redirect: "follow",
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { html: null, failure: classifyHttpStatus(response.status) };
     const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("text/html")) return null;
+    if (!contentType.includes("text/html")) {
+      return {
+        html: null,
+        failure: { category: "unsupported_file", message: `Unsupported content type: ${contentType || "unknown"}` },
+      };
+    }
     // response.text() is now also guarded by the same abort signal
-    return await response.text();
-  } catch {
-    return null;
+    return { html: await response.text(), failure: null };
+  } catch (error) {
+    return { html: null, failure: classifyNetworkFailure(error) };
   } finally {
     clearTimeout(timer);
   }
@@ -497,7 +519,7 @@ export async function extractCompanyLinksFromPage(
   pageUrl: string,
   sourceRootDomain: string,
 ): Promise<{ href: string; rootDomain: string; anchorText: string }[]> {
-  const html = await fetchPage(pageUrl);
+  const { html } = await fetchPage(pageUrl);
   if (!html) return [];
 
   const $ = cheerio.load(html);
@@ -541,11 +563,31 @@ export async function extractCompanyLinksFromPage(
  * @param options     Per-campaign crawl configuration. When omitted, falls back
  *                    to legacy behavior (CRAWL_PAGES only, no link expansion).
  */
-export async function crawlWebsite(
+export async function crawlWebsiteWithLoader(
   websiteUrl: string,
   rootDomain?: string,
   options?: CrawlOptions,
+  pageLoader: CrawlPageLoader = fetchPage,
+  crawler: "http" | "browser" = "http",
 ): Promise<CrawlData> {
+  const initialFailure = classifyUrlBeforeCrawl(websiteUrl);
+  if (initialFailure) {
+    return {
+      companyName: null,
+      emails: null,
+      phoneNumbers: null,
+      address: null,
+      country: null,
+      linkedinUrl: null,
+      description: null,
+      emailDomainStatus: null,
+      rawText: "",
+      pagesAttempted: 0,
+      pagesSucceeded: 0,
+      failure: initialFailure,
+    };
+  }
+
   // Resolve effective config (campaign-provided values override legacy defaults)
   const configuredPaths = parseLineList(options?.crawlPaths ?? null, CRAWL_PAGES);
   const linkKeywords = parseLineList(options?.internalLinkKeywords ?? null, []);
@@ -565,6 +607,7 @@ export async function crawlWebsite(
   let description: string | null = null;
   let cancelled = false;
   const rawTextParts: string[] = [];
+  const failures: CrawlFailure[] = [];
 
   // Resolve the rootDomain used for staying on-domain during link expansion
   const effectiveRootDomain = rootDomain ?? (() => {
@@ -602,15 +645,31 @@ export async function crawlWebsite(
     } catch { /* keep going */ }
 
     pagesAttempted++;
-    const html = await fetchPage(url);
-    if (!html) continue;
+    const loaded = await pageLoader(url);
+    if (!loaded.html) {
+      if (loaded.failure) failures.push(loaded.failure);
+      continue;
+    }
+    const html = loaded.html;
     if (await shouldStopCrawl(options)) {
       cancelled = true;
       break;
     }
-    pagesSucceeded++;
 
     const $ = cheerio.load(html);
+
+    const visibleText = $("body").text().replace(/\s+/g, " ").trim();
+    const scriptCount = $("script").length;
+    if (visibleText.length === 0 || (crawler === "http" && visibleText.length < 120 && scriptCount >= 3)) {
+      failures.push({
+        category: crawler === "http" ? "javascript_shell" : "empty_content",
+        message: crawler === "http"
+          ? "HTTP response appears to be a JavaScript application shell"
+          : "Browser rendered no usable page content",
+      });
+      continue;
+    }
+    pagesSucceeded++;
 
     // Expand internal links BEFORE stripping <script>/<head> (preserves links in head/nav)
     if (depth < maxDepth && linkKeywords.length > 0 && pagesAttempted < maxPages) {
@@ -666,5 +725,19 @@ export async function crawlWebsite(
     pagesAttempted,
     pagesSucceeded,
     cancelled,
+    failure: cancelled
+      ? { category: "cancelled", message: "Crawl stopped before completion" }
+      : failures.find((item) => ["http_access", "timeout", "javascript_shell", "empty_content", "navigation_error"].includes(item.category))
+        ?? failures[0]
+        ?? (pagesSucceeded === 0 ? { category: "empty_content", message: "No website page returned usable content" } : null),
   };
+}
+
+/** Performs the standard lightweight HTTP crawl. */
+export async function crawlWebsite(
+  websiteUrl: string,
+  rootDomain?: string,
+  options?: CrawlOptions,
+): Promise<CrawlData> {
+  return crawlWebsiteWithLoader(websiteUrl, rootDomain, options, fetchPage, "http");
 }

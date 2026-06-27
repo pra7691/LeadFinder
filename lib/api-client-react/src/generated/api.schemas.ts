@@ -332,6 +332,21 @@ export interface Lead {
   /** @nullable */
   crawlError?: string | null;
   /**
+   * Browser fallback status for this lead when a retry attempt exists
+   * @nullable
+   */
+  browserStatus?: string | null;
+  /**
+   * Stored Playwright browser retry or setup error
+   * @nullable
+   */
+  browserError?: string | null;
+  /**
+   * Browser attempt start time, or queue time when setup prevented launch
+   * @nullable
+   */
+  browserAttemptedAt?: string | null;
+  /**
      * "company" | "directory" | "media" | "event" | "dataset" | "research" | "stats_platform"
      * @nullable
      */

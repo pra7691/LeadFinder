@@ -5,6 +5,7 @@ export * from "./campaign-runs";
 export * from "./campaign-run-configuration";
 export * from "./campaign-run-batches";
 export * from "./leads";
+export * from "./lead-crawl-attempts";
 export * from "./lead-notes";
 export * from "./lead-status-history";
 export * from "./lead-lists";

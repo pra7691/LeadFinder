@@ -45,7 +45,7 @@ The server will not start erroring immediately — it starts fine but returns 50
 | ORM / schema push | Drizzle ORM + drizzle-kit |
 | Package manager | pnpm (workspace) |
 | Node.js version | **24** (required) |
-| Web scraping | Cheerio (no Playwright / Puppeteer) |
+| Web scraping | Cheerio HTTP crawler with Playwright Chromium fallback |
 | Email | Nodemailer (STARTTLS / SSL via SMTP) |
 | AI scoring & personalization | OpenAI API — key configured in Settings UI |
 | Lead discovery | Serper.dev Search API — key via env var |
@@ -95,6 +95,17 @@ The server will not start erroring immediately — it starts fine but returns 50
 # Install all workspace dependencies (run from repo root)
 pnpm install
 ```
+
+Install the Chromium binary required by durable browser crawl retries:
+
+```bash
+pnpm --filter @workspace/api-server exec playwright install chromium
+```
+
+Before starting a backend build that contains browser retries, apply
+`lib/db/migrations/0008_browser_crawl_attempts.sql` to the configured database
+in one transaction. The browser worker remains inactive for queued work until
+that schema is present and Chromium has been installed.
 
 > pnpm **must** be used. The root `package.json` blocks npm and yarn via a `preinstall` guard.
 > Install pnpm if needed: `npm install -g pnpm`

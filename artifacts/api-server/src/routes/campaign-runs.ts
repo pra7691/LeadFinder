@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
+import { campaignKeywordsTable, campaignRunsTable, campaignRunResultsTable, campaignsTable, leadCrawlAttemptsTable, leadsTable, logsTable, appSettingsTable, leadListItemsTable } from "@workspace/db";
 import { eq, desc, and, sql, inArray, getTableColumns } from "drizzle-orm";
 import { clearCancellation, isRunPipelineActive, requestCancellation, runPipeline } from "../scheduler/pipeline";
 import { canResumeCampaignRunStatus, isCancellationStatus } from "../scheduler/run-safety";
@@ -16,6 +16,7 @@ import {
   RERUN_PIPELINE_OPTIONS,
 } from "../scheduler/campaign-run-configuration";
 import { logger } from "../lib/logger";
+import { resumeBrowserRetriesForRun } from "../services/browser-retry-queue";
 
 const router = Router();
 
@@ -426,12 +427,25 @@ router.get("/campaign-runs/:id/leads", async (req, res) => {
         from lead_list_items
         where lead_list_items.lead_id = leads.id
       )`,
+      browserStatus: leadCrawlAttemptsTable.browserStatus,
+      browserError: leadCrawlAttemptsTable.browserError,
+      browserAttemptedAt: sql<Date | null>`coalesce(
+        ${leadCrawlAttemptsTable.browserStartedAt},
+        ${leadCrawlAttemptsTable.browserQueuedAt}
+      )`,
     })
     .from(leadsTable)
+    .leftJoin(leadCrawlAttemptsTable, eq(leadCrawlAttemptsTable.leadId, leadsTable.id))
     .where(eq(leadsTable.campaignRunId, id))
     .orderBy(desc(leadsTable.createdAt));
 
-  res.json(leads.map((row) => ({ ...row.lead, addedToList: row.addedToList })));
+  res.json(leads.map((row) => ({
+    ...row.lead,
+    addedToList: row.addedToList,
+    browserStatus: row.browserStatus,
+    browserError: row.browserError,
+    browserAttemptedAt: row.browserAttemptedAt,
+  })));
 });
 
 // Get results (blocked / duplicate / lead_created / rejected / skipped_recent) for a run
@@ -838,11 +852,12 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     .update(campaignsTable)
     .set({ lastRunStatus: "running", lastRunAt: new Date() })
     .where(eq(campaignsTable.id, campaign.id));
+  const recoveredBrowserRetries = await resumeBrowserRetriesForRun(id);
 
   await db.insert(logsTable).values({
     campaignId: campaign.id,
     type: "workflow",
-    message: `Campaign run #${id} resumed by user${resetLeads.length > 0 ? ` (${resetLeads.length} stuck lead(s) reset to pending)` : ""}.`,
+    message: `Campaign run #${id} resumed by user${resetLeads.length > 0 ? ` (${resetLeads.length} stuck lead(s) reset to pending)` : ""}${recoveredBrowserRetries > 0 ? ` (${recoveredBrowserRetries} browser retry item(s) restored)` : ""}.`,
   });
 
   // Fire-and-forget — skip discovery, resume from crawl step

@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertTriangle, ArrowLeft, Download, ExternalLink, Globe, Loader2, SearchX } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Download, ExternalLink, Globe, Loader2, SearchX } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { saveExportToServer } from "@/lib/export-files";
@@ -24,7 +24,15 @@ type FailedCrawlLead = {
   rootDomain: string;
   websiteUrl: string;
   sourceQuery?: string | null;
+  sourceType?: string | null;
+  leadType?: string | null;
+  crawlStatus?: string | null;
   crawlError?: string | null;
+  httpFailureCategory?: string | null;
+  httpError?: string | null;
+  browserStatus?: string | null;
+  browserError?: string | null;
+  finalCrawler?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,18 +50,33 @@ type FailedCrawlGroup = {
   latestFailedAt?: string | null;
 };
 
-async function fetchFailedCrawlGroups(): Promise<FailedCrawlGroup[]> {
-  const response = await fetch("/api/leads/failed-crawls/groups");
+type PagedResponse<T> = {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+type FailedCrawlGroupsResponse = PagedResponse<FailedCrawlGroup> & {
+  summary: {
+    failedCount: number;
+    withErrorCount: number;
+    campaignCount: number;
+  };
+};
+
+const PAGE_SIZE = 50;
+
+async function fetchFailedCrawlGroups(offset: number): Promise<FailedCrawlGroupsResponse> {
+  const response = await fetch(`/api/leads/failed-crawls/groups?limit=${PAGE_SIZE}&offset=${offset}`);
   if (!response.ok) throw new Error("Failed to load failed crawl collections");
-  const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  return response.json() as Promise<FailedCrawlGroupsResponse>;
 }
 
-async function fetchFailedCrawls(campaignRunId: number): Promise<FailedCrawlLead[]> {
-  const response = await fetch(`/api/leads/failed-crawls?limit=1000&campaignRunId=${campaignRunId}`);
+async function fetchFailedCrawls(campaignRunId: number, offset: number): Promise<PagedResponse<FailedCrawlLead>> {
+  const response = await fetch(`/api/leads/failed-crawls?limit=${PAGE_SIZE}&offset=${offset}&campaignRunId=${campaignRunId}`);
   if (!response.ok) throw new Error("Failed to load failed crawl logs");
-  const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  return response.json() as Promise<PagedResponse<FailedCrawlLead>>;
 }
 
 function collectionName(group: FailedCrawlGroup) {
@@ -71,27 +94,32 @@ export function FailedLogs() {
   const { toast } = useToast();
   const selectedRunId = params.runId ? Number(params.runId) : null;
   const isDetail = Number.isFinite(selectedRunId) && selectedRunId !== null;
+  const [groupPage, setGroupPage] = useState(0);
+  const [detailPage, setDetailPage] = useState(0);
 
   const {
-    data: groups = [],
+    data: groupsData,
     isLoading: groupsLoading,
     isError: groupsError,
   } = useQuery({
-    queryKey: ["/api/leads/failed-crawls/groups"],
-    queryFn: fetchFailedCrawlGroups,
+    queryKey: ["/api/leads/failed-crawls/groups", groupPage],
+    queryFn: () => fetchFailedCrawlGroups(groupPage * PAGE_SIZE),
     refetchInterval: 10_000,
   });
 
   const {
-    data: failedLeads = [],
+    data: failedLeadsData,
     isLoading: leadsLoading,
     isError: leadsError,
   } = useQuery({
-    queryKey: ["/api/leads/failed-crawls", selectedRunId],
-    queryFn: () => fetchFailedCrawls(selectedRunId!),
+    queryKey: ["/api/leads/failed-crawls", selectedRunId, detailPage],
+    queryFn: () => fetchFailedCrawls(selectedRunId!, detailPage * PAGE_SIZE),
     enabled: isDetail,
     refetchInterval: 10_000,
   });
+
+  const groups = Array.isArray(groupsData?.items) ? groupsData.items : [];
+  const failedLeads = Array.isArray(failedLeadsData?.items) ? failedLeadsData.items : [];
 
   const sortedGroups = [...groups].sort((a, b) => {
     const aTime = new Date(a.latestFailedAt || a.runStartedAt || 0).getTime();
@@ -103,10 +131,11 @@ export function FailedLogs() {
     : undefined;
   const sortedFailedLeads = [...failedLeads].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
-  const totalFailed = sortedGroups.reduce((sum, group) => sum + Number(group.failedCount || 0), 0);
-  const totalWithError = sortedGroups.reduce((sum, group) => sum + Number(group.withErrorCount || 0), 0);
-  const byCampaign = new Set(sortedGroups.map((group) => group.campaignId)).size;
-  const detailWithError = sortedFailedLeads.filter((lead) => Boolean(lead.crawlError?.trim())).length;
+  const totalFailed = groupsData?.summary.failedCount ?? 0;
+  const totalWithError = groupsData?.summary.withErrorCount ?? 0;
+  const byCampaign = groupsData?.summary.campaignCount ?? 0;
+  const detailTotal = failedLeadsData?.total ?? 0;
+  const detailWithError = detailTotal;
 
   const [exportingAll, setExportingAll] = useState(false);
 
@@ -163,7 +192,7 @@ export function FailedLogs() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard icon={SearchX} label="Failed Crawls" value={sortedFailedLeads.length} />
+          <StatCard icon={SearchX} label="Failed Crawls" value={detailTotal} />
           <StatCard icon={AlertTriangle} label="With Error" value={detailWithError} />
           <StatCard icon={Globe} label="Campaign" value={selectedGroup?.campaignId ?? sortedFailedLeads[0]?.campaignId ?? selectedRunId ?? 0} />
         </div>
@@ -174,6 +203,7 @@ export function FailedLogs() {
               <TableRow>
                 <TableHead className="min-w-[220px]">Website</TableHead>
                 <TableHead>Error</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Source Query</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead className="text-right">Open Run</TableHead>
@@ -181,16 +211,16 @@ export function FailedLogs() {
             </TableHeader>
             <TableBody>
               {leadsLoading ? (
-                <LoadingRows columns={5} />
+                <LoadingRows columns={6} />
               ) : leadsError ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-sm text-destructive">
+                  <TableCell colSpan={6} className="h-32 text-center text-sm text-destructive">
                     Failed to load failed crawl logs.
                   </TableCell>
                 </TableRow>
               ) : sortedFailedLeads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">
                     No failed crawls found for this run.
                   </TableCell>
                 </TableRow>
@@ -210,6 +240,20 @@ export function FailedLogs() {
                     </TableCell>
                     <TableCell className="max-w-[360px] text-sm text-muted-foreground">
                       <span className="line-clamp-3">{lead.crawlError || "Crawl failed without a detailed error."}</span>
+                      {lead.httpError && (
+                        <p className="mt-2 text-xs">
+                          HTTP{lead.httpFailureCategory ? ` (${lead.httpFailureCategory})` : ""}: {lead.httpError}
+                        </p>
+                      )}
+                      {lead.browserStatus && lead.browserStatus !== "not_needed" && (
+                        <p className="mt-1 text-xs">
+                          Browser ({lead.browserStatus}){lead.browserError ? `: ${lead.browserError}` : ""}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <p>{lead.leadType || "target"}</p>
+                      <p className="mt-1">{lead.sourceType || "direct"}</p>
                     </TableCell>
                     <TableCell className="max-w-[280px] text-sm text-muted-foreground">
                       <span className="line-clamp-2">{lead.sourceQuery || "-"}</span>
@@ -232,6 +276,12 @@ export function FailedLogs() {
             </TableBody>
           </Table>
         </div>
+        <Pagination
+          page={detailPage}
+          total={detailTotal}
+          onPrevious={() => setDetailPage((value) => Math.max(0, value - 1))}
+          onNext={() => setDetailPage((value) => value + 1)}
+        />
       </div>
     );
   }
@@ -333,6 +383,40 @@ export function FailedLogs() {
             )}
           </TableBody>
         </Table>
+      </div>
+      <Pagination
+        page={groupPage}
+        total={groupsData?.total ?? 0}
+        onPrevious={() => setGroupPage((value) => Math.max(0, value - 1))}
+        onNext={() => setGroupPage((value) => value + 1)}
+      />
+    </div>
+  );
+}
+
+function Pagination({
+  page,
+  total,
+  onPrevious,
+  onNext,
+}: {
+  page: number;
+  total: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  const first = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const last = Math.min((page + 1) * PAGE_SIZE, total);
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-sm text-muted-foreground">Showing {first}-{last} of {total}</p>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" className="rounded-lg gap-1" disabled={page === 0} onClick={onPrevious}>
+          <ChevronLeft className="w-4 h-4" /> Previous
+        </Button>
+        <Button variant="outline" size="sm" className="rounded-lg gap-1" disabled={(page + 1) * PAGE_SIZE >= total} onClick={onNext}>
+          Next <ChevronRight className="w-4 h-4" />
+        </Button>
       </div>
     </div>
   );

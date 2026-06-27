@@ -12,6 +12,7 @@ import { isCancellationStatus, restartRecoveryDecision } from "./run-safety";
 import { logger } from "../lib/logger";
 import { recoverManualOutreachSendQueueOnStartup, resumeQueuedOutreachSendQueue, resumeStuckOutreach } from "../routes/outreach-send";
 import { captureCampaignRunConfiguration } from "./campaign-run-configuration";
+import { recoverBrowserRetryQueueOnStartup } from "../services/browser-retry-queue";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -277,6 +278,15 @@ let cronTask: cron.ScheduledTask | null = null;
  */
 async function recoverStuckState() {
   try {
+    try {
+      const recoveredBrowserRetries = await recoverBrowserRetryQueueOnStartup();
+      if (recoveredBrowserRetries > 0) {
+        logger.warn({ count: recoveredBrowserRetries }, "Startup recovery: returned interrupted browser crawls to their durable queue");
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Browser retry recovery unavailable; apply migration 0008 before running campaigns");
+    }
+
     const now = new Date();
 
     // 1. A restart during graceful cancellation should finish as cancelled.
