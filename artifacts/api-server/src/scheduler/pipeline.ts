@@ -1410,7 +1410,9 @@ async function runDiscovery(
 
       let results;
       try {
-        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10);
+        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10, {
+          campaignRunId,
+        });
         searchCount++;
         stats.searchesPerformed++;
         stats.rawResultsFound += results.length;

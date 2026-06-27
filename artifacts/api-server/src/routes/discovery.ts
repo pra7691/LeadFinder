@@ -213,7 +213,9 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
 
       let results;
       try {
-        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10);
+        results = await searchSerper(query, apiKey, campaign.resultsPerSearch ?? 10, {
+          campaignRunId: campaignRun.id,
+        });
         searchCount++;
         summary.searchesPerformed++;
         summary.resultsFound += results.length;

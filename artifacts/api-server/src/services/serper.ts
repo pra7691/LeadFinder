@@ -1,3 +1,9 @@
+import {
+  clearSerperCreditsExhausted,
+  isSerperCreditExhaustionResponse,
+  recordSerperCreditsExhausted,
+} from "./serper-credit-status";
+
 export interface SerperOrganicResult {
   title: string;
   link: string;
@@ -13,6 +19,7 @@ export async function searchSerper(
   query: string,
   apiKey: string,
   num: number = 10,
+  context: { campaignRunId?: number | null } = {},
 ): Promise<SerperOrganicResult[]> {
   const response = await fetch("https://google.serper.dev/search", {
     method: "POST",
@@ -25,12 +32,15 @@ export async function searchSerper(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(
-      `Serper API error ${response.status}: ${text.slice(0, 200)}`,
-    );
+    const message = `Serper API error ${response.status}: ${text.slice(0, 200)}`;
+    if (isSerperCreditExhaustionResponse(response.status, text)) {
+      await recordSerperCreditsExhausted(context.campaignRunId, message);
+    }
+    throw new Error(message);
   }
 
   const data = (await response.json()) as SerperResponse;
+  await clearSerperCreditsExhausted();
   return data.organic ?? [];
 }
 

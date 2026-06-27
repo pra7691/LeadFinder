@@ -15,7 +15,7 @@ import {
   useRegenerateOutreach,
   getListOutreachQueryKey,
 } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -124,26 +124,6 @@ export type OutreachItem = {
   qualityWarnings?: QualityWarning[];
   createdAt: string;
   updatedAt: string;
-};
-
-type ProcessingBatch = {
-  id: number;
-  campaignId: number;
-  campaignRunId: number;
-  batchNumber: number;
-  status: string;
-  crawledLeadsCount: number;
-  scoredCount: number;
-  qualifiedCount: number;
-  outreachDraftsCreated: number;
-  pendingReviewCount: number;
-  draftRecipientCount: number;
-  campaignName?: string | null;
-  runName?: string | null;
-  templateName?: string | null;
-  senderEmail?: string | null;
-  createdAt: string;
-  completedAt?: string | null;
 };
 
 export type OutreachDisplayRow = {
@@ -881,7 +861,6 @@ export function Outreach() {
   const [preview, setPreview] = useState<OutreachItem | null>(null);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [emailSearch, setEmailSearch] = useState("");
-  const [selectedProcessingBatchId, setSelectedProcessingBatchId] = useState<number | null>(null);
 
   // Batch send state
   const [batchResult, setBatchResult] = useState<{ queued: number; skipped: number; stopped?: boolean } | null>(null);
@@ -919,17 +898,6 @@ export function Outreach() {
   }, [qc]);
 
   const { data: campaigns } = useListCampaigns();
-  const { data: processingBatchesRaw } = useQuery<ProcessingBatch[]>({
-    queryKey: ["outreach-processing-batches"],
-    queryFn: async () => {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/outreach/batches`);
-      if (!res.ok) throw new Error("Failed to load outreach batches");
-      const data = await res.json();
-      return Array.isArray(data) ? data as ProcessingBatch[] : [];
-    },
-    refetchInterval: 10000,
-  });
-  const processingBatches = Array.isArray(processingBatchesRaw) ? processingBatchesRaw : [];
 
   // Derived statuses are computed client-side from status + failureReason + tracking counts.
   // They must not be sent to the API as a server-side filter.
@@ -950,11 +918,10 @@ export function Outreach() {
   const filteredOutreachItems = useMemo(() => {
     const q = emailSearch.trim().toLowerCase();
     return outreachItems.filter((item) => {
-      if (selectedProcessingBatchId != null && item.outreachBatchId !== selectedProcessingBatchId) return false;
       if (q && !item.recipientEmail.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [outreachItems, emailSearch, selectedProcessingBatchId]);
+  }, [outreachItems, emailSearch]);
 
   const deleteOutreach = useDeleteOutreach();
   const bulkApprove = useBulkApproveOutreach();
@@ -974,7 +941,6 @@ export function Outreach() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListOutreachQueryKey() });
-    qc.invalidateQueries({ queryKey: ["outreach-processing-batches"] });
   };
 
   const handleDelete = (id: number) => {
@@ -1259,80 +1225,6 @@ export function Outreach() {
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
-      )}
-
-      {processingBatches.length > 0 && (
-        <div className="rounded-2xl border border-border/50 bg-card/30 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Processing Batches</h2>
-              <p className="text-xs text-muted-foreground">
-                Pending-review drafts are created as qualified crawl batches finish.
-              </p>
-            </div>
-            {selectedProcessingBatchId != null && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 rounded-xl text-xs"
-                onClick={() => setSelectedProcessingBatchId(null)}
-              >
-                <X className="mr-1 h-3.5 w-3.5" /> Show all
-              </Button>
-            )}
-          </div>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {processingBatches.slice(0, 9).map((batch) => {
-              const selected = selectedProcessingBatchId === batch.id;
-              return (
-                <button
-                  key={batch.id}
-                  type="button"
-                  onClick={() => setSelectedProcessingBatchId(selected ? null : batch.id)}
-                  className={cn(
-                    "rounded-xl border p-3 text-left transition-colors",
-                    selected
-                      ? "border-primary bg-primary/10"
-                      : "border-border/50 bg-background/40 hover:bg-muted/30",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        Batch #{batch.batchNumber} · {batch.campaignName ?? `Campaign ${batch.campaignId}`}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {batch.runName ?? `Run ${batch.campaignRunId}`} · {batch.templateName ?? "No template"} · {batch.senderEmail ?? "No sender"}
-                      </p>
-                    </div>
-                    <StatusBadge status={batch.status === "completed" ? "completed" : batch.status} />
-                  </div>
-                  <div className="mt-3 grid grid-cols-4 gap-2 text-center">
-                    <div>
-                      <p className="text-sm font-semibold">{batch.crawledLeadsCount}</p>
-                      <p className="text-[10px] text-muted-foreground">Crawled</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{batch.qualifiedCount}</p>
-                      <p className="text-[10px] text-muted-foreground">Qualified</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{batch.outreachDraftsCreated}</p>
-                      <p className="text-[10px] text-muted-foreground">Drafts</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{batch.pendingReviewCount}</p>
-                      <p className="text-[10px] text-muted-foreground">Review</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-[10px] text-muted-foreground">
-                    Created {format(new Date(batch.createdAt), "MMM d, HH:mm")}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
         </div>
       )}
 

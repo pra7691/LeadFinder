@@ -16,6 +16,7 @@ import {
   Mail,
   Search,
   MailX,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "./theme-provider";
@@ -121,6 +122,66 @@ function TodayStatsBar() {
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
       </div>
+    </div>
+  );
+}
+
+interface SerperCreditStatusResponse {
+  serperCreditsExhausted: boolean;
+  detectedAt: string | null;
+  affectedCampaignRunId: number | null;
+  message: string | null;
+}
+
+function SerperCreditsAlert() {
+  const { data, refetch, isFetching } = useQuery<SerperCreditStatusResponse>({
+    queryKey: ["/api/dashboard/serper-credit-status"],
+    queryFn: async () => {
+      const response = await fetch("/api/dashboard/serper-credit-status");
+      if (!response.ok) throw new Error("Unable to read Serper credit status");
+      return response.json();
+    },
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  if (!data?.serperCreditsExhausted) return null;
+
+  const detectedTime = data.detectedAt
+    ? new Date(data.detectedAt).toLocaleString()
+    : "Unknown";
+
+  return (
+    <div
+      role="alert"
+      data-testid="serper-credits-alert"
+      className="flex flex-col gap-3 border-y border-red-500/60 bg-red-500/15 px-4 py-4 text-red-950 dark:text-red-100 sm:px-6 lg:flex-row lg:items-center lg:px-8"
+    >
+      <AlertTriangle className="h-7 w-7 shrink-0 text-red-600 dark:text-red-400" />
+      <div className="min-w-0 flex-1">
+        <div className="text-lg font-bold">SERPER CREDITS EXHAUSTED</div>
+        <div className="text-sm font-medium">
+          Search discovery is paused until credits are recharged.
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-red-900/80 dark:text-red-100/80">
+          {data.affectedCampaignRunId != null && (
+            <span>Affected run: #{data.affectedCampaignRunId}</span>
+          )}
+          <span>Detected: {detectedTime}</span>
+          {data.message && <span className="break-all">Latest response: {data.message}</span>}
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void refetch()}
+        disabled={isFetching}
+        className="self-start border-red-500/50 bg-background/70 text-red-700 hover:bg-red-500/10 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 lg:self-center"
+      >
+        <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} />
+        Refresh status
+      </Button>
     </div>
   );
 }
@@ -275,6 +336,8 @@ export function Layout({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </div>
+
+        <SerperCreditsAlert />
 
         <div className="flex-1 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 max-w-7xl mx-auto w-full">
           {children}

@@ -11,8 +11,17 @@ import {
   appSettingsTable,
 } from "@workspace/db";
 import { eq, and, gte, sql, or, inArray, desc } from "drizzle-orm";
+import { getSerperCreditStatus } from "../services/serper-credit-status";
 
 const router = Router();
+
+router.get("/dashboard/serper-credit-status", async (_req, res) => {
+  try {
+    res.json(await getSerperCreditStatus());
+  } catch {
+    res.status(500).json({ message: "Unable to read Serper credit status." });
+  }
+});
 
 router.get("/dashboard/stats", async (_req, res) => {
   const [{ total: totalCampaigns }] = await db
