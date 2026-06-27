@@ -1476,6 +1476,53 @@ export const useResumeCampaignRun = <TError = ErrorType<void>, TContext = unknow
   return useMutation(getResumeCampaignRunMutationOptions(options));
 };
 
+// ── Rerun campaign run ──────────────────────────────────────────────────────
+
+export interface RerunCampaignRunResult {
+  status: string;
+  campaignId: number;
+  runId: number;
+  rerunOfRunId: number | null;
+  rerunNumber: number | null;
+}
+
+export const getRerunCampaignRunUrl = (id: number) => `/api/campaign-runs/${id}/rerun`;
+
+export const rerunCampaignRun = async (
+  id: number,
+  requestKey: string,
+  options?: RequestInit,
+): Promise<RerunCampaignRunResult> => {
+  return customFetch<RerunCampaignRunResult>(getRerunCampaignRunUrl(id), {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify({ requestKey }),
+  });
+};
+
+export const getRerunCampaignRunMutationOptions = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<Awaited<ReturnType<typeof rerunCampaignRun>>, TError, { id: number; requestKey: string }, TContext>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<Awaited<ReturnType<typeof rerunCampaignRun>>, TError, { id: number; requestKey: string }, TContext> => {
+  const mutationKey = ['rerunCampaignRun'];
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof rerunCampaignRun>>, { id: number; requestKey: string }> =
+    ({ id, requestKey }) => rerunCampaignRun(id, requestKey, requestOptions);
+  return { mutationKey, mutationFn, ...mutationOptions };
+};
+
+export const useRerunCampaignRun = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<Awaited<ReturnType<typeof rerunCampaignRun>>, TError, { id: number; requestKey: string }, TContext>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<Awaited<ReturnType<typeof rerunCampaignRun>>, TError, { id: number; requestKey: string }, TContext> => {
+  return useMutation(getRerunCampaignRunMutationOptions(options));
+};
+
 export const getListEmailTemplatesUrl = (params?: ListEmailTemplatesParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -5801,4 +5848,3 @@ export const useUpsertSetting = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpsertSettingMutationOptions(options));
     }
-

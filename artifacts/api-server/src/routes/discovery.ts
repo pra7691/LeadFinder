@@ -16,6 +16,7 @@ import { searchSerper, extractRootDomain } from "../services/serper";
 import { getSerperApiKey } from "../services/serper-key";
 import { classifyLeadType } from "../services/lead-classifier";
 import { domainMatchesBlockedList, normalizeDomainToken, parseBlockedDomains } from "../services/domain-blocklist";
+import { captureCampaignRunConfiguration } from "../scheduler/campaign-run-configuration";
 
 const router = Router();
 
@@ -89,6 +90,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
   const existingDomains = new Set(existingLeads.map((l) => normalizeDomainToken(l.rootDomain)).filter(Boolean));
 
   // ── Create a campaign_run record ──────────────────────────────
+  const configurationSnapshot = await captureCampaignRunConfiguration(campaign);
   const [campaignRun] = await db
     .insert(campaignRunsTable)
     .values({
@@ -98,6 +100,7 @@ router.post("/campaigns/:id/run-discovery", async (req, res) => {
         ? "scheduled"
         : "manual",
       status: "running",
+      configurationSnapshot,
     })
     .returning();
 

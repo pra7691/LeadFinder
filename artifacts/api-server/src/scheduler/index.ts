@@ -11,6 +11,7 @@ import { runPipeline } from "./pipeline";
 import { isCancellationStatus, restartRecoveryDecision } from "./run-safety";
 import { logger } from "../lib/logger";
 import { recoverManualOutreachSendQueueOnStartup, resumeQueuedOutreachSendQueue, resumeStuckOutreach } from "../routes/outreach-send";
+import { captureCampaignRunConfiguration } from "./campaign-run-configuration";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,13 @@ async function tick() {
       .set({ lastRunStatus: "running", lastRunAt: now })
       .where(eq(campaignsTable.id, campaign.id));
 
+    const [campaignForSnapshot] = await db
+      .select()
+      .from(campaignsTable)
+      .where(eq(campaignsTable.id, campaign.id));
+    if (!campaignForSnapshot) continue;
+    const configurationSnapshot = await captureCampaignRunConfiguration(campaignForSnapshot);
+
     const [campaignRun] = await db
       .insert(campaignRunsTable)
       .values({
@@ -129,6 +137,7 @@ async function tick() {
         runName: `Scheduled Run – ${new Date().toISOString().slice(0, 10)}`,
         runType: "scheduled",
         status: "running",
+        configurationSnapshot,
       })
       .returning();
 

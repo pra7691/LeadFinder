@@ -786,6 +786,13 @@ export interface CampaignRun {
   totalWorkUnits?: number;
   /** Queries completed so far (searched + skipped) */
   completedWorkUnits?: number;
+  /** @nullable */
+  configurationSnapshot?: Record<string, unknown> | null;
+  /** @nullable */
+  rerunOfRunId?: number | null;
+  /** @nullable */
+  rerunNumber?: number | null;
+  canRerun?: boolean;
   createdAt: string;
 }
 

@@ -14,6 +14,7 @@ import {
   useListCampaignEmailAccounts,
   useAssignCampaignEmailAccount,
   useUnassignCampaignEmailAccount,
+  useRerunCampaignRun,
   getListCampaignEmailAccountsQueryKey,
   getListEmailAccountsQueryKey,
 } from "@workspace/api-client-react";
@@ -354,9 +355,13 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
     },
   });
   const deleteRun = useDeleteCampaignRun();
+  const rerunRun = useRerunCampaignRun();
   const qc = useQueryClient();
   const { toast: toastRuns } = useToast();
+  const [, navigate] = useLocation();
   const [deletingRunId, setDeletingRunId] = useState<number | null>(null);
+  const [rerunningRunId, setRerunningRunId] = useState<number | null>(null);
+  const rerunGuard = useRef(new Set<number>());
 
   const handleDeleteRun = (e: React.MouseEvent, runId: number) => {
     e.stopPropagation();
@@ -371,6 +376,46 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
         },
         onError: () => toastRuns({ title: "Failed to delete run.", variant: "destructive" }),
         onSettled: () => setDeletingRunId(null),
+      },
+    );
+  };
+
+  const handleRerun = (e: React.MouseEvent, run: CampaignRun) => {
+    e.stopPropagation();
+    const terminal = ["completed", "partial", "failed", "cancelled"].includes(String(run.status));
+    if (!terminal) return;
+    if (!run.canRerun) {
+      toastRuns({
+        title: "Exact rerun unavailable",
+        description: "This older run has no saved configuration, so it cannot be rerun exactly.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!confirm("Create a new run using the exact saved settings from this run?")) return;
+    if (rerunGuard.current.has(run.id)) return;
+    rerunGuard.current.add(run.id);
+    setRerunningRunId(run.id);
+    const requestKey = globalThis.crypto?.randomUUID?.() ?? `${run.id}-${Date.now()}-${Math.random()}`;
+    rerunRun.mutate(
+      { id: run.id, requestKey },
+      {
+        onSuccess: (result) => {
+          qc.invalidateQueries({ queryKey: getListCampaignRunsQueryKey(params) });
+          toastRuns({ title: "Rerun created", description: `Started ${run.runName ?? `Run #${run.id}`} as a fresh run.` });
+          navigate(`/campaigns/${campaignId}/runs/${result.runId}`);
+        },
+        onError: (error: unknown) => {
+          toastRuns({
+            title: "Rerun failed",
+            description: (error as { message?: string })?.message ?? "Failed to create rerun.",
+            variant: "destructive",
+          });
+        },
+        onSettled: () => {
+          rerunGuard.current.delete(run.id);
+          setRerunningRunId(null);
+        },
       },
     );
   };
@@ -450,6 +495,12 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                           Resumed
                         </span>
                       )}
+                      {run.rerunOfRunId != null && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-500">
+                          Rerun of Run #{run.rerunOfRunId}
+                          {run.rerunNumber != null ? ` · #${run.rerunNumber}` : ""}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {startedAt ? format(startedAt, "MMM d, yyyy · HH:mm") : "—"}
@@ -493,7 +544,25 @@ function CampaignRunsSection({ campaignId }: { campaignId: number }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-primary transition-colors" />
+                      {["completed", "partial", "failed", "cancelled"].includes(String(run.status)) ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          disabled={rerunningRunId === run.id}
+                          onClick={(e) => handleRerun(e, run)}
+                          title={run.canRerun
+                            ? "Rerun with exact saved settings"
+                            : "Exact rerun unavailable: this older run has no saved configuration"}
+                          data-testid={`button-rerun-${run.id}`}
+                        >
+                          {rerunningRunId === run.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <RotateCcw className="w-3.5 h-3.5" />}
+                        </Button>
+                      ) : (
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-primary transition-colors" />
+                      )}
                     </TableCell>
                     <TableCell className="pr-2">
                       <Button

@@ -346,6 +346,41 @@ paths:
         "404":
           description: Not found
 
+  /campaign-runs/{id}/rerun:
+    post:
+      operationId: rerunCampaignRun
+      tags: [campaign-runs]
+      summary: Create a fresh run from a terminal run's immutable saved configuration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestKey]
+              properties:
+                requestKey:
+                  type: string
+                  minLength: 8
+                  maxLength: 100
+      responses:
+        "202":
+          description: Rerun created or an idempotent retry found the existing rerun
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RerunCampaignRunResult"
+        "409":
+          description: Source run is active or campaign already has an active pipeline
+        "422":
+          description: Source run has no exact saved configuration
+
   # ── Email Templates ───────────────────────────────────────────
   /email-templates:
     get:
@@ -674,6 +709,50 @@ paths:
                   $ref: "#/components/schemas/SchedulerStatus"
 
   # ── Leads ────────────────────────────────────────────────────
+  /leads/qualified-no-email:
+    get:
+      operationId: listQualifiedNoEmailLeads
+      tags: [leads]
+      summary: List paginated AI-qualified crawled leads where no email was extracted
+      parameters:
+        - name: campaignId
+          in: query
+          schema: { type: integer }
+        - name: campaignRunId
+          in: query
+          schema: { type: integer }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: hasPhone
+          in: query
+          schema: { type: boolean }
+        - name: notInList
+          in: query
+          schema: { type: boolean }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Paginated qualified no-email leads
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Lead"
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+
   /leads:
     get:
       operationId: listLeads
@@ -2614,8 +2693,32 @@ components:
         completedWorkUnits:
           type: integer
           description: Queries completed so far (searched + skipped)
+        configurationSnapshot:
+          type: ["object", "null"]
+          additionalProperties: true
+        rerunOfRunId:
+          type: ["integer", "null"]
+        rerunNumber:
+          type: ["integer", "null"]
+        canRerun:
+          type: boolean
         createdAt:
           type: string
+
+    RerunCampaignRunResult:
+      type: object
+      required: [status, campaignId, runId]
+      properties:
+        status:
+          type: string
+        campaignId:
+          type: integer
+        runId:
+          type: integer
+        rerunOfRunId:
+          type: ["integer", "null"]
+        rerunNumber:
+          type: ["integer", "null"]
 
     LeadList:
       type: object

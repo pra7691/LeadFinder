@@ -5,6 +5,7 @@ import {
   text,
   boolean,
   timestamp,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -14,6 +15,7 @@ import { emailAccountsTable } from "./email-accounts";
 import { emailTemplatesTable } from "./email-templates";
 import { leadListsTable } from "./lead-lists";
 import { campaignRunBatchesTable } from "./campaign-run-batches";
+import type { EmailTemplateSnapshot } from "./campaign-run-configuration";
 
 export const outreachQueueTable = pgTable("outreach_queue", {
   id: serial("id").primaryKey(),
@@ -30,6 +32,7 @@ export const outreachQueueTable = pgTable("outreach_queue", {
     () => emailTemplatesTable.id,
     { onDelete: "set null" },
   ),
+  templateSnapshot: jsonb("template_snapshot").$type<EmailTemplateSnapshot>(),
   listId: integer("list_id").references(
     () => leadListsTable.id,
     { onDelete: "set null" },

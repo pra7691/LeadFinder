@@ -14,6 +14,12 @@ export interface AISettings {
   model: string;
 }
 
+export interface RunAISettings {
+  personalizationEnabled: boolean;
+  scoringEnabled: boolean;
+  model: string;
+}
+
 export async function getAISettings(): Promise<AISettings> {
   const rows = await db.select().from(appSettingsTable);
   const find = (key: string) => rows.find((r) => r.key === key)?.value ?? null;
@@ -23,5 +29,16 @@ export async function getAISettings(): Promise<AISettings> {
     scoringEnabled: find("ai_scoring_enabled") === "true",
     apiKey: dbKey && dbKey.length > 0 ? dbKey : process.env["OPENAI_API_KEY"] ?? null,
     model: find("openai_model") ?? "gpt-4o-mini",
+  };
+}
+
+export async function getAISettingsForRun(overrides?: RunAISettings): Promise<AISettings> {
+  const live = await getAISettings();
+  if (!overrides) return live;
+  return {
+    ...live,
+    enabled: overrides.personalizationEnabled,
+    scoringEnabled: overrides.scoringEnabled,
+    model: overrides.model,
   };
 }

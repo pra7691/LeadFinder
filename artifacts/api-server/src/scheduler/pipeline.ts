@@ -24,6 +24,7 @@ import {
   leadListsTable,
   leadListItemsTable,
   emailTemplatesTable,
+  type CampaignRunConfigurationSnapshot,
 } from "@workspace/db";
 import { eq, and, or, sql, desc, isNull, like, inArray } from "drizzle-orm";
 import { searchSerper, extractRootDomain } from "../services/serper";
@@ -43,6 +44,12 @@ import { generatePersonalizedEmail } from "../services/email-generator";
 import { domainMatchesBlockedList, parseBlockedDomains, normalizeDomainToken } from "../services/domain-blocklist";
 import { normalizeUniqueRecipients } from "./incremental-batch-utils";
 import { isCancellationStatus } from "./run-safety";
+import {
+  campaignFromRunConfiguration,
+  isCampaignRunConfigurationSnapshot,
+  shouldSkipRefresh,
+  templateFromRunConfiguration,
+} from "./campaign-run-configuration";
 
 const CRAWL_CONCURRENCY = 5;
 const SCORE_CONCURRENCY = 2;
@@ -186,7 +193,13 @@ function processingOutreachBatchKey(batch: typeof campaignRunBatchesTable.$infer
   return `campaign-run-${batch.campaignRunId}-batch-${batch.batchNumber}`;
 }
 
-async function getAssignedSenderAccountId(campaignId: number): Promise<number | null> {
+async function getAssignedSenderAccountId(
+  campaignId: number,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
+): Promise<number | null> {
+  if (configurationSnapshot) {
+    return configurationSnapshot.senderAccountIds[0] ?? null;
+  }
   const [assigned] = await db
     .select({ accountId: campaignEmailAccountsTable.emailAccountId })
     .from(campaignEmailAccountsTable)
@@ -225,6 +238,7 @@ async function claimCrawledLeadBatch(
   campaign: typeof campaignsTable.$inferSelect,
   campaignRunId: number,
   flushPartial: boolean,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<typeof campaignRunBatchesTable.$inferSelect | null> {
   if (await isCancellationRequested(campaignRunId)) return null;
 
@@ -259,7 +273,18 @@ async function claimCrawledLeadBatch(
     const nextNumberRows =
       (nextNumberResult as unknown as { rows?: { next_number: number | string }[] }).rows ?? [];
     const batchNumber = Number(nextNumberRows[0]?.next_number ?? 1);
-    const senderAccountId = await getAssignedSenderAccountId(campaign.id);
+    const senderAccountId = await getAssignedSenderAccountId(campaign.id, configurationSnapshot);
+    let emailTemplateId = campaign.emailTemplateId ?? null;
+    if (configurationSnapshot) {
+      const snapshotTemplateId = configurationSnapshot.emailTemplate?.id ?? null;
+      const [liveTemplate] = snapshotTemplateId
+        ? await tx.select({ id: emailTemplatesTable.id })
+          .from(emailTemplatesTable)
+          .where(eq(emailTemplatesTable.id, snapshotTemplateId))
+          .limit(1)
+        : [];
+      emailTemplateId = liveTemplate?.id ?? null;
+    }
 
     const [batch] = await tx
       .insert(campaignRunBatchesTable)
@@ -269,7 +294,9 @@ async function claimCrawledLeadBatch(
         batchNumber,
         status: "claimed",
         crawledLeadsCount: candidateRows.length,
-        emailTemplateId: campaign.emailTemplateId ?? null,
+        emailTemplateId: configurationSnapshot?.automation.autoOutreachEnabled === false
+          ? null
+          : emailTemplateId,
         senderAccountId,
       })
       .returning();
@@ -336,6 +363,7 @@ async function processCampaignRunBatch(
   campaign: typeof campaignsTable.$inferSelect,
   batch: typeof campaignRunBatchesTable.$inferSelect,
   errors: string[],
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<BatchProcessingStats> {
   const stats = emptyBatchStats();
   if (await isCancellationRequested(batch.campaignRunId)) return stats;
@@ -345,11 +373,13 @@ async function processCampaignRunBatch(
     .set({ status: "scoring", errorMessage: null })
     .where(eq(campaignRunBatchesTable.id, batch.id));
 
-  const keywords = await db
-    .select({ keyword: campaignKeywordsTable.keyword })
-    .from(campaignKeywordsTable)
-    .where(eq(campaignKeywordsTable.campaignId, campaign.id));
-  const keywordList = keywords.map((k) => k.keyword);
+  const keywordList = configurationSnapshot
+    ? configurationSnapshot.keywords
+    : (await db
+      .select({ keyword: campaignKeywordsTable.keyword })
+      .from(campaignKeywordsTable)
+      .where(eq(campaignKeywordsTable.campaignId, campaign.id)))
+      .map((k) => k.keyword);
 
   const batchItems = await db
     .select({ leadId: campaignRunBatchItemsTable.leadId })
@@ -378,7 +408,7 @@ async function processCampaignRunBatch(
         rootDomain: lead.rootDomain,
         rawText: lead.rawText ?? null,
         sourceQuery: lead.sourceQuery ?? null,
-      });
+      }, configurationSnapshot?.ai);
 
       const failed = result.score == null;
       const reviewStatus =
@@ -442,10 +472,12 @@ async function processCampaignRunBatch(
     .where(eq(appSettingsTable.key, "blocked_domains"));
   const blockedDomains = parseBlockedDomains(blockedSetting?.value);
 
-  const template = batch.emailTemplateId
-    ? (await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, batch.emailTemplateId)))[0]
-    : null;
-  const senderAccountId = batch.senderAccountId ?? await getAssignedSenderAccountId(campaign.id);
+  const template = configurationSnapshot
+    ? templateFromRunConfiguration(configurationSnapshot)
+    : batch.emailTemplateId
+      ? (await db.select().from(emailTemplatesTable).where(eq(emailTemplatesTable.id, batch.emailTemplateId)))[0]
+      : null;
+  const senderAccountId = batch.senderAccountId ?? await getAssignedSenderAccountId(campaign.id, configurationSnapshot);
   const outreachBatchKey = processingOutreachBatchKey(batch);
   const seenRecipients = new Set<string>();
 
@@ -464,6 +496,7 @@ async function processCampaignRunBatch(
           { ...lead, emails: recipientEmail },
           template,
           { campaignName: campaign.name, listName: "" },
+          configurationSnapshot?.ai,
         );
 
         try {
@@ -471,7 +504,8 @@ async function processCampaignRunBatch(
             campaignId: campaign.id,
             leadId: lead.id,
             emailAccountId: senderAccountId,
-            emailTemplateId: template.id,
+            emailTemplateId: batch.emailTemplateId,
+            templateSnapshot: configurationSnapshot?.emailTemplate ?? null,
             listId: null,
             recipientEmail,
             subject: result.subject,
@@ -530,6 +564,7 @@ async function drainCampaignRunBatchesUnlocked(
   campaignRunId: number,
   errors: string[],
   flushPartial: boolean,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<BatchProcessingStats> {
   const stats = emptyBatchStats();
 
@@ -537,11 +572,11 @@ async function drainCampaignRunBatchesUnlocked(
     if (await isCancellationRequested(campaignRunId)) break;
     const batch =
       await getRecoverableBatch(campaignRunId) ??
-      await claimCrawledLeadBatch(campaign, campaignRunId, flushPartial);
+      await claimCrawledLeadBatch(campaign, campaignRunId, flushPartial, configurationSnapshot);
     if (!batch) break;
 
     try {
-      const batchStats = await processCampaignRunBatch(campaign, batch, errors);
+      const batchStats = await processCampaignRunBatch(campaign, batch, errors, configurationSnapshot);
       mergeBatchStats(stats, batchStats);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -562,6 +597,7 @@ async function drainCampaignRunBatches(
   campaignRunId: number | undefined,
   errors: string[],
   flushPartial: boolean,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<BatchProcessingStats> {
   if (campaignRunId == null) return emptyBatchStats();
   if (await isCancellationRequested(campaignRunId)) return emptyBatchStats();
@@ -569,7 +605,13 @@ async function drainCampaignRunBatches(
   const previous = runBatchDrainLocks.get(campaignRunId) ?? Promise.resolve(emptyBatchStats());
   const next = previous
     .catch(() => emptyBatchStats())
-    .then(() => drainCampaignRunBatchesUnlocked(campaign, campaignRunId, errors, flushPartial));
+    .then(() => drainCampaignRunBatchesUnlocked(
+      campaign,
+      campaignRunId,
+      errors,
+      flushPartial,
+      configurationSnapshot,
+    ));
   runBatchDrainLocks.set(campaignRunId, next);
 
   try {
@@ -610,8 +652,12 @@ export interface PipelineResult {
 
 export interface PipelineOptions {
   forceDiscoveryRefresh?: boolean;
+  /** Reruns bypass discovery-source history; normal runs retain existing refresh behavior. */
+  forceDiscoverySourceRefresh?: boolean;
   /** When true, skip the discovery step entirely (used when resuming a failed run). */
   skipDiscovery?: boolean;
+  /** Immutable per-run configuration. Loaded from campaign_runs when omitted. */
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null;
 }
 
 // ── Hard qualification filter lists ────────────────────────────────────────
@@ -1228,15 +1274,19 @@ async function runDiscovery(
     return stats;
   }
 
-  const keywords = await db
-    .select()
-    .from(campaignKeywordsTable)
-    .where(eq(campaignKeywordsTable.campaignId, campaign.id));
+  const keywords = options.configurationSnapshot
+    ? options.configurationSnapshot.keywords.map((keyword) => ({ keyword }))
+    : await db
+      .select()
+      .from(campaignKeywordsTable)
+      .where(eq(campaignKeywordsTable.campaignId, campaign.id));
 
-  const countries = await db
-    .select()
-    .from(campaignCountriesTable)
-    .where(eq(campaignCountriesTable.campaignId, campaign.id));
+  const countries = options.configurationSnapshot
+    ? options.configurationSnapshot.locations.map((country) => ({ country }))
+    : await db
+      .select()
+      .from(campaignCountriesTable)
+      .where(eq(campaignCountriesTable.campaignId, campaign.id));
 
   if (keywords.length === 0) {
     await schedulerLog(campaign.id, "Discovery skipped: no keywords configured");
@@ -1325,10 +1375,10 @@ async function runDiscovery(
         ))
         .limit(1);
 
-      if (!options.forceDiscoveryRefresh && qhRecord?.nextRefreshAt && qhRecord.nextRefreshAt > now) {
+      if (shouldSkipRefresh(qhRecord?.nextRefreshAt, now, options.forceDiscoveryRefresh)) {
         stats.searchesSkipped++;
         await schedulerLog(campaign.id, `Query skipped (recently searched): "${query}"`, {
-          nextRefreshAt: qhRecord.nextRefreshAt.toISOString(),
+          nextRefreshAt: qhRecord?.nextRefreshAt?.toISOString() ?? null,
         });
         if (campaignRunId != null) {
           const _cu = stats.searchesPerformed + stats.searchesSkipped;
@@ -1523,7 +1573,11 @@ async function runDiscovery(
             ))
             .limit(1);
 
-          if (dshRecord?.nextRefreshAt && dshRecord.nextRefreshAt > now) {
+          if (shouldSkipRefresh(
+            dshRecord?.nextRefreshAt,
+            now,
+            options.forceDiscoverySourceRefresh,
+          )) {
             stats.discoverySourcesSkipped++;
             await schedulerLog(
               campaign.id,
@@ -1735,6 +1789,7 @@ async function runCrawl(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
   campaignRunId?: number,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<CrawlStats> {
   const stats: CrawlStats = {
     crawledCount: 0,
@@ -1744,7 +1799,13 @@ async function runCrawl(
   };
 
   if (!(await isCancellationRequested(campaignRunId))) {
-    const initialBatchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+    const initialBatchStats = await drainCampaignRunBatches(
+      campaign,
+      campaignRunId,
+      errors,
+      true,
+      configurationSnapshot,
+    );
     stats.scoredCount += initialBatchStats.scoredCount;
     stats.failedCount += initialBatchStats.failedCount;
     stats.outreachDraftsCreated += initialBatchStats.outreachDraftsCreated;
@@ -1799,7 +1860,13 @@ async function runCrawl(
       if (ok) {
         stats.crawledCount++;
         if (!(await isCancellationRequested(campaignRunId))) {
-          const batchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, false);
+          const batchStats = await drainCampaignRunBatches(
+            campaign,
+            campaignRunId,
+            errors,
+            false,
+            configurationSnapshot,
+          );
           stats.scoredCount += batchStats.scoredCount;
           stats.failedCount += batchStats.failedCount;
           stats.outreachDraftsCreated += batchStats.outreachDraftsCreated;
@@ -1864,7 +1931,13 @@ async function runCrawl(
   }
 
   if (!(await isCancellationRequested(campaignRunId))) {
-    const finalBatchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+    const finalBatchStats = await drainCampaignRunBatches(
+      campaign,
+      campaignRunId,
+      errors,
+      true,
+      configurationSnapshot,
+    );
     stats.scoredCount += finalBatchStats.scoredCount;
     stats.failedCount += finalBatchStats.failedCount;
     stats.outreachDraftsCreated += finalBatchStats.outreachDraftsCreated;
@@ -1880,13 +1953,15 @@ async function runScore(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
   campaignRunId?: number,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<{ scoredCount: number; failedCount: number }> {
-  const keywords = await db
-    .select({ keyword: campaignKeywordsTable.keyword })
-    .from(campaignKeywordsTable)
-    .where(eq(campaignKeywordsTable.campaignId, campaign.id));
-
-  const keywordList = keywords.map((k) => k.keyword);
+  const keywordList = configurationSnapshot
+    ? configurationSnapshot.keywords
+    : (await db
+      .select({ keyword: campaignKeywordsTable.keyword })
+      .from(campaignKeywordsTable)
+      .where(eq(campaignKeywordsTable.campaignId, campaign.id)))
+      .map((k) => k.keyword);
   let scoredCount = 0;
   let failedCount = 0;
 
@@ -1927,7 +2002,7 @@ async function runScore(
           rootDomain: lead.rootDomain,
           rawText: lead.rawText ?? null,
           sourceQuery: lead.sourceQuery ?? null,
-        });
+        }, configurationSnapshot?.ai);
 
         const failed = result.score == null;
         const reviewStatus =
@@ -2062,24 +2137,28 @@ async function runAutoOutreach(
   listId: number,
   _errors: string[],
   campaignRunId?: number,
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<number> {
   if (!campaign.emailTemplateId) return 0;
+  if (configurationSnapshot?.automation.autoOutreachEnabled === false) return 0;
   if (await isCancellationRequested(campaignRunId)) return 0;
 
-  // Fetch email account linked to this campaign
-  const [assigned] = await db
-    .select({ accountId: campaignEmailAccountsTable.emailAccountId })
-    .from(campaignEmailAccountsTable)
-    .where(eq(campaignEmailAccountsTable.campaignId, campaign.id))
-    .limit(1);
-  if (!assigned) return 0;
+  const assignedAccountId = await getAssignedSenderAccountId(campaign.id, configurationSnapshot);
+  if (!assignedAccountId) return 0;
 
-  // Fetch email template
-  const [tmpl] = await db
-    .select()
-    .from(emailTemplatesTable)
-    .where(eq(emailTemplatesTable.id, campaign.emailTemplateId));
+  const tmpl = configurationSnapshot
+    ? templateFromRunConfiguration(configurationSnapshot)
+    : (await db
+      .select()
+      .from(emailTemplatesTable)
+      .where(eq(emailTemplatesTable.id, campaign.emailTemplateId)))[0];
   if (!tmpl) return 0;
+
+  const [liveTemplate] = await db
+    .select({ id: emailTemplatesTable.id })
+    .from(emailTemplatesTable)
+    .where(eq(emailTemplatesTable.id, tmpl.id))
+    .limit(1);
 
   // Fetch list + list items
   const [list] = await db
@@ -2137,13 +2216,15 @@ async function runAutoOutreach(
         leadForContent,
         tmpl,
         { campaignName: campaign.name, listName: list.name },
+        configurationSnapshot?.ai,
       );
 
       const [inserted] = await db.insert(outreachQueueTable).values({
         campaignId: campaign.id,
         leadId: lead?.id ?? null,
-        emailAccountId: assigned.accountId,
-        emailTemplateId: campaign.emailTemplateId,
+        emailAccountId: assignedAccountId,
+        emailTemplateId: liveTemplate?.id ?? null,
+        templateSnapshot: configurationSnapshot?.emailTemplate ?? null,
         listId,
         recipientEmail,
         subject: result.subject,
@@ -2172,6 +2253,7 @@ async function runAutoOutreach(
 async function runEmail(
   campaign: typeof campaignsTable.$inferSelect,
   errors: string[],
+  configurationSnapshot?: CampaignRunConfigurationSnapshot | null,
 ): Promise<number> {
   if (!campaign.emailTemplate || !campaign.subjectTemplate) {
     return 0; // No email template configured
@@ -2219,20 +2301,15 @@ async function runEmail(
   if (safeLeads.length === 0) return 0;
 
   // Get the email account assigned to this campaign
-  const [assignedAccount] = await db
-    .select({ accountId: campaignEmailAccountsTable.emailAccountId })
-    .from(campaignEmailAccountsTable)
-    .where(eq(campaignEmailAccountsTable.campaignId, campaign.id))
-    .limit(1);
-
-  if (!assignedAccount) return 0;
+  const assignedAccountId = await getAssignedSenderAccountId(campaign.id, configurationSnapshot);
+  if (!assignedAccountId) return 0;
 
   const [account] = await db
     .select()
     .from(emailAccountsTable)
     .where(
       and(
-        eq(emailAccountsTable.id, assignedAccount.accountId),
+        eq(emailAccountsTable.id, assignedAccountId),
         eq(emailAccountsTable.isActive, true),
       ),
     );
@@ -2542,30 +2619,45 @@ export async function runPipeline(
     errors,
   };
 
-  const [campaign] = await db
+  const [currentCampaign] = await db
     .select()
     .from(campaignsTable)
     .where(eq(campaignsTable.id, campaignId));
 
-  if (!campaign) {
+  if (!currentCampaign) {
     errors.push(`Campaign ${campaignId} not found`);
     result.durationMs = Date.now() - startedAt;
     return result;
   }
 
-  if (!campaign.isActive) {
+  if (!currentCampaign.isActive) {
     result.skipped++;
     await schedulerLog(campaignId, "Pipeline skipped: campaign is inactive");
     result.durationMs = Date.now() - startedAt;
     return result;
   }
 
-  if (campaign.isPaused) {
+  if (currentCampaign.isPaused) {
     result.skipped++;
     await schedulerLog(campaignId, "Pipeline skipped: campaign is paused");
     result.durationMs = Date.now() - startedAt;
     return result;
   }
+
+  let configurationSnapshot = options.configurationSnapshot;
+  if (configurationSnapshot === undefined && campaignRunId != null) {
+    const [run] = await db
+      .select({ configurationSnapshot: campaignRunsTable.configurationSnapshot })
+      .from(campaignRunsTable)
+      .where(eq(campaignRunsTable.id, campaignRunId));
+    configurationSnapshot = isCampaignRunConfigurationSnapshot(run?.configurationSnapshot)
+      ? run.configurationSnapshot
+      : null;
+  }
+  const campaign = configurationSnapshot
+    ? campaignFromRunConfiguration(currentCampaign, configurationSnapshot)
+    : currentCampaign;
+  const executionOptions: PipelineOptions = { ...options, configurationSnapshot };
 
   if (campaignRunId != null) activePipelineRuns.add(campaignRunId);
 
@@ -2577,7 +2669,7 @@ export async function runPipeline(
       if (options.skipDiscovery) {
         await schedulerLog(campaignId, "Discovery skipped (resume mode)");
       } else {
-        const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, options);
+        const discoveryStats = await runDiscovery(campaign, errors, campaignRunId, executionOptions);
         result.discoveryLeadsCreated = discoveryStats.newLeadsCreated;
         result.discoverySearchesPerformed = discoveryStats.searchesPerformed;
         result.discoverySearchesSkipped = discoveryStats.searchesSkipped;
@@ -2607,7 +2699,7 @@ export async function runPipeline(
 
     await setStage(campaignRunId, "crawling");
     try {
-      const crawlStats = await runCrawl(campaign, errors, campaignRunId);
+      const crawlStats = await runCrawl(campaign, errors, campaignRunId, configurationSnapshot);
       result.crawledCount = crawlStats.crawledCount;
       result.scoredCount += crawlStats.scoredCount;
       result.failed += crawlStats.failedCount;
@@ -2626,7 +2718,13 @@ export async function runPipeline(
 
     await setStage(campaignRunId, "scoring");
     try {
-      const batchStats = await drainCampaignRunBatches(campaign, campaignRunId, errors, true);
+      const batchStats = await drainCampaignRunBatches(
+        campaign,
+        campaignRunId,
+        errors,
+        true,
+        configurationSnapshot,
+      );
       result.scoredCount += batchStats.scoredCount;
       result.failed += batchStats.failedCount;
     } catch (err) {
@@ -2646,7 +2744,11 @@ export async function runPipeline(
     // pending_review outreach drafts if the campaign has an email template set.
     let autoListId: number | null = null;
     try {
-      if (campaignRunId != null && !(await isCancellationRequested(campaignRunId))) {
+      if (
+        campaignRunId != null &&
+        configurationSnapshot?.automation.autoListEnabled !== false &&
+        !(await isCancellationRequested(campaignRunId))
+      ) {
         autoListId = await runAutoList(campaign, campaignRunId, errors);
       }
     } catch (err) {
@@ -2664,7 +2766,7 @@ export async function runPipeline(
         ? await hasCampaignRunBatches(campaignRunId)
         : false;
       if (autoListId != null && campaign.emailTemplateId && !incrementalBatchesExist) {
-        await runAutoOutreach(campaign, autoListId, errors, campaignRunId);
+        await runAutoOutreach(campaign, autoListId, errors, campaignRunId, configurationSnapshot);
       } else if (autoListId != null && incrementalBatchesExist) {
         await schedulerLog(
           campaign.id,
@@ -2683,7 +2785,7 @@ export async function runPipeline(
     }
 
     try {
-      result.emailsSent = await runEmail(campaign, errors);
+      result.emailsSent = await runEmail(campaign, errors, configurationSnapshot);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Email step failed: ${msg}`);

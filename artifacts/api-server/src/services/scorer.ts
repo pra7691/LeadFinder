@@ -12,7 +12,7 @@
 
 import { logger } from "../lib/logger";
 import { classifyLeadType, maxRelevanceScore } from "./lead-classifier";
-import { getAISettings } from "./ai-settings";
+import { getAISettingsForRun, type RunAISettings } from "./ai-settings";
 
 export interface ScoreInput {
   leadId?: number;
@@ -140,8 +140,8 @@ export function scoreWithKeywords(input: ScoreInput): ScoreOutput {
 
 // ── Main entry point ───────────────────────────────────────────────────────
 
-export async function scoreLead(input: ScoreInput): Promise<ScoreOutput> {
-  const ai = await getAISettings();
+export async function scoreLead(input: ScoreInput, runAISettings?: RunAISettings): Promise<ScoreOutput> {
+  const ai = await getAISettingsForRun(runAISettings);
 
   if (!ai.scoringEnabled) {
     return scoreWithKeywords(input);

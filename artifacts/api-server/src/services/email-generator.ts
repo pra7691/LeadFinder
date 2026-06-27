@@ -1,7 +1,7 @@
 import type { EmailTemplate } from "@workspace/db";
 import type { Lead } from "@workspace/db";
 import { logger } from "../lib/logger";
-import { getAISettings } from "./ai-settings";
+import { getAISettings, getAISettingsForRun, type RunAISettings } from "./ai-settings";
 import { isHtmlEmailBody, toTextEmail } from "./email-html";
 import { parseLeadEmails } from "./lead-emails";
 
@@ -29,6 +29,7 @@ export async function generatePersonalizedEmail(
   lead: Pick<Lead, "companyName" | "websiteUrl" | "rootDomain" | "country" | "emails" | "relevanceReason">,
   template: Pick<EmailTemplate, "subject" | "body" | "personalizationPrompt" | "sendFormat">,
   context: { campaignName?: string; listName?: string } = {},
+  runAISettings?: RunAISettings,
 ): Promise<GeneratedEmail> {
   const emailList = parseLeadEmails(lead.emails);
 
@@ -45,7 +46,7 @@ export async function generatePersonalizedEmail(
   const renderedSubject = renderTemplate(template.subject, vars);
   const renderedBody = renderTemplate(template.body, vars);
 
-  const ai = await getAISettings();
+  const ai = await getAISettingsForRun(runAISettings);
 
   if (!ai.enabled || !ai.apiKey) {
     return { subject: renderedSubject, body: renderedBody, aiUsed: false };

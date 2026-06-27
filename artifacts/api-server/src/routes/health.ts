@@ -45,7 +45,8 @@ const CRITICAL_COLUMNS: Record<string, string[]> = {
   ],
   campaign_runs: [
     "id", "campaign_id", "status", "started_at",
-    "total_new_leads", "total_blocked",
+    "total_new_leads", "total_blocked", "configuration_snapshot",
+    "rerun_of_run_id", "rerun_number", "rerun_request_key",
   ],
   leads: [
     "id", "campaign_id", "root_domain", "website_url",
@@ -53,6 +54,7 @@ const CRITICAL_COLUMNS: Record<string, string[]> = {
   ],
   outreach_queue: [
     "id", "lead_id", "recipient_email", "subject", "body", "status",
+    "template_snapshot",
   ],
   email_accounts: [
     "id", "email", "smtp_host", "smtp_port", "smtp_password", "is_active",

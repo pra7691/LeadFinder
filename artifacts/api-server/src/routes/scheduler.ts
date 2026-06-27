@@ -6,6 +6,7 @@ import { runPipeline, clearCancellation } from "../scheduler/pipeline";
 import { isCancellationStatus } from "../scheduler/run-safety";
 import { computeNextRunAt } from "../scheduler/index";
 import { logger } from "../lib/logger";
+import { captureCampaignRunConfiguration } from "../scheduler/campaign-run-configuration";
 
 const router = Router();
 
@@ -79,6 +80,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
   const bodyRunName = typeof req.body?.runName === "string" && req.body.runName.trim()
     ? req.body.runName.trim()
     : null;
+  const configurationSnapshot = await captureCampaignRunConfiguration(campaign);
 
   // Create a campaign_run record immediately so the UI can show it right away
   const [campaignRun] = await db
@@ -88,6 +90,7 @@ router.post("/campaigns/:id/trigger", async (req, res) => {
       runName: bodyRunName ?? `Campaign Run – ${new Date().toISOString().slice(0, 10)}`,
       runType: "manual",
       status: "running",
+      configurationSnapshot,
     })
     .returning();
 

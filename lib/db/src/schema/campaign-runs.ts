@@ -5,9 +5,13 @@ import {
   text,
   timestamp,
   real,
+  jsonb,
+  unique,
+  AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { campaignsTable } from "./campaigns";
 import { leadListsTable } from "./lead-lists";
+import type { CampaignRunConfigurationSnapshot } from "./campaign-run-configuration";
 
 export const campaignRunsTable = pgTable("campaign_runs", {
   id: serial("id").primaryKey(),
@@ -40,7 +44,17 @@ export const campaignRunsTable = pgTable("campaign_runs", {
   totalWorkUnits: integer("total_work_units").notNull().default(0),
   completedWorkUnits: integer("completed_work_units").notNull().default(0),
   finalListId: integer("final_list_id").references(() => leadListsTable.id, { onDelete: "set null" }),
+  configurationSnapshot: jsonb("configuration_snapshot").$type<CampaignRunConfigurationSnapshot>(),
+  rerunOfRunId: integer("rerun_of_run_id").references(
+    (): AnyPgColumn => campaignRunsTable.id,
+    { onDelete: "set null" },
+  ),
+  rerunNumber: integer("rerun_number"),
+  rerunRequestKey: text("rerun_request_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  unique("campaign_runs_rerun_source_number_unique").on(t.rerunOfRunId, t.rerunNumber),
+  unique("campaign_runs_rerun_request_key_unique").on(t.rerunRequestKey),
+]);
 
 export type CampaignRun = typeof campaignRunsTable.$inferSelect;

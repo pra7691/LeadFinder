@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { appSettingsTable, campaignsTable, campaignRunsTable, leadsTable } from "@workspace/db";
-import { eq, and, isNotNull, isNull, gte, lte, inArray, desc, sql, type SQL } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, gte, lte, inArray, desc, sql, getTableColumns, type SQL } from "drizzle-orm";
 import { saveExportFile } from "../services/export-files";
 import { parseBlockedDomains } from "../services/domain-blocklist";
 import {
@@ -11,8 +11,50 @@ import {
   GetLeadParams,
   DeleteLeadParams,
 } from "@workspace/api-zod";
+import { normalizeQualifiedNoEmailPage } from "../services/qualified-no-email-core";
+import { qualifiedNoEmailConditions } from "../services/qualified-no-email-query";
 
 const router = Router();
+
+function optionalPositiveInteger(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+router.get("/leads/qualified-no-email", async (req, res) => {
+  const { limit, offset } = normalizeQualifiedNoEmailPage(req.query.limit, req.query.offset);
+  const filters = {
+    campaignId: optionalPositiveInteger(req.query.campaignId),
+    campaignRunId: optionalPositiveInteger(req.query.campaignRunId),
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    hasPhone: req.query.hasPhone === "true" || req.query.hasPhone === "1",
+    notInList: req.query.notInList === "true" || req.query.notInList === "1",
+  };
+  const conditions = qualifiedNoEmailConditions(filters);
+
+  const [items, countRows] = await Promise.all([
+    db.select({
+      ...getTableColumns(leadsTable),
+      campaignName: campaignsTable.name,
+      campaignMinRelevanceScore: campaignsTable.minRelevanceScore,
+      addedToList: sql<boolean>`EXISTS (
+        SELECT 1 FROM lead_list_items lli WHERE lli.lead_id = ${leadsTable.id}
+      )`,
+    })
+      .from(leadsTable)
+      .innerJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(leadsTable.createdAt), desc(leadsTable.id))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: sql<number>`count(*)::int` })
+      .from(leadsTable)
+      .innerJoin(campaignsTable, eq(leadsTable.campaignId, campaignsTable.id))
+      .where(and(...conditions)),
+  ]);
+
+  res.json({ items, total: countRows[0]?.total ?? 0, limit, offset });
+});
 
 function csvEscape(value: unknown): string {
   const text = value == null ? "" : String(value);

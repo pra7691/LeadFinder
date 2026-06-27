@@ -9,6 +9,13 @@ import { classifyLeadType } from "../services/lead-classifier";
 import { crawlWebsite } from "../services/crawler";
 import { scoreLead } from "../services/scorer";
 import { saveExportFile } from "../services/export-files";
+import {
+  buildRerunValues,
+  isCampaignRunConfigurationSnapshot,
+  isTerminalRerunStatus,
+  RERUN_PIPELINE_OPTIONS,
+} from "../scheduler/campaign-run-configuration";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -315,14 +322,25 @@ async function recoverBlockedResults(resultIds: number[]) {
   return { created, duplicates, skipped, createdLeads, processedResults };
 }
 
-function normalizeRunStatus<T extends { status: string; currentStage: string | null; errorMessage: string | null; metadataJson: string | null }>(
+function normalizeRunStatus<T extends {
+  status: string;
+  currentStage: string | null;
+  errorMessage: string | null;
+  metadataJson: string | null;
+  configurationSnapshot?: unknown;
+}>(
   run: T,
-): T {
+): T & { canRerun: boolean } {
+  const withCapabilities = {
+    ...run,
+    canRerun: isTerminalRerunStatus(run.status) &&
+      isCampaignRunConfigurationSnapshot(run.configurationSnapshot),
+  };
   // Older runs could be written with status="completed" even when the run had
   // step errors (e.g. AI scoring not configured). Normalize for UI consumers.
-  if (run.status !== "completed") return run;
+  if (run.status !== "completed") return withCapabilities;
   const hasErrors = typeof run.errorMessage === "string" && run.errorMessage.trim().length > 0;
-  if (!hasErrors) return run;
+  if (!hasErrors) return withCapabilities;
 
   let scoredCount: number | null = null;
   try {
@@ -336,7 +354,7 @@ function normalizeRunStatus<T extends { status: string; currentStage: string | n
 
   const effectiveStatus = scoredCount === 0 ? "failed" : "partial";
   return {
-    ...run,
+    ...withCapabilities,
     status: effectiveStatus,
     currentStage: run.currentStage === "completed" ? run.currentStage : effectiveStatus,
   };
@@ -908,6 +926,220 @@ router.post("/campaign-runs/:id/resume", async (req, res) => {
     });
 
   res.status(202).json({ status: "resumed", campaignId: campaign.id, runId: id });
+});
+
+// ── POST /campaign-runs/:id/rerun ─────────────────────────────────────────
+// Creates a distinct run from the source run's immutable configuration and
+// performs fresh discovery. This never mutates or resumes the source run.
+
+router.post("/campaign-runs/:id/rerun", async (req, res) => {
+  const sourceRunId = Number(req.params.id);
+  const requestKey = typeof req.body?.requestKey === "string" ? req.body.requestKey.trim() : "";
+  if (!Number.isInteger(sourceRunId) || sourceRunId <= 0) {
+    res.status(400).json({ error: "Invalid run ID" });
+    return;
+  }
+  if (requestKey.length < 8 || requestKey.length > 100) {
+    res.status(400).json({ error: "A valid rerun request key is required." });
+    return;
+  }
+
+  try {
+    const creation = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${sourceRunId})`);
+
+      const [existing] = await tx
+        .select()
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.rerunRequestKey, requestKey))
+        .limit(1);
+      if (existing) {
+        if (existing.rerunOfRunId !== sourceRunId) {
+          throw Object.assign(new Error("This rerun request key was already used for another run."), { statusCode: 409 });
+        }
+        return { run: existing, created: false };
+      }
+
+      const [sourceRun] = await tx
+        .select()
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.id, sourceRunId))
+        .limit(1);
+      if (!sourceRun) {
+        throw Object.assign(new Error("Run not found"), { statusCode: 404 });
+      }
+      if (!isTerminalRerunStatus(sourceRun.status)) {
+        throw Object.assign(
+          new Error(`Only completed, partial, failed, or cancelled runs can be rerun. This run is ${sourceRun.status}.`),
+          { statusCode: 409 },
+        );
+      }
+      if (!isCampaignRunConfigurationSnapshot(sourceRun.configurationSnapshot)) {
+        throw Object.assign(
+          new Error("This older run has no saved configuration, so it cannot be rerun exactly."),
+          { statusCode: 422 },
+        );
+      }
+
+      await tx.execute(sql`SELECT id FROM campaigns WHERE id = ${sourceRun.campaignId} FOR UPDATE`);
+      const [campaign] = await tx
+        .select()
+        .from(campaignsTable)
+        .where(eq(campaignsTable.id, sourceRun.campaignId))
+        .limit(1);
+      if (!campaign) {
+        throw Object.assign(new Error("Campaign not found"), { statusCode: 404 });
+      }
+      if (campaign.lastRunStatus === "running") {
+        throw Object.assign(new Error("A pipeline is already running for this campaign."), { statusCode: 409 });
+      }
+
+      const nextNumberResult = await tx.execute(sql`
+        SELECT COALESCE(MAX(rerun_number), 0) + 1 AS next_number
+        FROM campaign_runs
+        WHERE rerun_of_run_id = ${sourceRunId}
+      `);
+      const nextNumberRows = (nextNumberResult as unknown as {
+        rows?: Array<{ next_number: number | string }>;
+      }).rows ?? [];
+      const rerunNumber = Number(nextNumberRows[0]?.next_number ?? 1);
+
+      const [newRun] = await tx
+        .insert(campaignRunsTable)
+        .values(buildRerunValues(sourceRun, rerunNumber, requestKey))
+        .returning();
+      if (!newRun) throw new Error("Failed to create rerun");
+
+      await tx
+        .update(campaignsTable)
+        .set({ lastRunStatus: "running", lastRunAt: new Date() })
+        .where(eq(campaignsTable.id, sourceRun.campaignId));
+
+      await tx.insert(logsTable).values({
+        campaignId: sourceRun.campaignId,
+        type: "workflow",
+        message: `Campaign run #${newRun.id} created as rerun ${rerunNumber} of run #${sourceRun.id}.`,
+        metadataJson: JSON.stringify({
+          campaignRunId: newRun.id,
+          rerunOfRunId: sourceRun.id,
+          rerunNumber,
+        }),
+      });
+
+      return { run: newRun, created: true, campaign };
+    });
+
+    if (!creation.created) {
+      res.status(202).json({
+        status: "already_started",
+        campaignId: creation.run.campaignId,
+        runId: creation.run.id,
+        rerunOfRunId: creation.run.rerunOfRunId,
+        rerunNumber: creation.run.rerunNumber,
+      });
+      return;
+    }
+
+    const campaign = creation.campaign;
+    if (!campaign) throw new Error("Campaign not found after rerun creation");
+    const newRun = creation.run;
+    runPipeline(campaign.id, newRun.id, RERUN_PIPELINE_OPTIONS)
+      .then(async (result) => {
+        const [currentRun] = await db
+          .select({ status: campaignRunsTable.status })
+          .from(campaignRunsTable)
+          .where(eq(campaignRunsTable.id, newRun.id));
+        if (isCancellationStatus(currentRun?.status)) return;
+
+        const workCompleted = result.discoveryLeadsCreated > 0 ||
+          result.crawledCount > 0 ||
+          result.crawlFailedCount > 0 ||
+          result.scoredCount > 0 ||
+          result.emailsSent > 0;
+        const status = result.failed > 0 ? (workCompleted ? "partial" : "failed") : "completed";
+        const nextRunAt = computeNextRunAt(campaign.scheduleType, campaign.scheduleTime, campaign.scheduleDays);
+
+        await Promise.all([
+          db.update(campaignsTable)
+            .set({
+              lastRunStatus: status === "completed" ? "success" : status,
+              lastRunAt: new Date(),
+              nextRunAt: nextRunAt ?? undefined,
+            })
+            .where(eq(campaignsTable.id, campaign.id)),
+          db.update(campaignRunsTable)
+            .set({
+              status,
+              currentStage: status,
+              completedAt: new Date(),
+              totalNewLeads: result.discoveryLeadsCreated,
+              totalSearches: result.discoverySearchesPerformed,
+              totalSearchesSkipped: result.discoverySearchesSkipped,
+              totalResults: result.discoveryRawResults,
+              totalResultsSeenBefore: result.discoveryResultsSeenBefore,
+              totalDuplicates: result.discoveryDuplicatesSkipped,
+              totalBlocked: result.discoveryBlockedSkipped,
+              totalRejected: result.failed,
+              totalDiscoverySourcesFound: result.discoverySourcesFound,
+              totalDiscoverySourcesMined: result.discoverySourcesMined,
+              totalDiscoverySourcesSkipped: result.discoverySourcesSkipped,
+              errorMessage: result.errors.length > 0 ? result.errors.join("; ") : null,
+              metadataJson: JSON.stringify({
+                crawledCount: result.crawledCount,
+                scoredCount: result.scoredCount,
+                pendingCrawlCount: result.pendingCrawlCount,
+                crawlFailedCount: result.crawlFailedCount,
+                pendingScoreCount: result.pendingScoreCount,
+                autoBlockedLowScoreCount: result.autoBlockedLowScoreCount,
+                emailsSent: result.emailsSent,
+                durationMs: result.durationMs,
+                rerunOfRunId: newRun.rerunOfRunId,
+                rerunNumber: newRun.rerunNumber,
+              }),
+              durationSeconds: Math.round(result.durationMs / 1000),
+              progressPercent: 100,
+              estimatedRemainingSeconds: 0,
+              estimatedCompletionAt: null,
+            })
+            .where(eq(campaignRunsTable.id, newRun.id)),
+        ]);
+      })
+      .catch(async (err) => {
+        logger.error({ err, sourceRunId, runId: newRun.id }, "Rerun pipeline threw");
+        const [currentRun] = await db
+          .select({ status: campaignRunsTable.status })
+          .from(campaignRunsTable)
+          .where(eq(campaignRunsTable.id, newRun.id));
+        if (isCancellationStatus(currentRun?.status)) return;
+        await Promise.all([
+          db.update(campaignsTable)
+            .set({ lastRunStatus: "failed", lastRunAt: new Date() })
+            .where(eq(campaignsTable.id, campaign.id)),
+          db.update(campaignRunsTable)
+            .set({
+              status: "failed",
+              currentStage: "failed",
+              completedAt: new Date(),
+              errorMessage: err instanceof Error ? err.message : String(err),
+            })
+            .where(eq(campaignRunsTable.id, newRun.id)),
+        ]);
+      });
+
+    res.status(202).json({
+      status: "started",
+      campaignId: newRun.campaignId,
+      runId: newRun.id,
+      rerunOfRunId: newRun.rerunOfRunId,
+      rerunNumber: newRun.rerunNumber,
+    });
+  } catch (err) {
+    const statusCode = typeof (err as { statusCode?: unknown })?.statusCode === "number"
+      ? (err as { statusCode: number }).statusCode
+      : 500;
+    const message = err instanceof Error ? err.message : "Failed to create rerun";
+    res.status(statusCode).json({ error: message });
+  }
 });
 
 // ── GET /blocked-results — list blocked results grouped by run ──────────────

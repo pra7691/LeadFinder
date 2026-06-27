@@ -2,6 +2,7 @@ export * from "./campaigns";
 export * from "./campaign-keywords";
 export * from "./campaign-countries";
 export * from "./campaign-runs";
+export * from "./campaign-run-configuration";
 export * from "./campaign-run-batches";
 export * from "./leads";
 export * from "./lead-notes";

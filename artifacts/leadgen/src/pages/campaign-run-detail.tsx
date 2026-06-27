@@ -14,6 +14,7 @@ import {
   useBulkLeadAction,
   useCancelCampaignRun,
   useResumeCampaignRun,
+  useRerunCampaignRun,
   getGetCampaignRunQueryKey,
   getGetCampaignRunLeadsQueryKey,
   getListCampaignRunsQueryKey,
@@ -219,6 +220,7 @@ export function CampaignRunDetail() {
   const bulkLeadAction = useBulkLeadAction();
   const cancelRun = useCancelCampaignRun();
   const resumeRun = useResumeCampaignRun();
+  const rerunRun = useRerunCampaignRun();
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
@@ -285,6 +287,7 @@ export function CampaignRunDetail() {
   const [deleteRunKeepLeads, setDeleteRunKeepLeads] = useState(false);
   const [deleteRunTyped, setDeleteRunTyped] = useState("");
   const [cancelRunOpen, setCancelRunOpen] = useState(false);
+  const [rerunRunOpen, setRerunRunOpen] = useState(false);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [unblockingResultId, setUnblockingResultId] = useState<number | null>(null);
@@ -319,6 +322,29 @@ export function CampaignRunDetail() {
     } finally {
       setSavingName(false);
     }
+  };
+
+  const handleRerunRun = () => {
+    if (!run?.canRerun || rerunRun.isPending) return;
+    const requestKey = globalThis.crypto?.randomUUID?.() ?? `${run.id}-${Date.now()}-${Math.random()}`;
+    rerunRun.mutate(
+      { id: run.id, requestKey },
+      {
+        onSuccess: (result) => {
+          setRerunRunOpen(false);
+          toast({ title: "Rerun created", description: "Fresh discovery has started using the saved run settings." });
+          queryClient.invalidateQueries({ queryKey: getListCampaignRunsQueryKey({ campaignId }) });
+          navigate(`/campaigns/${result.campaignId}/runs/${result.runId}`);
+        },
+        onError: (error: unknown) => {
+          toast({
+            title: "Rerun failed",
+            description: (error as { message?: string })?.message ?? "Failed to create rerun.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const filteredLeads = useMemo(() => {
@@ -745,6 +771,15 @@ export function CampaignRunDetail() {
                   {durationLabel}
                 </span>
               )}
+              {run.rerunOfRunId != null && (
+                <Link
+                  href={`/campaigns/${campaignId}/runs/${run.rerunOfRunId}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-blue-500 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full hover:bg-blue-500/15"
+                >
+                  Rerun of Run #{run.rerunOfRunId}
+                  {run.rerunNumber != null ? ` · Rerun ${run.rerunNumber}` : ""}
+                </Link>
+              )}
               {runErrorSummary && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
                   <AlertCircle className="w-3 h-3 shrink-0" />
@@ -816,6 +851,24 @@ export function CampaignRunDetail() {
             >
               {resumeRun.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
               Resume Run
+            </Button>
+          )}
+          {["completed", "partial", "failed", "cancelled"].includes(runStatus) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl gap-1.5 text-xs"
+              disabled={!run.canRerun || rerunRun.isPending}
+              onClick={() => setRerunRunOpen(true)}
+              title={run.canRerun
+                ? "Create a fresh run with these saved settings"
+                : "This older run has no saved configuration, so it cannot be rerun exactly"}
+              data-testid="button-rerun-run"
+            >
+              {rerunRun.isPending
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <RotateCcw className="w-3.5 h-3.5" />}
+              Rerun
             </Button>
           )}
         </div>
@@ -1454,6 +1507,16 @@ export function CampaignRunDetail() {
         confirmLabel="Stop Run"
         loading={cancelRun.isPending}
         onConfirm={handleCancelRun}
+      />
+
+      <ConfirmDialog
+        open={rerunRunOpen}
+        onOpenChange={setRerunRunOpen}
+        title="Rerun Campaign Run?"
+        description="Create a new run using the exact saved settings from this run?"
+        confirmLabel="Create Rerun"
+        loading={rerunRun.isPending}
+        onConfirm={handleRerunRun}
       />
 
       {/* Delete Run dialog (custom — has option A/B + typed confirmation) */}

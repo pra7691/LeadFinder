@@ -10,6 +10,7 @@ import { db } from "@workspace/db";
 import { leadsTable, logsTable, campaignsTable, campaignRunsTable } from "@workspace/db";
 import { and, eq, gte, inArray, sql, type SQL } from "drizzle-orm";
 import { saveExportFile } from "../services/export-files";
+import { qualifiedNoEmailConditions } from "../services/qualified-no-email-query";
 
 const router = Router();
 
@@ -150,6 +151,10 @@ router.get("/leads/export", async (req, res) => {
   const minScore = req.query.minScore ? Number(req.query.minScore) : undefined;
   const country = req.query.country as string | undefined;
   const hasEmail = typeof req.query.hasEmail === "string" ? req.query.hasEmail : undefined;
+  const qualifiedNoEmail = req.query.qualifiedNoEmail === "true" || req.query.qualifiedNoEmail === "1";
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const hasPhone = req.query.hasPhone === "true" || req.query.hasPhone === "1";
+  const notInList = req.query.notInList === "true" || req.query.notInList === "1";
   const limitRaw = req.query.limit ? Number(req.query.limit) : 10000;
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50000, limitRaw)) : 10000;
   const leadIdsRaw = req.query.leadIds as string | undefined;
@@ -164,15 +169,24 @@ router.get("/leads/export", async (req, res) => {
   if (leadIds && leadIds.length > 0) {
     conditions.push(inArray(leadsTable.id, leadIds));
   } else {
-    if (campaignId !== undefined && !isNaN(campaignId)) {
+    if (qualifiedNoEmail) {
+      conditions.push(...qualifiedNoEmailConditions({
+        campaignId: campaignId !== undefined && !isNaN(campaignId) ? campaignId : undefined,
+        campaignRunId: campaignRunId !== undefined && !isNaN(campaignRunId) ? campaignRunId : undefined,
+        search,
+        hasPhone,
+        notInList,
+      }));
+    }
+    if (!qualifiedNoEmail && campaignId !== undefined && !isNaN(campaignId)) {
       conditions.push(eq(leadsTable.campaignId, campaignId));
     }
-    if (campaignRunId !== undefined && !isNaN(campaignRunId)) {
+    if (!qualifiedNoEmail && campaignRunId !== undefined && !isNaN(campaignRunId)) {
       conditions.push(eq(leadsTable.campaignRunId, campaignRunId));
     }
-    if (hasEmail === "false") {
+    if (!qualifiedNoEmail && hasEmail === "false") {
       conditions.push(sql`(${leadsTable.emails} IS NULL OR btrim(${leadsTable.emails}) = '')`);
-    } else if (hasEmail === "true") {
+    } else if (!qualifiedNoEmail && hasEmail === "true") {
       conditions.push(sql`(${leadsTable.emails} IS NOT NULL AND btrim(${leadsTable.emails}) != '')`);
     }
     if (status) {
@@ -236,6 +250,10 @@ router.get("/leads/export", async (req, res) => {
     campaignId ? `campaign=${campaignId}` : null,
     campaignRunId ? `run=${campaignRunId}` : null,
     hasEmail ? `hasEmail=${hasEmail}` : null,
+    qualifiedNoEmail ? "qualifiedNoEmail=true" : null,
+    search ? `search=${search}` : null,
+    hasPhone ? "hasPhone=true" : null,
+    notInList ? "notInList=true" : null,
     status ? `status=${status}` : null,
     minScore ? `minScore=${minScore}` : null,
     country ? `country=${country}` : null,

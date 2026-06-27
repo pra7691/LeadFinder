@@ -253,15 +253,21 @@ async function doSend(
         `<a href="${unsubscribeUrl}" style="color:#666;">Unsubscribe from future emails</a>`,
       )
     : item.body;
-  const fullBody = appendUnsubscribeFooter(bodyWithUnsub, campaign?.unsubscribeFooter);
+  const savedUnsubscribeFooter = item.templateSnapshot
+    ? item.templateSnapshot.unsubscribeFooter
+    : campaign?.unsubscribeFooter;
+  const fullBody = appendUnsubscribeFooter(bodyWithUnsub, savedUnsubscribeFooter);
 
   try {
-    const attachments = await getTemplateAttachments(item.emailTemplateId);
+    const attachments = item.templateSnapshot
+      ? toNodemailerAttachments(item.templateSnapshot.attachmentsJson)
+      : await getTemplateAttachments(item.emailTemplateId);
     const transporter = await getTransporter(account);
 
     // Determine send format from the template; fall back to body-content detection
-    let sendFormat: "plain_text" | "html" = isHtmlEmailBody(fullBody) ? "html" : "plain_text";
-    if (item.emailTemplateId) {
+    let sendFormat: "plain_text" | "html" = item.templateSnapshot?.sendFormat ??
+      (isHtmlEmailBody(fullBody) ? "html" : "plain_text");
+    if (!item.templateSnapshot && item.emailTemplateId) {
       const [tmpl] = await db
         .select({ sendFormat: emailTemplatesTable.sendFormat })
         .from(emailTemplatesTable)
