@@ -107,6 +107,18 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
   const campaignName = item.campaignId
     ? (await db.select({ name: campaignsTable.name }).from(campaignsTable).where(eq(campaignsTable.id, item.campaignId)))[0]?.name ?? null
     : null;
+  const runName = item.outreachBatchId
+    ? (await db
+      .select({ runName: campaignRunsTable.runName })
+      .from(campaignRunBatchesTable)
+      .leftJoin(campaignRunsTable, eq(campaignRunsTable.id, campaignRunBatchesTable.campaignRunId))
+      .where(eq(campaignRunBatchesTable.id, item.outreachBatchId)))[0]?.runName ?? null
+    : item.listId
+      ? (await db
+        .select({ runName: campaignRunsTable.runName })
+        .from(campaignRunsTable)
+        .where(eq(campaignRunsTable.finalListId, item.listId)))[0]?.runName ?? null
+      : null;
   const qualityWarnings = analyzeQuality({
     recipientEmail: item.recipientEmail,
     subject: item.subject,
@@ -122,6 +134,7 @@ async function enrichItem(item: typeof outreachQueueTable.$inferSelect) {
     ...item,
     companyName: lead?.companyName ?? null,
     campaignName,
+    runName,
     relevanceScore: lead?.relevanceScore ?? null,
     qualificationStatus: lead?.qualificationStatus ?? null,
     qualityWarnings,
@@ -136,8 +149,9 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
   const templateIds = [...new Set(items.map((i) => i.emailTemplateId).filter(Boolean))] as number[];
   const accountIds = [...new Set(items.map((i) => i.emailAccountId).filter(Boolean))] as number[];
   const listIds = [...new Set(items.map((i) => i.listId).filter(Boolean))] as number[];
+  const outreachBatchIds = [...new Set(items.map((i) => i.outreachBatchId).filter(Boolean))] as number[];
 
-  const [leads, campaigns, templates, accounts, lists] = await Promise.all([
+  const [leads, campaigns, templates, accounts, lists, listRuns, batchRuns] = await Promise.all([
     db.select({
       id: leadsTable.id,
       companyName: leadsTable.companyName,
@@ -158,6 +172,23 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
     listIds.length
       ? db.select({ id: leadListsTable.id, name: leadListsTable.name }).from(leadListsTable).where(inArray(leadListsTable.id, listIds))
       : Promise.resolve([]),
+    listIds.length
+      ? db.select({
+        listId: campaignRunsTable.finalListId,
+        runName: campaignRunsTable.runName,
+      })
+        .from(campaignRunsTable)
+        .where(inArray(campaignRunsTable.finalListId, listIds))
+      : Promise.resolve([]),
+    outreachBatchIds.length
+      ? db.select({
+        outreachBatchId: campaignRunBatchesTable.id,
+        runName: campaignRunsTable.runName,
+      })
+        .from(campaignRunBatchesTable)
+        .leftJoin(campaignRunsTable, eq(campaignRunsTable.id, campaignRunBatchesTable.campaignRunId))
+        .where(inArray(campaignRunBatchesTable.id, outreachBatchIds))
+      : Promise.resolve([]),
   ]);
 
   const leadMap = new Map(leads.map((l) => [l.id, l]));
@@ -165,6 +196,8 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
   const tmplMap = new Map(templates.map((t) => [t.id, t.name]));
   const acctMap = new Map(accounts.map((a) => [a.id, a.email]));
   const listMap = new Map(lists.map((l) => [l.id, l.name]));
+  const listRunMap = new Map(listRuns.filter((r) => r.listId != null).map((r) => [r.listId!, r.runName]));
+  const batchRunMap = new Map(batchRuns.map((r) => [r.outreachBatchId, r.runName]));
   const allEmails = items.map((i) => i.recipientEmail);
 
   return items.map((item) => {
@@ -186,6 +219,11 @@ async function enrichItems(items: (typeof outreachQueueTable.$inferSelect)[]) {
       ...item,
       companyName: lead?.companyName ?? null,
       campaignName: item.campaignId ? campMap.get(item.campaignId) ?? null : null,
+      runName: item.outreachBatchId
+        ? batchRunMap.get(item.outreachBatchId) ?? null
+        : item.listId
+          ? listRunMap.get(item.listId) ?? null
+          : null,
       templateName: item.emailTemplateId ? tmplMap.get(item.emailTemplateId) ?? null : null,
       senderEmail: item.emailAccountId ? acctMap.get(item.emailAccountId) ?? null : null,
       listName: item.listId ? listMap.get(item.listId) ?? null : null,

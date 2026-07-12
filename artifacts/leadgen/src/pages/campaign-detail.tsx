@@ -752,10 +752,10 @@ function SettingsTab({
           </CardContent>
         </Card>
 
-        {/* Search & Scoring + Scheduler Settings */}
+        {/* Other Settings */}
         <Card className="glass-card">
           <CardHeader className="border-b border-border/30 pb-3">
-            <h3 className="text-sm font-medium text-foreground">Search & Scoring</h3>
+            <h3 className="text-sm font-medium text-foreground">Other Settings</h3>
           </CardHeader>
           <CardContent className="space-y-4 pt-5">
             <div className="grid grid-cols-2 gap-3">
@@ -888,6 +888,46 @@ function SettingsTab({
                 </div>
               )}
             </div>
+
+            <div className="border-t border-border/30 pt-4 space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Email Template</Label>
+                <Select
+                  value={formData.emailTemplateId != null ? String(formData.emailTemplateId) : "none"}
+                  onValueChange={(v) => setFormData({ ...formData, emailTemplateId: v === "none" ? null : Number(v) })}
+                >
+                  <SelectTrigger className="rounded-xl bg-background/50">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {emailTemplates.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Email Account</Label>
+                <Select
+                  value={formData.emailAccountId != null ? String(formData.emailAccountId) : "none"}
+                  onValueChange={(v) => setFormData({ ...formData, emailAccountId: v === "none" ? null : Number(v) })}
+                >
+                  <SelectTrigger className="rounded-xl bg-background/50">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {emailAccounts.map((account) => (
+                      <SelectItem key={account.id} value={String(account.id)}>
+                        {account.name} ({account.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -959,66 +999,6 @@ function SettingsTab({
               </Select>
               <p className="text-[11px] text-muted-foreground/70">How many hops to follow internal links.</p>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Auto-Outreach Settings */}
-      <Card className="glass-card">
-        <CardHeader className="border-b border-border/30 pb-3">
-          <h3 className="text-sm font-medium text-foreground">Auto-Outreach</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            As qualified processing batches finish, automatically create <strong>pending review</strong> outreach
-            drafts for eligible extracted emails. Select both an email template and a sender account.
-          </p>
-        </CardHeader>
-        <CardContent className="pt-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Email Template</Label>
-              <Select
-                value={formData.emailTemplateId != null ? String(formData.emailTemplateId) : "none"}
-                onValueChange={(v) => setFormData({ ...formData, emailTemplateId: v === "none" ? null : Number(v) })}
-              >
-                <SelectTrigger className="rounded-xl bg-background/50">
-                  <SelectValue placeholder="None — auto-outreach disabled" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None — auto-outreach disabled</SelectItem>
-                  {emailTemplates.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Email Account</Label>
-              <Select
-                value={formData.emailAccountId != null ? String(formData.emailAccountId) : "none"}
-                onValueChange={(v) => setFormData({ ...formData, emailAccountId: v === "none" ? null : Number(v) })}
-              >
-                <SelectTrigger className="rounded-xl bg-background/50">
-                  <SelectValue placeholder="None — auto-outreach disabled" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None — auto-outreach disabled</SelectItem>
-                  {emailAccounts.map((account) => (
-                    <SelectItem key={account.id} value={String(account.id)}>
-                      {account.name} ({account.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="mt-2 space-y-1">
-            <p className="text-[11px] text-muted-foreground/70">
-              Outreach drafts will be AI-personalised if an OpenAI key is configured. You review and approve them before sending.
-            </p>
-            <p className="text-[11px] text-muted-foreground/70">
-              Auto-outreach runs only when both fields are selected.
-            </p>
           </div>
         </CardContent>
       </Card>

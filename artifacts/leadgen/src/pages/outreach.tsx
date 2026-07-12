@@ -115,6 +115,7 @@ export type OutreachItem = {
   bouncedAt?: string | null;
   companyName?: string | null;
   campaignName?: string | null;
+  runName?: string | null;
   templateName?: string | null;
   senderEmail?: string | null;
   listName?: string | null;
@@ -135,6 +136,8 @@ export type OutreachDisplayRow = {
   title: string;
   subtitle: string;
   subject: string;
+  campaignName: string | null;
+  runName: string | null;
   templateName: string | null;
   listName: string | null;
   status: string;
@@ -419,6 +422,21 @@ export function fallbackBatchKey(item: OutreachItem): string {
   ].join("-");
 }
 
+function inferRunName(item: OutreachItem): string | null {
+  if (item.runName) return item.runName;
+  if (!item.listName || !item.campaignName) return null;
+
+  const separators = [" – ", " - "];
+  for (const separator of separators) {
+    const prefix = `${item.campaignName}${separator}`;
+    if (item.listName.startsWith(prefix)) {
+      return item.listName.slice(prefix.length).trim() || null;
+    }
+  }
+
+  return null;
+}
+
 export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
   const groups = new Map<string, OutreachItem[]>();
 
@@ -432,6 +450,8 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
     const primary = sorted[0]!;
     const isGroup = sorted.length > 1 || Boolean(primary.listId) || Boolean(primary.batchId);
     const sentCount = sorted.filter((item) => item.status === "sent" || Boolean(item.sentAt)).length;
+    const campaignName = primary.campaignName ?? null;
+    const runName = inferRunName(primary);
 
     return {
       id: key,
@@ -444,6 +464,8 @@ export function buildDisplayRows(items: OutreachItem[]): OutreachDisplayRow[] {
         : primary.companyName ?? primary.recipientEmail,
       subtitle: isGroup ? "" : primary.campaignName ?? "",
       subject: primary.subject,
+      campaignName,
+      runName,
       templateName: primary.templateName ?? null,
       listName: primary.listName ?? null,
       status: aggregateStatus(sorted),
@@ -1305,7 +1327,8 @@ export function Outreach() {
                     aria-label="Select all"
                   />
                 </TableHead>
-                <TableHead>Outreach</TableHead>
+                <TableHead>Campaign Name</TableHead>
+                <TableHead>Run Name</TableHead>
                 <TableHead>Template</TableHead>
                 <TableHead className="w-[100px]">Count</TableHead>
                 <TableHead className="w-[120px]">Status</TableHead>
@@ -1326,16 +1349,19 @@ export function Outreach() {
                         <div className="h-3 w-44 bg-muted/50 rounded animate-pulse" />
                       </div>
                     </TableCell>
+                    <TableCell><div className="h-4 w-16 bg-muted/50 rounded animate-pulse" /></TableCell>
                     <TableCell><div className="h-4 bg-muted/50 rounded animate-pulse" style={{ width: `${55 + i * 7}%` }} /></TableCell>
+                    <TableCell><div className="h-5 w-16 bg-muted/50 rounded-full animate-pulse" /></TableCell>
                     <TableCell><div className="h-5 w-24 bg-muted/50 rounded-full animate-pulse" /></TableCell>
-                    <TableCell><div className="h-5 w-20 bg-muted/50 rounded-full animate-pulse" /></TableCell>
+                    <TableCell><div className="h-5 w-12 bg-muted/50 rounded-full animate-pulse mx-auto" /></TableCell>
+                    <TableCell><div className="h-5 w-16 bg-muted/50 rounded-full animate-pulse mx-auto" /></TableCell>
                     <TableCell><div className="h-4 w-24 bg-muted/50 rounded animate-pulse" /></TableCell>
                     <TableCell><div className="h-7 w-16 bg-muted/50 rounded-lg animate-pulse ml-auto" /></TableCell>
                   </TableRow>
                 ))
               ) : displayRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40 text-center">
+                  <TableCell colSpan={10} className="h-40 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <MailOpen className="w-8 h-8 opacity-20" />
                       <p className="text-sm">
@@ -1471,16 +1497,20 @@ function OutreachGroupRow({
         <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={`Select outreach ${row.title}`} />
       </TableCell>
 
-      <TableCell className="font-medium max-w-[220px]">
+      <TableCell className="font-medium max-w-[190px]">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Users className="w-4 h-4" />
           </span>
           <div className="min-w-0">
-            <div className="truncate text-sm">{row.title}</div>
-            <div className="text-xs text-muted-foreground truncate">{row.subtitle}</div>
+            <div className="truncate text-sm">{row.campaignName ?? row.title}</div>
+            <div className="text-xs text-muted-foreground truncate">{row.listName ?? row.subtitle}</div>
           </div>
         </div>
+      </TableCell>
+
+      <TableCell className="max-w-[120px]">
+        <span className="text-sm">{row.runName ?? <span className="italic text-muted-foreground">-</span>}</span>
       </TableCell>
 
       <TableCell className="max-w-[260px]">
@@ -1644,10 +1674,12 @@ function OutreachRow({
       </TableCell>
 
       <TableCell className="font-medium max-w-[170px]">
-        <div className="truncate text-sm">{item.companyName ?? item.recipientEmail}</div>
-        {item.campaignName && !item.companyName && (
-          <div className="text-xs text-muted-foreground truncate">{item.campaignName}</div>
-        )}
+        <div className="truncate text-sm">{item.campaignName ?? "Manual"}</div>
+        <div className="text-xs text-muted-foreground truncate">{item.companyName ?? item.recipientEmail}</div>
+      </TableCell>
+
+      <TableCell className="max-w-[120px]">
+        <span className="text-sm">{inferRunName(item) ?? <span className="italic text-muted-foreground">-</span>}</span>
       </TableCell>
 
       <TableCell className="max-w-[220px]">
